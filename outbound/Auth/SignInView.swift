@@ -1,0 +1,120 @@
+//
+//  SignInView.swift
+//  outbound
+//
+
+import SwiftUI
+
+struct SignInView: View {
+    enum Mode {
+        case signIn, signUp
+    }
+
+    @Environment(AuthStore.self) private var auth
+
+    @State private var mode: Mode = .signIn
+    @State private var name = ""
+    @State private var email = ""
+    @State private var password = ""
+    @State private var isWorking = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                header
+
+                VStack(spacing: 12) {
+                    if mode == .signUp {
+                        TextField("Name", text: $name)
+                            .textContentType(.name)
+                            .textInputAutocapitalization(.words)
+                            .fieldStyle()
+                    }
+                    TextField("Email", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .fieldStyle()
+                    SecureField("Password", text: $password)
+                        .textContentType(mode == .signIn ? .password : .newPassword)
+                        .fieldStyle()
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button(action: submit) {
+                    Group {
+                        if isWorking {
+                            ProgressView()
+                        } else {
+                            Text(mode == .signIn ? "Sign In" : "Create Account")
+                                .bold()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 32)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isWorking)
+
+                Button(mode == .signIn ? "Don't have an account? Sign up" : "Already have an account? Sign in") {
+                    withAnimation {
+                        mode = mode == .signIn ? .signUp : .signIn
+                        errorMessage = nil
+                    }
+                }
+                .font(.footnote)
+            }
+            .padding(24)
+            .padding(.top, 60)
+        }
+        .scrollDismissesKeyboard(.interactively)
+    }
+
+    private var header: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "globe")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text("Outbound")
+                .font(.largeTitle)
+                .bold()
+            Text(mode == .signIn ? "Welcome back" : "Create your account")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func submit() {
+        errorMessage = nil
+        isWorking = true
+        Task {
+            defer { isWorking = false }
+            do {
+                switch mode {
+                case .signIn: try await auth.signIn(email: email, password: password)
+                case .signUp: try await auth.signUp(name: name, email: email, password: password)
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
+private extension View {
+    func fieldStyle() -> some View {
+        padding(14)
+            .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 10))
+    }
+}
+
+#Preview {
+    SignInView()
+        .environment(AuthStore())
+}
