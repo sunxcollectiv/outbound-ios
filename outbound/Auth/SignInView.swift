@@ -61,6 +61,7 @@ struct SignInView: View {
                     .frame(maxWidth: .infinity, minHeight: 32)
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle(radius: fieldCornerRadius))
                 .disabled(isWorking)
 
                 Button(mode == .signIn ? "Don't have an account? Sign up" : "Already have an account? Sign in") {
@@ -81,7 +82,6 @@ struct SignInView: View {
         VStack(spacing: 8) {
             Image(systemName: "globe")
                 .font(.system(size: 48))
-                .foregroundStyle(.tint)
             Text("Outbound")
                 .font(.largeTitle)
                 .bold()
@@ -107,14 +107,21 @@ struct SignInView: View {
     }
 }
 
+/// Shared corner radius for input fields and the submit button.
+private let fieldCornerRadius: CGFloat = 10
+
 private extension View {
     func fieldStyle() -> some View {
-        padding(14)
-            .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 10))
+        multilineTextAlignment(.center)
+            .padding(14)
+            .foregroundStyle(Color.black.opacity(0.85))
+            .tint(Color.appAccent)
+            .background(Color.white.opacity(0.9), in: .rect(cornerRadius: fieldCornerRadius))
     }
 }
 
 #Preview {
     SignInView()
+        .appTheme()
         .environment(AuthStore())
 }

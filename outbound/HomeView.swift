@@ -11,16 +11,21 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 12) {
-                Image(systemName: "globe")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.tint)
-                Text("Hello, \(auth.currentUser?.name ?? "there")!")
-                    .font(.largeTitle)
-                    .bold()
+            ZStack {
+                Color.appBackground.ignoresSafeArea()
+                VStack(spacing: 12) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 48))
+                    Text("Hello, \(auth.currentUser?.name ?? "there")!")
+                        .font(.largeTitle)
+                        .bold()
+                }
+                .padding()
             }
-            .padding()
+            .foregroundStyle(Color.appForeground)
             .navigationTitle("Outbound")
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Sign Out") {
@@ -34,5 +39,6 @@ struct HomeView: View {
 
 #Preview {
     HomeView()
+        .appTheme()
         .environment(AuthStore())
 }

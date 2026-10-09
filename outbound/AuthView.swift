@@ -20,6 +20,7 @@ struct AuthView: View {
             }
         }
         .animation(.default, value: auth.isSignedIn)
+        .appTheme()
         .task {
             await auth.refreshUser()
         }
