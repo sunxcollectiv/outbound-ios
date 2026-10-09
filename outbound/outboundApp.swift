@@ -27,7 +27,7 @@ struct outboundApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AuthView()
                 .environment(auth)
         }
         .modelContainer(sharedModelContainer)

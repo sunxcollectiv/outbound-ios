@@ -85,7 +85,7 @@ struct SignInView: View {
             Text("Outbound")
                 .font(.largeTitle)
                 .bold()
-            Text(mode == .signIn ? "Welcome back" : "Create your account")
+            Text(mode == .signIn ? "Where are we going next?" : "Create your account")
                 .foregroundStyle(.secondary)
         }
     }

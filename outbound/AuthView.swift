@@ -1,5 +1,5 @@
 //
-//  ContentView.swift
+//  AuthView.swift
 //  outbound
 //
 //  Created by Sun Chen on 10/9/26.
@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// Root of the app: shows the main screen when signed in, otherwise sign in / sign up.
-struct ContentView: View {
+struct AuthView: View {
     @Environment(AuthStore.self) private var auth
 
     var body: some View {
@@ -27,6 +27,6 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    AuthView()
         .environment(AuthStore())
 }
