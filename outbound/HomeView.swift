@@ -16,7 +16,7 @@ struct HomeView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "globe")
                         .font(.system(size: 48))
-                    Text("Hello, \(auth.currentUser?.name ?? "there")!")
+                    Text("Hello, \(auth.currentUser?.displayName ?? "there")!")
                         .font(.largeTitle)
                         .bold()
                 }

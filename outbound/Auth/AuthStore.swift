@@ -6,10 +6,14 @@
 import Foundation
 import Observation
 
+/// `UserRead` from the backend. JSON snake_case keys map to these camelCase
+/// properties automatically.
 struct User: Codable, Equatable {
     let id: String
-    var name: String
     var email: String
+    var displayName: String
+    var avatarUrl: String?
+    var createdAt: Date
 }
 
 enum AuthError: LocalizedError {
@@ -53,7 +57,7 @@ final class AuthStore {
 
     func signIn(email: String, password: String) async throws {
         let email = try validate(email: email, password: password)
-        let session = try await api.send(AuthAPI.signIn(email: email, password: password), as: AuthAPI.Session.self)
+        let session = try await api.send(AuthAPI.login(email: email, password: password), as: AuthAPI.Session.self)
         save(session)
     }
 
@@ -61,7 +65,7 @@ final class AuthStore {
         let name = name.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { throw AuthError.missingFields }
         let email = try validate(email: email, password: password)
-        let session = try await api.send(AuthAPI.signUp(name: name, email: email, password: password), as: AuthAPI.Session.self)
+        let session = try await api.send(AuthAPI.register(email: email, password: password, displayName: name), as: AuthAPI.Session.self)
         save(session)
     }
 
@@ -69,7 +73,7 @@ final class AuthStore {
         // Tell the server to end the session, but sign out locally regardless of the result.
         if api.token != nil {
             let api = api
-            Task { try? await api.send(AuthAPI.signOut) }
+            Task { try? await api.send(AuthAPI.logout) }
         }
         clear()
     }

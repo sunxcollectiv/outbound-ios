@@ -55,6 +55,15 @@ enum APIError: LocalizedError {
     }
 }
 
+private extension ISO8601DateFormatter {
+    static let standard = ISO8601DateFormatter()
+    static let withFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+}
+
 /// Sends requests to the Outbound backend.
 ///
 /// Requests and responses are JSON with snake_case keys, which map to camelCase
@@ -78,7 +87,19 @@ final class APIClient {
     private let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        decoder.dateDecodingStrategy = .iso8601
+        // The backend sends ISO-8601 timestamps, sometimes with fractional seconds
+        // (e.g. "2026-10-09T12:00:00.123456Z"), which `.iso8601` can't parse. Try
+        // the fractional-seconds format first, then fall back to the plain one.
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let string = try decoder.singleValueContainer().decode(String.self)
+            if let date = ISO8601DateFormatter.withFractionalSeconds.date(from: string)
+                ?? ISO8601DateFormatter.standard.date(from: string) {
+                return date
+            }
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Unrecognized date format: \(string)")
+            )
+        }
         return decoder
     }()
 
@@ -118,9 +139,11 @@ final class APIClient {
         switch http.statusCode {
         case 200..<300:
             return data
-        case 401:
+        case 401 where endpoint.requiresAuth:
+            // An authenticated request was rejected: the token is missing or expired.
             throw APIError.unauthorized
         default:
+            // Includes a 401 from login (wrong credentials) — surface the server's message.
             throw APIError.server(status: http.statusCode, message: errorMessage(from: data))
         }
     }
@@ -145,13 +168,19 @@ final class APIClient {
         return request
     }
 
-    /// Pulls a human-readable message out of an error body like `{"error": "..."}` or `{"message": "..."}`.
+    /// Pulls a human-readable message out of an error body.
+    ///
+    /// FastAPI returns `{"detail": "..."}` for simple errors and
+    /// `{"detail": [{"msg": "...", ...}]}` for validation errors; we also accept
+    /// `{"error": "..."}` / `{"message": "..."}` as a fallback.
     private func errorMessage(from data: Data) -> String? {
-        struct ErrorBody: Decodable {
-            let error: String?
-            let message: String?
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+
+        if let detail = json["detail"] as? String { return detail }
+        if let items = json["detail"] as? [[String: Any]] {
+            let messages = items.compactMap { $0["msg"] as? String }
+            if !messages.isEmpty { return messages.joined(separator: "\n") }
         }
-        guard let body = try? decoder.decode(ErrorBody.self, from: data) else { return nil }
-        return body.message ?? body.error
+        return json["message"] as? String ?? json["error"] as? String
     }
 }
