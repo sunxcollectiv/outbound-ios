@@ -80,11 +80,13 @@ struct SignInView: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            Image(systemName: "globe")
-                .font(.system(size: 48))
-            Text("Outbound")
-                .font(.largeTitle)
-                .bold()
+            Image("OutboundWordmark")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 152)
+                .padding(.bottom, 16)
+                .accessibilityLabel("Outbound")
             Text(mode == .signIn ? "Where are we going next?" : "Create your account")
                 .foregroundStyle(.secondary)
         }
