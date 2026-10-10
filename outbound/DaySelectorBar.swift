@@ -76,7 +76,7 @@ struct DaySelectorBar: View {
             .frame(width: 56, height: 56)
             .glassEffect(
                 isSelected
-                    ? .regular.tint(Color.appForeground).interactive()
+                    ? .regular.tint(Color(white: 0.9)).interactive()
                     : .clear.interactive(),
                 in: .circle
             )

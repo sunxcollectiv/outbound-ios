@@ -30,7 +30,7 @@ struct TripDetailView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.appBackground.ignoresSafeArea()
+            background
 
             if let days {
                 dayPager(days)
@@ -69,6 +69,25 @@ struct TripDetailView: View {
             })
         }
         .task { if days == nil { await load() } }
+    }
+
+    // MARK: - Background
+
+    /// Full-page trip backdrop: a destination photo laid over a very dark gray base,
+    /// dialed back to ~30% so it reads as a subtle ambient wash rather than competing
+    /// with the itinerary content. (Placeholder Melbourne shot until per-trip imagery
+    /// is wired up.)
+    private var background: some View {
+        Color(white: 0.12)
+            .ignoresSafeArea()
+            .overlay {
+                Image("MelbourneBackground")
+                    .resizable()
+                    .scaledToFill()
+                    .opacity(0.2)
+                    .clipped()
+                    .ignoresSafeArea()
+            }
     }
 
     // MARK: - Paged days
@@ -225,7 +244,7 @@ struct TripDetailView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity)
-            .background(Color.appCard.opacity(0.6))
+            .background(Color.appCard)
         }
         .clipShape(.rect(cornerRadius: 16))
         .padding(.vertical, 6)
@@ -267,7 +286,7 @@ struct TripDetailView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.appCard.opacity(0.6), in: .rect(cornerRadius: 16))
+        .background(Color.appCard, in: .rect(cornerRadius: 16))
         .padding(.vertical, 6)
     }
 
