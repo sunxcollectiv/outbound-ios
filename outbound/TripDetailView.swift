@@ -419,8 +419,11 @@ private struct DayPager<Content: View>: View {
 
             HStack(spacing: 0) {
                 slot(for: -1, width: w, scrollLocked: scrollLocked)
+                    .opacity(slotOpacity(for: -1, width: w))
                 slot(for: 0, width: w, scrollLocked: scrollLocked)
+                    .opacity(slotOpacity(for: 0, width: w))
                 slot(for: 1, width: w, scrollLocked: scrollLocked)
+                    .opacity(slotOpacity(for: 1, width: w))
             }
             .frame(width: w * 3, alignment: .leading)
             .offset(x: -w + dragOffset)
@@ -473,6 +476,15 @@ private struct DayPager<Content: View>: View {
                   target != index, !isAnimating, pageWidth > 0 else { return }
             slide(to: target, width: pageWidth)
         }
+    }
+
+    /// Opacity for a slot given the live drag: the outgoing center fades out as pages
+    /// slide, while the incoming neighbor stays fully opaque. Driven by `dragOffset`,
+    /// so programmatic slides (taps, jumps) animate the same way.
+    private func slotOpacity(for position: Int, width w: CGFloat) -> Double {
+        guard dragOffset != 0, w > 0, position == 0 else { return 1 }
+        let progress = min(abs(dragOffset) / w, 1)
+        return Double(1 - progress)                             // outgoing center fades out
     }
 
     /// The day index shown in a slot, `position` being -1 (left), 0 (center), +1 (right).
