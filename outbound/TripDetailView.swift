@@ -360,10 +360,12 @@ private struct DaySelectorBar: View {
     @Binding var selection: Int
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(days) { day in
-                dayCell(day)
-                    .frame(maxWidth: .infinity)
+        GlassEffectContainer(spacing: 20) {
+            HStack(spacing: 0) {
+                ForEach(days) { day in
+                    dayCell(day)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
         .padding(.top, 40)
@@ -384,26 +386,23 @@ private struct DaySelectorBar: View {
         return Button {
             selection = day.dayNumber
         } label: {
-            ZStack {
-                Circle()
-                    .fill(isSelected ? Color.appForeground : Color.clear)
-                    .overlay {
-                        Circle()
-                            .strokeBorder(Color.appForeground.opacity(isSelected ? 0 : 0.3), lineWidth: 1)
-                    }
-
-                VStack(spacing: 1.4) {
-                    Text(day.weekdayShort)
-                        .font(.system(size: 7, weight: .semibold))
-                        .tracking(1)
-                        .opacity(0.75)
-                    Text("\(day.dayOfMonth)")
-                        .font(.system(size: 18, weight: .bold))
-                        .monospacedDigit()
-                }
-                .foregroundStyle(isSelected ? Color.appBackground : Color.appForeground.opacity(0.9))
+            VStack(spacing: 1.4) {
+                Text(day.weekdayShort)
+                    .font(.system(size: 7, weight: .semibold))
+                    .tracking(1)
+                    .opacity(0.75)
+                Text("\(day.dayOfMonth)")
+                    .font(.system(size: 18, weight: .bold))
+                    .monospacedDigit()
             }
+            .foregroundStyle(isSelected ? Color.appBackground : Color.appForeground.opacity(0.9))
             .frame(width: 56, height: 56)
+            .glassEffect(
+                isSelected
+                    ? .regular.tint(Color.appForeground).interactive()
+                    : .clear.interactive(),
+                in: .circle
+            )
             .animation(.easeInOut(duration: 0.25), value: isSelected)
             .contentShape(.circle)
         }
