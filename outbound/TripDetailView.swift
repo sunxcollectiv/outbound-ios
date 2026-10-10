@@ -9,12 +9,26 @@ import SwiftUI
 /// mirrors the eventual timeline (a time marker alongside each itinerary item)
 /// so real data from `GET /trips/{id}/itinerary` can drop straight in.
 struct TripDetailView: View {
+    let trip: Trip
+
     var body: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    DashedPlaceholder("Trip summary", height: 100)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(trip.title)
+                            .font(.largeTitle.bold())
+                        Text(trip.dateRangeText)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.appForeground.opacity(0.85))
+                        if let description = trip.description, !description.isEmpty {
+                            Text(description)
+                                .font(.callout)
+                                .foregroundStyle(Color.appForeground.opacity(0.75))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     ForEach(0..<5, id: \.self) { _ in
                         HStack(alignment: .top, spacing: 12) {
@@ -28,7 +42,7 @@ struct TripDetailView: View {
             }
         }
         .foregroundStyle(Color.appForeground)
-        .navigationTitle("Itinerary")
+        .navigationTitle(trip.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
@@ -37,7 +51,7 @@ struct TripDetailView: View {
 
 #Preview {
     NavigationStack {
-        TripDetailView()
+        TripDetailView(trip: .sample)
     }
     .appTheme()
 }

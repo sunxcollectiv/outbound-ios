@@ -6,29 +6,18 @@
 import SwiftUI
 
 /// The main app screen, shown once the user is signed in: a list of the user's trips.
-/// Tapping a trip opens its itinerary. Content is placeholder until `GET /trips` is wired up.
+/// Tapping a trip opens its itinerary.
 struct HomeView: View {
     @Environment(AuthStore.self) private var auth
 
+    @State private var store = TripStore()
     @State private var showingAddTrip = false
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
-                ScrollView {
-                    VStack(spacing: 16) {
-                        ForEach(0..<4, id: \.self) { _ in
-                            NavigationLink {
-                                TripDetailView()
-                            } label: {
-                                DashedPlaceholder("Trip", height: 120)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding()
-                }
+                content
             }
             .foregroundStyle(Color.appForeground)
             .navigationTitle("Trips")
@@ -50,9 +39,48 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $showingAddTrip) {
-                AddTripView()
+                AddTripView(onCreated: { store.add($0) })
             }
+            .task { await store.load() }
         }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if store.isLoading && store.trips.isEmpty {
+            ProgressView()
+                .controlSize(.large)
+                .tint(Color.appForeground)
+        } else if store.trips.isEmpty {
+            emptyState
+        } else {
+            ScrollView {
+                VStack(spacing: 16) {
+                    ForEach(store.trips) { trip in
+                        NavigationLink {
+                            TripDetailView(trip: trip)
+                        } label: {
+                            TripCard(trip: trip)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding()
+            }
+            .refreshable { await store.load() }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Text("No trips yet")
+                .font(.title3.bold())
+            Text(store.errorMessage ?? "Tap + to plan your first trip.")
+                .font(.subheadline)
+                .foregroundStyle(Color.appForeground.opacity(0.7))
+                .multilineTextAlignment(.center)
+        }
+        .padding(32)
     }
 }
 

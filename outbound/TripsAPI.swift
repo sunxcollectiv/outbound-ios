@@ -19,6 +19,46 @@ struct Trip: Codable, Identifiable, Equatable {
     let updatedAt: Date
 }
 
+extension Trip {
+    /// Parses the API's "yyyy-MM-dd" calendar dates.
+    private static let isoDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let monthDay = Date.FormatStyle.dateTime.month(.abbreviated).day()
+    private static let monthDayYear = Date.FormatStyle.dateTime.month(.abbreviated).day().year()
+
+    /// A human-readable date range, e.g. "Nov 1 – Nov 5, 2026".
+    var dateRangeText: String {
+        guard let start = Self.isoDate.date(from: startDate),
+              let end = Self.isoDate.date(from: endDate) else {
+            return "\(startDate) – \(endDate)"
+        }
+        let sameYear = Calendar.current.component(.year, from: start) == Calendar.current.component(.year, from: end)
+        let startText = (sameYear ? Self.monthDay : Self.monthDayYear).format(start)
+        return "\(startText) – \(Self.monthDayYear.format(end))"
+    }
+}
+
+#if DEBUG
+extension Trip {
+    static let sample = Trip(
+        id: "sample",
+        title: "Tokyo",
+        description: "Autumn trip through Shinjuku",
+        startDate: "2026-11-01",
+        endDate: "2026-11-05",
+        coverImageUrl: nil,
+        createdAt: .now,
+        updatedAt: .now
+    )
+}
+#endif
+
 /// Request shapes for the trips endpoints.
 ///
 ///     GET  /trips          -> [TripRead]
