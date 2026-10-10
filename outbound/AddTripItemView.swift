@@ -30,6 +30,9 @@ struct AddTripItemView: View {
 
     private let api = APIClient.shared
 
+    private var startLabel: String { kind == .lodging ? "Check-in" : "Starts" }
+    private var endLabel: String { kind == .lodging ? "Check-out" : "Ends" }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -65,7 +68,7 @@ struct AddTripItemView: View {
                             .appField()
 
                         VStack(spacing: 8) {
-                            timeRow(title: "Starts", date: startsAt, field: .start)
+                            timeRow(title: startLabel, date: startsAt, field: .start)
                             if activeField == .start {
                                 DatePicker("", selection: $startsAt, displayedComponents: [.date, .hourAndMinute])
                                     .datePickerStyle(.graphical)
@@ -77,9 +80,9 @@ struct AddTripItemView: View {
 
                             Divider().overlay(Color.appForeground.opacity(0.2))
 
-                            Toggle("Set end time", isOn: $hasEndTime.animation())
+                            Toggle(kind == .lodging ? "Set check-out time" : "Set end time", isOn: $hasEndTime.animation())
                             if hasEndTime {
-                                timeRow(title: "Ends", date: endsAt, field: .end)
+                                timeRow(title: endLabel, date: endsAt, field: .end)
                                 if activeField == .end {
                                     DatePicker("", selection: $endsAt, in: startsAt..., displayedComponents: [.date, .hourAndMinute])
                                         .datePickerStyle(.graphical)
