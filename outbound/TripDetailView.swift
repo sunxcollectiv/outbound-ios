@@ -19,6 +19,9 @@ struct TripDetailView: View {
 
     private let api = APIClient.shared
 
+    /// Coordinate space used to measure each card's position for the fade behind the picker.
+    private static let detailSpace = "itineraryDetail"
+
     init(trip: Trip, days: [ItineraryDay]? = nil) {
         self.trip = trip
         _days = State(initialValue: days)
@@ -39,6 +42,7 @@ struct TripDetailView: View {
                 loadingScaffold
             }
         }
+        .coordinateSpace(.named(Self.detailSpace))
         .foregroundStyle(Color.appForeground)
         .navigationTitle(trip.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -126,11 +130,50 @@ struct TripDetailView: View {
 
     @ViewBuilder
     private func itemRow(_ item: TripItem) -> some View {
-        if item.kind == .transit {
-            transitCard(item)
-        } else {
-            coverCard(item)
+        Group {
+            if item.kind == .transit {
+                transitCard(item)
+            } else {
+                coverCard(item)
+            }
         }
+        .mask {
+            GeometryReader { geo in
+                let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
+                cardFadeGradient(cardFrame: geo.frame(in: .named(Self.detailSpace)), detailHeight: detailHeight)
+            }
+        }
+    }
+
+    /// A per-card vertical gradient that fades the card as it scrolls down into the
+    /// band where the day picker sits — top stays more opaque than the bottom, down
+    /// to a 30% floor. Driven purely by the card's own position, so only the cards
+    /// fade; the picker and its gradient are untouched.
+    private func cardFadeGradient(cardFrame: CGRect, detailHeight: CGFloat) -> LinearGradient {
+        // The band, measured up from the bottom of the detail view, roughly covering
+        // the day picker. Content below `fadeTop` fades down to `minOpacity`.
+        let fadeHeight: CGFloat = 120
+        let minOpacity = 0.3
+        let fadeTop = detailHeight - fadeHeight
+
+        func opacity(atY y: CGFloat) -> Double {
+            let t = (y - fadeTop) / fadeHeight
+            return minOpacity + (1 - minOpacity) * Double(1 - min(max(t, 0), 1))
+        }
+
+        let height = max(cardFrame.height, 1)
+        var stops: [Gradient.Stop] = [
+            .init(color: .white.opacity(opacity(atY: cardFrame.minY)), location: 0)
+        ]
+        // Pin a fully-opaque stop where the fade begins, so the part of the card
+        // sitting above the band never fades.
+        let fadeTopLocation = (fadeTop - cardFrame.minY) / height
+        if fadeTopLocation > 0 && fadeTopLocation < 1 {
+            stops.append(.init(color: .white.opacity(1), location: fadeTopLocation))
+        }
+        stops.append(.init(color: .white.opacity(opacity(atY: cardFrame.maxY)), location: 1))
+
+        return LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
     }
 
     /// A full-width card for a non-transit item: a cover (artwork when the item has
