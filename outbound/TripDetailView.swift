@@ -19,6 +19,9 @@ struct TripDetailView: View {
 
     private let api = APIClient.shared
 
+    /// Coordinate space used to measure each card's position for the fade behind the picker.
+    private static let detailSpace = "itineraryDetail"
+
     init(trip: Trip, days: [ItineraryDay]? = nil) {
         self.trip = trip
         _days = State(initialValue: days)
@@ -39,6 +42,7 @@ struct TripDetailView: View {
                 loadingScaffold
             }
         }
+        .coordinateSpace(.named(Self.detailSpace))
         .foregroundStyle(Color.appForeground)
         .navigationTitle(trip.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -126,46 +130,59 @@ struct TripDetailView: View {
 
     @ViewBuilder
     private func itemRow(_ item: TripItem) -> some View {
-        if let imageUrl = item.imageUrl, !imageUrl.isEmpty {
-            featuredCard(item, imageUrl: imageUrl)
-        } else {
-            HStack(alignment: .top, spacing: 14) {
-                Text(item.startsAt, format: .dateTime.hour().minute())
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.appForeground.opacity(0.85))
-                    .frame(width: 52, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.title)
-                        .font(.body.weight(.semibold))
-                    if let notes = item.notes, !notes.isEmpty {
-                        Text(notes.uppercased())
-                            .font(.caption2)
-                            .tracking(0.5)
-                            .foregroundStyle(Color.appForeground.opacity(0.5))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+        Group {
+            if item.kind == .transit {
+                transitCard(item)
+            } else {
+                coverCard(item)
             }
-            .padding(.vertical, 6)
+        }
+        .mask {
+            GeometryReader { geo in
+                let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
+                cardFadeGradient(cardFrame: geo.frame(in: .named(Self.detailSpace)), detailHeight: detailHeight)
+            }
         }
     }
 
-    /// A full-width cover-image card for items with artwork (e.g. a dinner spot):
-    /// time + status overlaid on the image, title across its bottom, and an attached
-    /// info strip below carrying the location and an assignee avatar.
-    private func featuredCard(_ item: TripItem, imageUrl: String) -> some View {
+    /// A per-card vertical gradient that fades the card as it scrolls down into the
+    /// band where the day picker sits — top stays more opaque than the bottom, down
+    /// to a 30% floor. Driven purely by the card's own position, so only the cards
+    /// fade; the picker and its gradient are untouched.
+    private func cardFadeGradient(cardFrame: CGRect, detailHeight: CGFloat) -> LinearGradient {
+        // The band, measured up from the bottom of the detail view, roughly covering
+        // the day picker. Content below `fadeTop` fades down to `minOpacity`.
+        let fadeHeight: CGFloat = 120
+        let minOpacity = 0.3
+        let fadeTop = detailHeight - fadeHeight
+
+        func opacity(atY y: CGFloat) -> Double {
+            let t = (y - fadeTop) / fadeHeight
+            return minOpacity + (1 - minOpacity) * Double(1 - min(max(t, 0), 1))
+        }
+
+        let height = max(cardFrame.height, 1)
+        var stops: [Gradient.Stop] = [
+            .init(color: .white.opacity(opacity(atY: cardFrame.minY)), location: 0)
+        ]
+        // Pin a fully-opaque stop where the fade begins, so the part of the card
+        // sitting above the band never fades.
+        let fadeTopLocation = (fadeTop - cardFrame.minY) / height
+        if fadeTopLocation > 0 && fadeTopLocation < 1 {
+            stops.append(.init(color: .white.opacity(1), location: fadeTopLocation))
+        }
+        stops.append(.init(color: .white.opacity(opacity(atY: cardFrame.maxY)), location: 1))
+
+        return LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+    }
+
+    /// A full-width card for a non-transit item: a cover (artwork when the item has
+    /// one, otherwise a placeholder) with time + status overlaid, the title across
+    /// its bottom, and an attached info strip carrying the notes and an assignee avatar.
+    private func coverCard(_ item: TripItem) -> some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
-                AsyncImage(url: URL(string: imageUrl)) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    default:
-                        Color.appCard
-                    }
-                }
+                coverImage
                 .frame(height: 170)
                 .frame(maxWidth: .infinity)
                 .clipped()
@@ -195,25 +212,73 @@ struct TripDetailView: View {
                     .padding(14)
             }
 
-            if let notes = item.notes, !notes.isEmpty {
-                HStack {
-                    Text(notes.uppercased())
-                        .font(.caption)
-                        .tracking(1)
-                        .foregroundStyle(Color.appForeground.opacity(0.7))
-                    Spacer()
-                    Circle()
-                        .strokeBorder(Color.appForeground.opacity(0.35), lineWidth: 1)
-                        .frame(width: 30, height: 30)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 16)
-                .frame(maxWidth: .infinity)
-                .background(Color.appCard.opacity(0.6))
+            HStack {
+                locationLabel
+                Spacer()
+                assigneeAvatar
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
+            .background(Color.appCard.opacity(0.6))
         }
         .clipShape(.rect(cornerRadius: 16))
         .padding(.vertical, 6)
+    }
+
+    /// The cover image for every card. A single bundled dummy photo stands in until
+    /// real per-item artwork is wired up.
+    private var coverImage: some View {
+        Image("DummyCover")
+            .resizable()
+            .scaledToFill()
+    }
+
+    /// A cover-less card for transit items: the same box as a cover card minus the
+    /// image — time + status across the top, the title, then a location row with the
+    /// assignee avatar.
+    private func transitCard(_ item: TripItem) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(item.startsAt, format: .dateTime.hour().minute())
+                    .monospacedDigit()
+                Spacer()
+                Text(statusLabel(item))
+                    .tracking(1.5)
+            }
+            .font(.caption.weight(.bold))
+            .foregroundStyle(Color.appForeground.opacity(0.7))
+
+            HStack(alignment: .bottom, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.title)
+                        .font(.title3.weight(.bold))
+                    locationLabel
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                assigneeAvatar
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.appCard.opacity(0.6), in: .rect(cornerRadius: 16))
+        .padding(.vertical, 6)
+    }
+
+    /// Placeholder for an item's location, which the backend doesn't send yet.
+    private var locationLabel: some View {
+        Text("[location]")
+            .font(.caption)
+            .tracking(1)
+            .foregroundStyle(Color.appForeground.opacity(0.7))
+    }
+
+    /// The thin circular stand-in for an item's assignee avatar.
+    private var assigneeAvatar: some View {
+        Circle()
+            .strokeBorder(Color.appForeground.opacity(0.35), lineWidth: 1)
+            .frame(width: 30, height: 30)
     }
 
     /// The badge shown top-right of a featured card: the item's first tag if it has
@@ -295,10 +360,12 @@ private struct DaySelectorBar: View {
     @Binding var selection: Int
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(days) { day in
-                dayCell(day)
-                    .frame(maxWidth: .infinity)
+        GlassEffectContainer(spacing: 20) {
+            HStack(spacing: 0) {
+                ForEach(days) { day in
+                    dayCell(day)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
         .padding(.top, 40)
@@ -319,26 +386,23 @@ private struct DaySelectorBar: View {
         return Button {
             selection = day.dayNumber
         } label: {
-            ZStack {
-                Circle()
-                    .fill(isSelected ? Color.appForeground : Color.clear)
-                    .overlay {
-                        Circle()
-                            .strokeBorder(Color.appForeground.opacity(isSelected ? 0 : 0.3), lineWidth: 1)
-                    }
-
-                VStack(spacing: 1.4) {
-                    Text(day.weekdayShort)
-                        .font(.system(size: 7, weight: .semibold))
-                        .tracking(1)
-                        .opacity(0.75)
-                    Text("\(day.dayOfMonth)")
-                        .font(.system(size: 18, weight: .bold))
-                        .monospacedDigit()
-                }
-                .foregroundStyle(isSelected ? Color.appBackground : Color.appForeground.opacity(0.9))
+            VStack(spacing: 1.4) {
+                Text(day.weekdayShort)
+                    .font(.system(size: 7, weight: .semibold))
+                    .tracking(1)
+                    .opacity(0.75)
+                Text("\(day.dayOfMonth)")
+                    .font(.system(size: 18, weight: .bold))
+                    .monospacedDigit()
             }
+            .foregroundStyle(isSelected ? Color.appBackground : Color.appForeground.opacity(0.9))
             .frame(width: 56, height: 56)
+            .glassEffect(
+                isSelected
+                    ? .regular.tint(Color.appForeground).interactive()
+                    : .clear.interactive(),
+                in: .circle
+            )
             .animation(.easeInOut(duration: 0.25), value: isSelected)
             .contentShape(.circle)
         }
