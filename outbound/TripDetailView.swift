@@ -65,12 +65,12 @@ struct TripDetailView: View {
     // MARK: - Paged days
 
     private func dayPager(_ days: [ItineraryDay]) -> some View {
-        DayPager(days: days, selection: $selection) { day in
-            dayPage(day)
+        DayPager(days: days, selection: $selection) { day, scrollLocked in
+            dayPage(day, scrollLocked: scrollLocked)
         }
     }
 
-    private func dayPage(_ day: ItineraryDay) -> some View {
+    private func dayPage(_ day: ItineraryDay, scrollLocked: Bool) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -119,6 +119,7 @@ struct TripDetailView: View {
             .padding(.top, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollDisabled(scrollLocked)
     }
 
     // MARK: - Rows
@@ -355,7 +356,7 @@ private struct DaySelectorBar: View {
 private struct DayPager<Content: View>: View {
     let days: [ItineraryDay]
     @Binding var selection: Int
-    @ViewBuilder let content: (ItineraryDay) -> Content
+    @ViewBuilder let content: (ItineraryDay, Bool) -> Content
 
     @State private var index = 0
     @State private var dragOffset: CGFloat = 0
@@ -375,11 +376,15 @@ private struct DayPager<Content: View>: View {
             let w = geo.size.width
             let hasLeft = index > 0
             let hasRight = index < days.count - 1
+            // Lock vertical scrolling once a swipe commits to the horizontal axis
+            // (and while a page transition animates), so day-paging never fights
+            // the inner ScrollView.
+            let scrollLocked = (dragDecided && dragHorizontal) || isAnimating
 
             HStack(spacing: 0) {
-                slot(for: -1, width: w)
-                slot(for: 0, width: w)
-                slot(for: 1, width: w)
+                slot(for: -1, width: w, scrollLocked: scrollLocked)
+                slot(for: 0, width: w, scrollLocked: scrollLocked)
+                slot(for: 1, width: w, scrollLocked: scrollLocked)
             }
             .frame(width: w * 3, alignment: .leading)
             .offset(x: -w + dragOffset)
@@ -437,10 +442,10 @@ private struct DayPager<Content: View>: View {
     }
 
     @ViewBuilder
-    private func slot(for position: Int, width: CGFloat) -> some View {
+    private func slot(for position: Int, width: CGFloat, scrollLocked: Bool) -> some View {
         let i = dayIndex(for: position)
         if days.indices.contains(i) {
-            content(days[i]).frame(width: width)
+            content(days[i], scrollLocked).frame(width: width)
         } else {
             Color.clear.frame(width: width)
         }
