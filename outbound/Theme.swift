@@ -37,4 +37,15 @@ extension View {
     func appTheme() -> some View {
         modifier(AppTheme())
     }
+
+    /// White, rounded input field used across forms (auth and trip creation).
+    func appField(cornerRadius: CGFloat = appFieldCornerRadius) -> some View {
+        foregroundStyle(Color.black.opacity(0.85))
+            .tint(Color.appAccent)
+            .padding(14)
+            .background(Color.white.opacity(0.9), in: .rect(cornerRadius: cornerRadius))
+    }
 }
+
+/// Shared corner radius for input fields and buttons, keeping them visually in sync.
+let appFieldCornerRadius: CGFloat = 10
