@@ -17,6 +17,11 @@ struct TripDetailView: View {
     @State private var errorMessage: String?
     @State private var showingAddItem = false
 
+    /// Live horizontal progress of an in-flight page swipe, in day-units
+    /// (-1…1, negative dragging toward a later day). Lets the day picker track
+    /// the drag and settle in sync with the page.
+    @State private var pageDragProgress: CGFloat = 0
+
     private let api = APIClient.shared
 
     /// Coordinate space used to measure each card's position for the fade behind the picker.
@@ -39,7 +44,7 @@ struct TripDetailView: View {
                     // (wide, scrollable) content can never grow the pager or change the
                     // width of the page content behind it.
                     .overlay(alignment: .bottom) {
-                        DaySelectorBar(days: days, selection: $selection)
+                        DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress)
                     }
             } else if let errorMessage {
                 errorState(errorMessage)
@@ -93,7 +98,7 @@ struct TripDetailView: View {
     // MARK: - Paged days
 
     private func dayPager(_ days: [ItineraryDay]) -> some View {
-        DayPager(days: days, selection: $selection) { day, scrollLocked in
+        DayPager(days: days, selection: $selection, dragProgress: $pageDragProgress) { day, scrollLocked in
             dayPage(day, scrollLocked: scrollLocked)
         }
     }
@@ -385,6 +390,8 @@ struct TripDetailView: View {
 private struct DayPager<Content: View>: View {
     let days: [ItineraryDay]
     @Binding var selection: Int
+    /// Live swipe progress published outward (-1…1) so the day picker can track the drag.
+    @Binding var dragProgress: CGFloat
     @ViewBuilder let content: (ItineraryDay, Bool) -> Content
 
     @State private var index = 0
@@ -435,6 +442,8 @@ private struct DayPager<Content: View>: View {
                         } else {
                             dragOffset = t.width
                         }
+                        // Pull the day picker along, one day-width per page-width dragged.
+                        dragProgress = max(-1, min(1, dragOffset / w))
                     }
                     .onEnded { value in
                         defer { dragDecided = false; dragHorizontal = false }
@@ -446,7 +455,10 @@ private struct DayPager<Content: View>: View {
                         } else if t > threshold && hasLeft {
                             slide(to: index - 1, width: w)
                         } else {
-                            withAnimation(.easeOut(duration: 0.2)) { dragOffset = 0 }
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                dragOffset = 0
+                                dragProgress = 0
+                            }
                         }
                     }
             )
@@ -489,15 +501,19 @@ private struct DayPager<Content: View>: View {
         if abs(target - index) > 1 {
             incoming = (side: side, dayIndex: target)
         }
+        // Commit the selection up front so the day picker re-centers on the new day
+        // in parallel with the page, and retract any live drag-pull to zero — the two
+        // motions share the same curve and duration, so the bar settles seamlessly.
+        if selection != days[target].dayNumber {
+            selection = days[target].dayNumber
+        }
         withAnimation(.easeInOut(duration: 0.28), completionCriteria: .logicallyComplete) {
             dragOffset = side > 0 ? -w : w
+            dragProgress = 0
         } completion: {
             index = target
             incoming = nil
             dragOffset = 0
-            if selection != days[target].dayNumber {
-                selection = days[target].dayNumber
-            }
             isAnimating = false
         }
     }

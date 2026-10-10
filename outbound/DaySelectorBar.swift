@@ -16,6 +16,9 @@ import SwiftUI
 struct DaySelectorBar: View {
     let days: [ItineraryDay]
     @Binding var selection: Int
+    /// Live itinerary-swipe progress in day-units (-1…1); pulls the row along as the
+    /// pages are dragged, before `selection` settles on the final day.
+    var dragProgress: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -35,6 +38,8 @@ struct DaySelectorBar: View {
                             }
                         }
                         .padding(.horizontal, sideInset)
+                        // Track the itinerary swipe: one day-width of travel per full page drag.
+                        .offset(x: dragProgress * cellWidth)
                     }
                 }
                 .onAppear { proxy.scrollTo(selection, anchor: .center) }
