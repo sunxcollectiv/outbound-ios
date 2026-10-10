@@ -11,6 +11,8 @@ import SwiftUI
 struct TripDetailView: View {
     let trip: Trip
 
+    @State private var showingAddItem = false
+
     var body: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
@@ -46,6 +48,19 @@ struct TripDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingAddItem = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add Item")
+            }
+        }
+        .sheet(isPresented: $showingAddItem) {
+            AddTripItemView(tripId: trip.id)
+        }
     }
 }
 
