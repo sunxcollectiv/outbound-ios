@@ -63,7 +63,7 @@ struct DaySelectorBar: View {
         return Button {
             selection = day.dayNumber
         } label: {
-            VStack(spacing: 1.4) {
+            VStack(spacing: 0.5) {
                 Text(day.weekdayShort)
                     .font(.system(size: 7, weight: .semibold))
                     .tracking(1)
@@ -72,7 +72,7 @@ struct DaySelectorBar: View {
                     .font(.system(size: 18, weight: .bold))
                     .monospacedDigit()
             }
-            .foregroundStyle(isSelected ? Color.appBackground : Color.appForeground.opacity(0.9))
+            .foregroundStyle(isSelected ? Color(white: 0.15) : Color.appForeground.opacity(0.9))
             .frame(width: 56, height: 56)
             .glassEffect(
                 isSelected
@@ -80,6 +80,7 @@ struct DaySelectorBar: View {
                     : .clear.interactive(),
                 in: .circle
             )
+            .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
             .animation(.easeInOut(duration: 0.25), value: isSelected)
             .contentShape(.circle)
         }
