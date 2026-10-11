@@ -17,6 +17,11 @@ struct TripDetailView: View {
     @State private var errorMessage: String?
     @State private var showingAddItem = false
 
+    /// Live horizontal progress of an in-flight page swipe, in day-units
+    /// (-1…1, negative dragging toward a later day). Lets the day picker track
+    /// the drag and settle in sync with the page.
+    @State private var pageDragProgress: CGFloat = 0
+
     private let api = APIClient.shared
 
     /// Coordinate space used to measure each card's position for the fade behind the picker.
@@ -30,12 +35,17 @@ struct TripDetailView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.appBackground.ignoresSafeArea()
+            background
 
             if let days {
                 dayPager(days)
                     .ignoresSafeArea(edges: .bottom)
-                DaySelectorBar(days: days, selection: $selection)
+                    // Pin the day picker on top of the itinerary as an overlay, so its
+                    // (wide, scrollable) content can never grow the pager or change the
+                    // width of the page content behind it.
+                    .overlay(alignment: .bottom) {
+                        DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress)
+                    }
             } else if let errorMessage {
                 errorState(errorMessage)
             } else {
@@ -66,10 +76,29 @@ struct TripDetailView: View {
         .task { if days == nil { await load() } }
     }
 
+    // MARK: - Background
+
+    /// Full-page trip backdrop: a destination photo laid over a very dark gray base,
+    /// dialed back to ~30% so it reads as a subtle ambient wash rather than competing
+    /// with the itinerary content. (Placeholder Melbourne shot until per-trip imagery
+    /// is wired up.)
+    private var background: some View {
+        Color(white: 0.12)
+            .ignoresSafeArea()
+            .overlay {
+                Image("MelbourneBackground")
+                    .resizable()
+                    .scaledToFill()
+                    .opacity(0.2)
+                    .clipped()
+                    .ignoresSafeArea()
+            }
+    }
+
     // MARK: - Paged days
 
     private func dayPager(_ days: [ItineraryDay]) -> some View {
-        DayPager(days: days, selection: $selection) { day, scrollLocked in
+        DayPager(days: days, selection: $selection, dragProgress: $pageDragProgress) { day, scrollLocked in
             dayPage(day, scrollLocked: scrollLocked)
         }
     }
@@ -220,7 +249,7 @@ struct TripDetailView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity)
-            .background(Color.appCard.opacity(0.6))
+            .background(Color.appCard)
         }
         .clipShape(.rect(cornerRadius: 16))
         .padding(.vertical, 6)
@@ -262,7 +291,7 @@ struct TripDetailView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.appCard.opacity(0.6), in: .rect(cornerRadius: 16))
+        .background(Color.appCard, in: .rect(cornerRadius: 16))
         .padding(.vertical, 6)
     }
 
@@ -351,65 +380,6 @@ struct TripDetailView: View {
     }
 }
 
-/// The day picker pinned to the bottom of the itinerary: a dark glassy bar with a
-/// circular button per day (weekday label above, day-of-month inside the circle).
-/// The selected day is a filled cream disc; tapping a day scrubs the pager and the
-/// bar stays in sync with the current `selection`.
-private struct DaySelectorBar: View {
-    let days: [ItineraryDay]
-    @Binding var selection: Int
-
-    var body: some View {
-        GlassEffectContainer(spacing: 20) {
-            HStack(spacing: 0) {
-                ForEach(days) { day in
-                    dayCell(day)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-        }
-        .padding(.top, 40)
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity)
-        .background {
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.55)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea(edges: .bottom)
-        }
-    }
-
-    private func dayCell(_ day: ItineraryDay) -> some View {
-        let isSelected = day.dayNumber == selection
-        return Button {
-            selection = day.dayNumber
-        } label: {
-            VStack(spacing: 1.4) {
-                Text(day.weekdayShort)
-                    .font(.system(size: 7, weight: .semibold))
-                    .tracking(1)
-                    .opacity(0.75)
-                Text("\(day.dayOfMonth)")
-                    .font(.system(size: 18, weight: .bold))
-                    .monospacedDigit()
-            }
-            .foregroundStyle(isSelected ? Color.appBackground : Color.appForeground.opacity(0.9))
-            .frame(width: 56, height: 56)
-            .glassEffect(
-                isSelected
-                    ? .regular.tint(Color.appForeground).interactive()
-                    : .clear.interactive(),
-                in: .circle
-            )
-            .animation(.easeInOut(duration: 0.25), value: isSelected)
-            .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 /// A horizontally paged container that renders only the current day and its
 /// immediate neighbors, so swiping never scrolls through intermediate pages.
 ///
@@ -420,6 +390,8 @@ private struct DaySelectorBar: View {
 private struct DayPager<Content: View>: View {
     let days: [ItineraryDay]
     @Binding var selection: Int
+    /// Live swipe progress published outward (-1…1) so the day picker can track the drag.
+    @Binding var dragProgress: CGFloat
     @ViewBuilder let content: (ItineraryDay, Bool) -> Content
 
     @State private var index = 0
@@ -447,8 +419,11 @@ private struct DayPager<Content: View>: View {
 
             HStack(spacing: 0) {
                 slot(for: -1, width: w, scrollLocked: scrollLocked)
+                    .opacity(slotOpacity(for: -1, width: w))
                 slot(for: 0, width: w, scrollLocked: scrollLocked)
+                    .opacity(slotOpacity(for: 0, width: w))
                 slot(for: 1, width: w, scrollLocked: scrollLocked)
+                    .opacity(slotOpacity(for: 1, width: w))
             }
             .frame(width: w * 3, alignment: .leading)
             .offset(x: -w + dragOffset)
@@ -470,6 +445,8 @@ private struct DayPager<Content: View>: View {
                         } else {
                             dragOffset = t.width
                         }
+                        // Pull the day picker along, one day-width per page-width dragged.
+                        dragProgress = max(-1, min(1, dragOffset / w))
                     }
                     .onEnded { value in
                         defer { dragDecided = false; dragHorizontal = false }
@@ -481,7 +458,10 @@ private struct DayPager<Content: View>: View {
                         } else if t > threshold && hasLeft {
                             slide(to: index - 1, width: w)
                         } else {
-                            withAnimation(.easeOut(duration: 0.2)) { dragOffset = 0 }
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                dragOffset = 0
+                                dragProgress = 0
+                            }
                         }
                     }
             )
@@ -496,6 +476,15 @@ private struct DayPager<Content: View>: View {
                   target != index, !isAnimating, pageWidth > 0 else { return }
             slide(to: target, width: pageWidth)
         }
+    }
+
+    /// Opacity for a slot given the live drag: the outgoing center fades out as pages
+    /// slide, while the incoming neighbor stays fully opaque. Driven by `dragOffset`,
+    /// so programmatic slides (taps, jumps) animate the same way.
+    private func slotOpacity(for position: Int, width w: CGFloat) -> Double {
+        guard dragOffset != 0, w > 0, position == 0 else { return 1 }
+        let progress = min(abs(dragOffset) / w, 1)
+        return Double(1 - progress)                             // outgoing center fades out
     }
 
     /// The day index shown in a slot, `position` being -1 (left), 0 (center), +1 (right).
@@ -524,15 +513,19 @@ private struct DayPager<Content: View>: View {
         if abs(target - index) > 1 {
             incoming = (side: side, dayIndex: target)
         }
+        // Commit the selection up front so the day picker re-centers on the new day
+        // in parallel with the page, and retract any live drag-pull to zero — the two
+        // motions share the same curve and duration, so the bar settles seamlessly.
+        if selection != days[target].dayNumber {
+            selection = days[target].dayNumber
+        }
         withAnimation(.easeInOut(duration: 0.28), completionCriteria: .logicallyComplete) {
             dragOffset = side > 0 ? -w : w
+            dragProgress = 0
         } completion: {
             index = target
             incoming = nil
             dragOffset = 0
-            if selection != days[target].dayNumber {
-                selection = days[target].dayNumber
-            }
             isAnimating = false
         }
     }
