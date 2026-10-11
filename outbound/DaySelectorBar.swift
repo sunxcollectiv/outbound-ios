@@ -22,14 +22,19 @@ struct DaySelectorBar: View {
 
     var body: some View {
         GeometryReader { geo in
-            // Five cells span the width; end insets let the first and last day
-            // still settle in the center.
-            let cellWidth = geo.size.width / 5
+            // A fade band at each edge doubles as the side margin: five cells fill the
+            // space between the two bands and stay fully opaque, while days scrolling
+            // past fade out through the band (see edgeFadeMask).
+            let fadeZone: CGFloat = 36
+            let circleSize: CGFloat = 56   // matches the dayCell circle
+            // Five circles fit between the fade bands; widen the gap between them by 20%.
+            let baseGap = (geo.size.width - fadeZone * 2) / 5 - circleSize
+            let cellWidth = max(circleSize + baseGap * 1.2, 1)
             let sideInset = (geo.size.width - cellWidth) / 2
 
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
-                    GlassEffectContainer(spacing: 20) {
+                    GlassEffectContainer(spacing: 2) {
                         HStack(spacing: 0) {
                             ForEach(days) { day in
                                 dayCell(day)
@@ -42,6 +47,9 @@ struct DaySelectorBar: View {
                         .offset(x: dragProgress * cellWidth)
                     }
                 }
+                // A static edge gradient fades the content (glass included) near both
+                // sides, so days ease in/out instead of being hard-cut at the edge.
+                .mask(edgeFadeMask(fadeZone: fadeZone, width: geo.size.width))
                 .onAppear { proxy.scrollTo(selection, anchor: .center) }
                 .onChange(of: selection) { _, newValue in
                     withAnimation(.easeInOut(duration: 0.28)) {
@@ -61,6 +69,27 @@ struct DaySelectorBar: View {
             )
             .ignoresSafeArea(edges: .bottom)
         }
+    }
+
+    /// A full-height horizontal gradient: transparent at both edges, opaque across the
+    /// middle. Used as a mask so day cells fade as they scroll into the edge bands.
+    /// The ramp is compressed to the inner part of each band, so days drop to
+    /// transparent sharply once they leave the primary five.
+    private func edgeFadeMask(fadeZone: CGFloat, width: CGFloat) -> some View {
+        let f = max(0, min(0.5, fadeZone / width))
+        let ramp = f * 0.7   // only the inner ~70% of the band ramps; the rest is clear
+        return LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: f - ramp),
+                .init(color: .white, location: f),
+                .init(color: .white, location: 1 - f),
+                .init(color: .clear, location: 1 - (f - ramp)),
+                .init(color: .clear, location: 1),
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
     }
 
     private func dayCell(_ day: ItineraryDay) -> some View {
