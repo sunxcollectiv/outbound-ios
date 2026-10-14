@@ -30,25 +30,16 @@ struct AddTripItemView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    // Place search for the title field, powered by Google Places Autocomplete.
-    @State private var placeSuggestions: [PlaceSuggestion] = []
-    @State private var isSearchingPlaces = false
-    @State private var placeSearchTask: Task<Void, Never>?
-    /// The place picked from the suggestions, kept for wiring item locations later.
-    @State private var selectedPlace: PlaceSuggestion?
-    /// The internal place created from the selection via `POST /places`.
-    /// Its `id` is what a trip item will reference as `place_id` once that's wired up.
-    @State private var resolvedPlace: Place?
-    @State private var isResolvingPlace = false
-    @State private var placeError: String?
-    /// Set when we fill the title from a suggestion, so the resulting title change
-    /// doesn't immediately kick off another search.
-    @State private var isFillingFromSuggestion = false
+    /// The place for this item, picked via the title search → sent as `place_id`.
+    @State private var startPlace: Place?
+    /// The destination place for transit items → sent as `end_place_id`. The text it
+    /// searches on is kept separately since it isn't the item's title.
+    @State private var endPlace: Place?
+    @State private var endPlaceText = ""
 
     private enum TimeField { case start, end }
 
     private let api = APIClient.shared
-    private let places = GooglePlacesClient.shared
 
     private var isEditing: Bool { item != nil }
     private var startLabel: String { kind == .lodging ? "Check-in" : "Starts" }
@@ -97,17 +88,23 @@ struct AddTripItemView: View {
                             .pickerStyle(.segmented)
                         }
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            TextField("Title or search a place", text: $title)
-                                .textInputAutocapitalization(.words)
-                                .autocorrectionDisabled()
-                                .appField()
-                                .onChange(of: title) { _, newValue in
-                                    onTitleChanged(newValue)
-                                }
+                        PlaceSearchField(
+                            placeholder: kind == .transit ? "Title or search origin" : "Title or search a place",
+                            text: $title,
+                            resolvedPlace: $startPlace
+                        )
 
-                            placeSearchResults
-                            placeStatus
+                        if kind == .transit {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Destination")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.appForeground.opacity(0.8))
+                                PlaceSearchField(
+                                    placeholder: "Search destination",
+                                    text: $endPlaceText,
+                                    resolvedPlace: $endPlace
+                                )
+                            }
                         }
 
                         VStack(spacing: 8) {
@@ -188,145 +185,6 @@ struct AddTripItemView: View {
         .buttonStyle(.plain)
     }
 
-    /// The autocomplete suggestions list shown beneath the title field.
-    @ViewBuilder
-    private var placeSearchResults: some View {
-        if isSearchingPlaces || !placeSuggestions.isEmpty {
-            VStack(spacing: 0) {
-                if isSearchingPlaces && placeSuggestions.isEmpty {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Searching places…")
-                            .font(.footnote)
-                            .foregroundStyle(Color.appForeground.opacity(0.7))
-                        Spacer()
-                    }
-                    .padding(14)
-                }
-
-                ForEach(Array(placeSuggestions.enumerated()), id: \.element.id) { index, suggestion in
-                    Button {
-                        select(suggestion)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(suggestion.mainText)
-                                .font(.subheadline.weight(.medium))
-                            if let secondary = suggestion.secondaryText {
-                                Text(secondary)
-                                    .font(.caption)
-                                    .foregroundStyle(Color.appForeground.opacity(0.7))
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
-                    if index < placeSuggestions.count - 1 {
-                        Divider().overlay(Color.appForeground.opacity(0.15))
-                    }
-                }
-            }
-            .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
-        }
-    }
-
-    /// Small confirmation row shown after a place is picked, reflecting the result of
-    /// saving it to our places DB.
-    @ViewBuilder
-    private var placeStatus: some View {
-        if isResolvingPlace {
-            statusLabel("Saving place…", systemImage: "mappin.and.ellipse", tint: Color.appForeground.opacity(0.7))
-        } else if let resolvedPlace {
-            statusLabel(
-                resolvedPlace.address ?? selectedPlace?.secondaryText ?? "Place saved",
-                systemImage: "checkmark.circle.fill",
-                tint: Color.appForeground.opacity(0.8)
-            )
-        } else if let placeError {
-            statusLabel(placeError, systemImage: "exclamationmark.triangle.fill", tint: .red)
-        }
-    }
-
-    private func statusLabel(_ text: String, systemImage: String, tint: Color) -> some View {
-        Label(text, systemImage: systemImage)
-            .font(.caption)
-            .foregroundStyle(tint)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// Debounces input changes and runs a place search, unless the change came from
-    /// picking a suggestion.
-    private func onTitleChanged(_ newValue: String) {
-        if isFillingFromSuggestion {
-            isFillingFromSuggestion = false
-            return
-        }
-
-        // Typing invalidates any previously selected/resolved place.
-        selectedPlace = nil
-        resolvedPlace = nil
-        placeError = nil
-
-        placeSearchTask?.cancel()
-        let query = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard query.count >= 2 else {
-            placeSuggestions = []
-            isSearchingPlaces = false
-            return
-        }
-
-        isSearchingPlaces = true
-        placeSearchTask = Task {
-            // Debounce so we don't fire a request on every keystroke.
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            do {
-                let results = try await places.autocomplete(query)
-                guard !Task.isCancelled else { return }
-                placeSuggestions = results
-            } catch {
-                guard !Task.isCancelled else { return }
-                placeSuggestions = []
-            }
-            isSearchingPlaces = false
-        }
-    }
-
-    /// Fills the title from a chosen suggestion, dismisses the list, and resolves the
-    /// place into our own database.
-    private func select(_ suggestion: PlaceSuggestion) {
-        placeSearchTask?.cancel()
-        isFillingFromSuggestion = true
-        title = suggestion.mainText
-        selectedPlace = suggestion
-        placeSuggestions = []
-        isSearchingPlaces = false
-        resolvePlace(suggestion)
-    }
-
-    /// Sends the selected Google place to `POST /places` so the backend registers it in
-    /// our places DB, and keeps the returned internal place. This fires on selection
-    /// regardless of whether the item is ultimately saved.
-    private func resolvePlace(_ suggestion: PlaceSuggestion) {
-        resolvedPlace = nil
-        placeError = nil
-        isResolvingPlace = true
-        Task {
-            defer { isResolvingPlace = false }
-            do {
-                let place = try await api.send(PlacesAPI.create(googlePlaceId: suggestion.placeId), as: Place.self)
-                // Ignore if the user changed the selection while this was in flight.
-                guard selectedPlace?.placeId == suggestion.placeId else { return }
-                resolvedPlace = place
-            } catch {
-                guard selectedPlace?.placeId == suggestion.placeId else { return }
-                placeError = error.localizedDescription
-            }
-        }
-    }
-
     private func save() {
         let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
         guard !trimmedTitle.isEmpty else { return }
@@ -342,16 +200,22 @@ struct AddTripItemView: View {
                 let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
                 let resolvedNotes = trimmedNotes.isEmpty ? nil : trimmedNotes
                 let resolvedEnd = hasEndTime ? endsAt : nil
+                // End place only applies to transit (origin → destination).
+                let endPlaceId = kind == .transit ? endPlace?.id : nil
 
                 let endpoint: Endpoint
                 if let item {
                     // The update endpoint has no `scope` field, so it isn't sent here.
+                    // Place ids are omitted when nil, so an edit that doesn't touch the
+                    // place search leaves the existing places unchanged.
                     let body = TripItemsAPI.UpdateRequest(
                         kind: kind,
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startsAt,
-                        endsAt: resolvedEnd
+                        endsAt: resolvedEnd,
+                        placeId: startPlace?.id,
+                        endPlaceId: endPlaceId
                     )
                     endpoint = TripItemsAPI.update(tripId: tripId, itemId: item.id, body)
                 } else {
@@ -361,7 +225,9 @@ struct AddTripItemView: View {
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startsAt,
-                        endsAt: resolvedEnd
+                        endsAt: resolvedEnd,
+                        placeId: startPlace?.id,
+                        endPlaceId: endPlaceId
                     )
                     endpoint = TripItemsAPI.create(tripId: tripId, body)
                 }

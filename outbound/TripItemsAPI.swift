@@ -47,8 +47,8 @@ struct TripItem: Codable, Identifiable, Equatable {
 ///     POST  /trips/{id}/items  TripItemCreate -> TripItemRead (201)
 ///     PATCH /trips/{id}/items/{itemId} TripItemUpdate -> TripItemRead
 enum TripItemsAPI {
-    /// `TripItemCreate` — body for `POST /trips/{id}/items`. Locations come later,
-    /// so only kind, scope, title, times, and notes are sent here.
+    /// `TripItemCreate` — body for `POST /trips/{id}/items`. `placeId`/`endPlaceId` are
+    /// internal place UUIDs (from `POST /places`); nil values are omitted from the JSON.
     struct CreateRequest: Encodable {
         let kind: TripItemKind
         let scope: TripItemScope
@@ -56,17 +56,22 @@ enum TripItemsAPI {
         let notes: String?
         let startsAt: Date
         let endsAt: Date?
+        let placeId: String?
+        let endPlaceId: String?
     }
 
     /// `TripItemUpdate` — body for `PATCH /trips/{id}/items/{itemId}`. Every field is
     /// optional server-side. Notably it has **no `scope`** (the backend rejects extra
-    /// fields), so scope isn't editable through this endpoint.
+    /// fields), so scope isn't editable through this endpoint. Nil place ids are omitted,
+    /// leaving any existing places untouched.
     struct UpdateRequest: Encodable {
         let kind: TripItemKind
         let title: String
         let notes: String?
         let startsAt: Date
         let endsAt: Date?
+        let placeId: String?
+        let endPlaceId: String?
     }
 
     static func list(tripId: String) -> Endpoint {
