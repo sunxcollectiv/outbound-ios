@@ -29,21 +29,17 @@ struct HomeView: View {
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Sign Out") {
-                        auth.signOut()
-                    }
+                AppToolbarButton(placement: .topBarLeading) {
+                    auth.signOut()
+                } label: {
+                    Text("Sign Out")
                 }
-                .sharedBackgroundVisibility(.hidden)
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingAddTrip = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("Add Trip")
+                AppToolbarButton(placement: .topBarTrailing) {
+                    showingAddTrip = true
+                } label: {
+                    Image(systemName: "plus")
+                        .accessibilityLabel("Add Trip")
                 }
-                .sharedBackgroundVisibility(.hidden)
             }
             .sheet(isPresented: $showingAddTrip) {
                 AddTripView(onCreated: { store.add($0) })

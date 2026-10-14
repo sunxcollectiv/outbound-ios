@@ -62,24 +62,18 @@ struct TripDetailView: View {
         .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.backward")
-                }
-                .accessibilityLabel("Back")
+            AppToolbarButton(placement: .topBarLeading) {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.backward")
+                    .accessibilityLabel("Back")
             }
-            .sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingAddItem = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Add Item")
+            AppToolbarButton(placement: .topBarTrailing) {
+                showingAddItem = true
+            } label: {
+                Image(systemName: "plus")
+                    .accessibilityLabel("Add Item")
             }
-            .sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $showingAddItem) {
             AddTripItemView(tripId: trip.id, onCreated: { _ in
