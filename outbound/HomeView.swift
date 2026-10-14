@@ -34,6 +34,7 @@ struct HomeView: View {
                         auth.signOut()
                     }
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingAddTrip = true
@@ -42,6 +43,7 @@ struct HomeView: View {
                     }
                     .accessibilityLabel("Add Trip")
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
             .sheet(isPresented: $showingAddTrip) {
                 AddTripView(onCreated: { store.add($0) })

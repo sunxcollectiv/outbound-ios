@@ -22,6 +22,8 @@ struct TripDetailView: View {
     /// the drag and settle in sync with the page.
     @State private var pageDragProgress: CGFloat = 0
 
+    @Environment(\.dismiss) private var dismiss
+
     private let api = APIClient.shared
 
     /// Coordinate space used to measure each card's position for the fade behind the picker.
@@ -56,9 +58,19 @@ struct TripDetailView: View {
         .foregroundStyle(Color.appForeground)
         .navigationTitle(trip.title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.backward")
+                }
+                .accessibilityLabel("Back")
+            }
+            .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showingAddItem = true
@@ -67,6 +79,7 @@ struct TripDetailView: View {
                 }
                 .accessibilityLabel("Add Item")
             }
+            .sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $showingAddItem) {
             AddTripItemView(tripId: trip.id, onCreated: { _ in
