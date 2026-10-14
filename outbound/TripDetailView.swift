@@ -10,12 +10,13 @@ import SwiftUI
 /// sync (tap a day to jump, swipe to scrub). The day-by-day itinerary loads
 /// asynchronously, showing placeholder scaffolding while in flight.
 struct TripDetailView: View {
-    let trip: Trip
+    @State private var trip: Trip
 
     @State private var days: [ItineraryDay]?
     @State private var selection: Int
     @State private var errorMessage: String?
     @State private var showingAddItem = false
+    @State private var showingEditTrip = false
 
     /// Live horizontal progress of an in-flight page swipe, in day-units
     /// (-1…1, negative dragging toward a later day). Lets the day picker track
@@ -30,7 +31,7 @@ struct TripDetailView: View {
     private static let detailSpace = "itineraryDetail"
 
     init(trip: Trip, days: [ItineraryDay]? = nil) {
-        self.trip = trip
+        _trip = State(initialValue: trip)
         _days = State(initialValue: days)
         _selection = State(initialValue: days?.first?.dayNumber ?? 1)
     }
@@ -77,7 +78,9 @@ struct TripDetailView: View {
                             .accessibilityLabel("Add Item")
                     }
                     Menu {
-                        Button("Edit Trip", systemImage: "pencil") {}
+                        Button("Edit Trip", systemImage: "pencil") {
+                            showingEditTrip = true
+                        }
                         Button("Share", systemImage: "square.and.arrow.up") {}
                         Button("Delete Trip", systemImage: "trash", role: .destructive) {}
                     } label: {
@@ -92,6 +95,13 @@ struct TripDetailView: View {
             AddTripItemView(tripId: trip.id, onCreated: { _ in
                 Task { await load() }
             })
+        }
+        .sheet(isPresented: $showingEditTrip) {
+            AddTripView(trip: trip) { updated in
+                trip = updated
+                // Dates may have shifted, so rebuild the day-by-day itinerary.
+                Task { await load() }
+            }
         }
         .task { if days == nil { await load() } }
     }
