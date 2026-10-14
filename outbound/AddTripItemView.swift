@@ -176,16 +176,31 @@ struct AddTripItemView: View {
             defer { isSaving = false }
             do {
                 let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-                let body = TripItemsAPI.CreateRequest(
-                    kind: kind,
-                    scope: scope,
-                    title: trimmedTitle,
-                    notes: trimmedNotes.isEmpty ? nil : trimmedNotes,
-                    startsAt: startsAt,
-                    endsAt: hasEndTime ? endsAt : nil
-                )
-                let endpoint = item.map { TripItemsAPI.update(tripId: tripId, itemId: $0.id, body) }
-                    ?? TripItemsAPI.create(tripId: tripId, body)
+                let resolvedNotes = trimmedNotes.isEmpty ? nil : trimmedNotes
+                let resolvedEnd = hasEndTime ? endsAt : nil
+
+                let endpoint: Endpoint
+                if let item {
+                    // The update endpoint has no `scope` field, so it isn't sent here.
+                    let body = TripItemsAPI.UpdateRequest(
+                        kind: kind,
+                        title: trimmedTitle,
+                        notes: resolvedNotes,
+                        startsAt: startsAt,
+                        endsAt: resolvedEnd
+                    )
+                    endpoint = TripItemsAPI.update(tripId: tripId, itemId: item.id, body)
+                } else {
+                    let body = TripItemsAPI.CreateRequest(
+                        kind: kind,
+                        scope: scope,
+                        title: trimmedTitle,
+                        notes: resolvedNotes,
+                        startsAt: startsAt,
+                        endsAt: resolvedEnd
+                    )
+                    endpoint = TripItemsAPI.create(tripId: tripId, body)
+                }
                 let saved = try await api.send(endpoint, as: TripItem.self)
                 onSaved(saved)
                 dismiss()

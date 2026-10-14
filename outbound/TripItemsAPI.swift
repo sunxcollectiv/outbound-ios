@@ -48,11 +48,21 @@ struct TripItem: Codable, Identifiable, Equatable {
 ///     PATCH /trips/{id}/items/{itemId} TripItemUpdate -> TripItemRead
 enum TripItemsAPI {
     /// `TripItemCreate` — body for `POST /trips/{id}/items`. Locations come later,
-    /// so only kind, title, times, and notes are sent here. The same shape is reused
-    /// for edits via `update`.
+    /// so only kind, scope, title, times, and notes are sent here.
     struct CreateRequest: Encodable {
         let kind: TripItemKind
         let scope: TripItemScope
+        let title: String
+        let notes: String?
+        let startsAt: Date
+        let endsAt: Date?
+    }
+
+    /// `TripItemUpdate` — body for `PATCH /trips/{id}/items/{itemId}`. Every field is
+    /// optional server-side. Notably it has **no `scope`** (the backend rejects extra
+    /// fields), so scope isn't editable through this endpoint.
+    struct UpdateRequest: Encodable {
+        let kind: TripItemKind
         let title: String
         let notes: String?
         let startsAt: Date
@@ -67,7 +77,7 @@ enum TripItemsAPI {
         Endpoint(path: "/trips/\(tripId)/items", method: .post, body: body)
     }
 
-    static func update(tripId: String, itemId: String, _ body: CreateRequest) -> Endpoint {
+    static func update(tripId: String, itemId: String, _ body: UpdateRequest) -> Endpoint {
         Endpoint(path: "/trips/\(tripId)/items/\(itemId)", method: .patch, body: body)
     }
 }
