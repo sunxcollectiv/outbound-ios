@@ -43,14 +43,26 @@ struct TripItem: Codable, Identifiable, Equatable {
 
 /// Request shapes for a trip's items.
 ///
-///     GET  /trips/{id}/items              -> [TripItemRead]
-///     POST /trips/{id}/items  TripItemCreate -> TripItemRead (201)
+///     GET   /trips/{id}/items                 -> [TripItemRead]
+///     POST  /trips/{id}/items  TripItemCreate -> TripItemRead (201)
+///     PATCH /trips/{id}/items/{itemId} TripItemUpdate -> TripItemRead
 enum TripItemsAPI {
     /// `TripItemCreate` — body for `POST /trips/{id}/items`. Locations come later,
-    /// so only kind, title, times, and notes are sent here.
+    /// so only kind, scope, title, times, and notes are sent here.
     struct CreateRequest: Encodable {
         let kind: TripItemKind
         let scope: TripItemScope
+        let title: String
+        let notes: String?
+        let startsAt: Date
+        let endsAt: Date?
+    }
+
+    /// `TripItemUpdate` — body for `PATCH /trips/{id}/items/{itemId}`. Every field is
+    /// optional server-side. Notably it has **no `scope`** (the backend rejects extra
+    /// fields), so scope isn't editable through this endpoint.
+    struct UpdateRequest: Encodable {
+        let kind: TripItemKind
         let title: String
         let notes: String?
         let startsAt: Date
@@ -63,6 +75,10 @@ enum TripItemsAPI {
 
     static func create(tripId: String, _ body: CreateRequest) -> Endpoint {
         Endpoint(path: "/trips/\(tripId)/items", method: .post, body: body)
+    }
+
+    static func update(tripId: String, itemId: String, _ body: UpdateRequest) -> Endpoint {
+        Endpoint(path: "/trips/\(tripId)/items/\(itemId)", method: .patch, body: body)
     }
 }
 

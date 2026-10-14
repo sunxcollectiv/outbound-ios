@@ -5,23 +5,27 @@
 
 import SwiftUI
 
-/// Modal for manually adding an item to a trip. Collects a kind, title, start/end
-/// times, and optional notes. Locations come later, derived separately.
+/// Modal for manually adding or editing a trip item. Collects a kind, title,
+/// start/end times, and optional notes. Locations come later, derived separately.
+/// Pass an existing `item` to edit it; omit it to create a new one.
 struct AddTripItemView: View {
     let tripId: String
 
     @Environment(\.dismiss) private var dismiss
 
-    /// Called with the newly created item after a successful save.
-    var onCreated: (TripItem) -> Void = { _ in }
+    /// The item being edited, or `nil` when creating a new one.
+    private let item: TripItem?
 
-    @State private var kind: TripItemKind = .activity
-    @State private var scope: TripItemScope = .group
-    @State private var title = ""
-    @State private var startsAt = Date()
-    @State private var hasEndTime = false
-    @State private var endsAt = Date()
-    @State private var notes = ""
+    /// Called with the created or updated item after a successful save.
+    var onSaved: (TripItem) -> Void
+
+    @State private var kind: TripItemKind
+    @State private var scope: TripItemScope
+    @State private var title: String
+    @State private var startsAt: Date
+    @State private var hasEndTime: Bool
+    @State private var endsAt: Date
+    @State private var notes: String
     @State private var activeField: TimeField?
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -30,8 +34,22 @@ struct AddTripItemView: View {
 
     private let api = APIClient.shared
 
+    private var isEditing: Bool { item != nil }
     private var startLabel: String { kind == .lodging ? "Check-in" : "Starts" }
     private var endLabel: String { kind == .lodging ? "Check-out" : "Ends" }
+
+    init(tripId: String, item: TripItem? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }) {
+        self.tripId = tripId
+        self.item = item
+        self.onSaved = onSaved
+        _kind = State(initialValue: item?.kind ?? .activity)
+        _scope = State(initialValue: item?.scope ?? .group)
+        _title = State(initialValue: item?.title ?? "")
+        _startsAt = State(initialValue: item?.startsAt ?? Date())
+        _hasEndTime = State(initialValue: item?.endsAt != nil)
+        _endsAt = State(initialValue: item?.endsAt ?? item?.startsAt ?? Date())
+        _notes = State(initialValue: item?.notes ?? "")
+    }
 
     var body: some View {
         NavigationStack {
@@ -108,7 +126,7 @@ struct AddTripItemView: View {
                 }
             }
             .foregroundStyle(Color.appForeground)
-            .navigationTitle("New Item")
+            .navigationTitle(isEditing ? "Edit Item" : "New Item")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -120,7 +138,7 @@ struct AddTripItemView: View {
                     if isSaving {
                         ProgressView()
                     } else {
-                        Button("Add", action: save)
+                        Button(isEditing ? "Save" : "Add", action: save)
                             .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
@@ -158,16 +176,33 @@ struct AddTripItemView: View {
             defer { isSaving = false }
             do {
                 let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-                let body = TripItemsAPI.CreateRequest(
-                    kind: kind,
-                    scope: scope,
-                    title: trimmedTitle,
-                    notes: trimmedNotes.isEmpty ? nil : trimmedNotes,
-                    startsAt: startsAt,
-                    endsAt: hasEndTime ? endsAt : nil
-                )
-                let item = try await api.send(TripItemsAPI.create(tripId: tripId, body), as: TripItem.self)
-                onCreated(item)
+                let resolvedNotes = trimmedNotes.isEmpty ? nil : trimmedNotes
+                let resolvedEnd = hasEndTime ? endsAt : nil
+
+                let endpoint: Endpoint
+                if let item {
+                    // The update endpoint has no `scope` field, so it isn't sent here.
+                    let body = TripItemsAPI.UpdateRequest(
+                        kind: kind,
+                        title: trimmedTitle,
+                        notes: resolvedNotes,
+                        startsAt: startsAt,
+                        endsAt: resolvedEnd
+                    )
+                    endpoint = TripItemsAPI.update(tripId: tripId, itemId: item.id, body)
+                } else {
+                    let body = TripItemsAPI.CreateRequest(
+                        kind: kind,
+                        scope: scope,
+                        title: trimmedTitle,
+                        notes: resolvedNotes,
+                        startsAt: startsAt,
+                        endsAt: resolvedEnd
+                    )
+                    endpoint = TripItemsAPI.create(tripId: tripId, body)
+                }
+                let saved = try await api.send(endpoint, as: TripItem.self)
+                onSaved(saved)
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription

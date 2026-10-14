@@ -13,6 +13,11 @@ struct HomeView: View {
     @State private var store = TripStore()
     @State private var showingAddTrip = false
 
+    private let columns = [
+        GridItem(.flexible(), spacing: 16),
+        GridItem(.flexible(), spacing: 16)
+    ]
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -24,22 +29,20 @@ struct HomeView: View {
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Sign Out") {
-                        auth.signOut()
-                    }
+                AppToolbarButton(placement: .topBarLeading) {
+                    auth.signOut()
+                } label: {
+                    Text("Sign Out")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingAddTrip = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("Add Trip")
+                AppToolbarButton(placement: .topBarTrailing) {
+                    showingAddTrip = true
+                } label: {
+                    Image(systemName: "plus")
+                        .accessibilityLabel("Add Trip")
                 }
             }
             .sheet(isPresented: $showingAddTrip) {
-                AddTripView(onCreated: { store.add($0) })
+                AddTripView(onSaved: { store.add($0) })
             }
             .task { await store.load() }
         }
@@ -55,7 +58,7 @@ struct HomeView: View {
             emptyState
         } else {
             ScrollView {
-                VStack(spacing: 16) {
+                LazyVGrid(columns: columns, spacing: 16) {
                     ForEach(store.trips) { trip in
                         NavigationLink {
                             TripDetailView(trip: trip)

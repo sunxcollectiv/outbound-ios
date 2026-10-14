@@ -49,3 +49,37 @@ extension View {
 
 /// Shared corner radius for input fields and buttons, keeping them visually in sync.
 let appFieldCornerRadius: CGFloat = 10
+
+/// A navigation-bar button styled consistently across the app: the system
+/// Liquid Glass background is suppressed so the control reads as a plain glyph
+/// or label rather than a circular capsule.
+///
+/// For icon buttons, bake the accessibility label into the label content, e.g.
+/// `Image(systemName: "plus").accessibilityLabel("Add Trip")`.
+struct AppToolbarButton<Label: View>: ToolbarContent {
+    let placement: ToolbarItemPlacement
+    let action: () -> Void
+    @ViewBuilder let label: () -> Label
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: placement) {
+            Button(action: action, label: label)
+        }
+        .sharedBackgroundVisibility(.hidden)
+    }
+}
+
+/// A navigation-bar menu with the same glass-free styling as `AppToolbarButton`:
+/// a label (typically an icon) that presents a dropdown of actions on tap.
+struct AppToolbarMenu<Label: View, Content: View>: ToolbarContent {
+    let placement: ToolbarItemPlacement
+    @ViewBuilder let content: () -> Content
+    @ViewBuilder let label: () -> Label
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: placement) {
+            Menu(content: content, label: label)
+        }
+        .sharedBackgroundVisibility(.hidden)
+    }
+}

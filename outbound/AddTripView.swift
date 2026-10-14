@@ -5,18 +5,22 @@
 
 import SwiftUI
 
-/// Modal for manually creating a trip. Collects a name, start/end dates, and an
-/// optional description. Timezone and locations come later, derived from trip items.
+/// Modal for manually creating or editing a trip. Collects a name, start/end dates,
+/// and an optional description. Timezone and locations come later, derived from trip
+/// items. Pass an existing `trip` to edit it; omit it to create a new one.
 struct AddTripView: View {
     @Environment(\.dismiss) private var dismiss
 
-    /// Called with the newly created trip after a successful save.
-    var onCreated: (Trip) -> Void = { _ in }
+    /// The trip being edited, or `nil` when creating a new one.
+    private let trip: Trip?
 
-    @State private var title = ""
-    @State private var startDate = Date()
-    @State private var endDate = Date()
-    @State private var description = ""
+    /// Called with the created or updated trip after a successful save.
+    var onSaved: (Trip) -> Void
+
+    @State private var title: String
+    @State private var startDate: Date
+    @State private var endDate: Date
+    @State private var description: String
     @State private var activeField: DateField?
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -24,6 +28,17 @@ struct AddTripView: View {
     private enum DateField { case start, end }
 
     private let api = APIClient.shared
+
+    private var isEditing: Bool { trip != nil }
+
+    init(trip: Trip? = nil, onSaved: @escaping (Trip) -> Void = { _ in }) {
+        self.trip = trip
+        self.onSaved = onSaved
+        _title = State(initialValue: trip?.title ?? "")
+        _description = State(initialValue: trip?.description ?? "")
+        _startDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.startDate) } ?? Date())
+        _endDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.endDate) } ?? Date())
+    }
 
     var body: some View {
         NavigationStack {
@@ -81,7 +96,7 @@ struct AddTripView: View {
                 }
             }
             .foregroundStyle(Color.appForeground)
-            .navigationTitle("New Trip")
+            .navigationTitle(isEditing ? "Edit Trip" : "New Trip")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -93,7 +108,7 @@ struct AddTripView: View {
                     if isSaving {
                         ProgressView()
                     } else {
-                        Button("Add", action: save)
+                        Button(isEditing ? "Save" : "Add", action: save)
                             .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
@@ -137,8 +152,9 @@ struct AddTripView: View {
                     startDate: Self.apiDateFormatter.string(from: startDate),
                     endDate: Self.apiDateFormatter.string(from: endDate)
                 )
-                let trip = try await api.send(TripsAPI.create(body), as: Trip.self)
-                onCreated(trip)
+                let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
+                let saved = try await api.send(endpoint, as: Trip.self)
+                onSaved(saved)
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription

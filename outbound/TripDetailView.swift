@@ -10,17 +10,21 @@ import SwiftUI
 /// sync (tap a day to jump, swipe to scrub). The day-by-day itinerary loads
 /// asynchronously, showing placeholder scaffolding while in flight.
 struct TripDetailView: View {
-    let trip: Trip
+    @State private var trip: Trip
 
     @State private var days: [ItineraryDay]?
     @State private var selection: Int
     @State private var errorMessage: String?
     @State private var showingAddItem = false
+    @State private var showingEditTrip = false
+    @State private var selectedItem: TripItem?
 
     /// Live horizontal progress of an in-flight page swipe, in day-units
     /// (-1…1, negative dragging toward a later day). Lets the day picker track
     /// the drag and settle in sync with the page.
     @State private var pageDragProgress: CGFloat = 0
+
+    @Environment(\.dismiss) private var dismiss
 
     private let api = APIClient.shared
 
@@ -28,7 +32,7 @@ struct TripDetailView: View {
     private static let detailSpace = "itineraryDetail"
 
     init(trip: Trip, days: [ItineraryDay]? = nil) {
-        self.trip = trip
+        _trip = State(initialValue: trip)
         _days = State(initialValue: days)
         _selection = State(initialValue: days?.first?.dayNumber ?? 1)
     }
@@ -56,22 +60,54 @@ struct TripDetailView: View {
         .foregroundStyle(Color.appForeground)
         .navigationTitle(trip.title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingAddItem = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Add Item")
+            AppToolbarButton(placement: .topBarLeading) {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.backward")
+                    .accessibilityLabel("Back")
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 4) {
+                    Button {
+                        showingAddItem = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .accessibilityLabel("Add Item")
+                    }
+                    Menu {
+                        Button("Edit Trip", systemImage: "pencil") {
+                            showingEditTrip = true
+                        }
+                        Button("Share", systemImage: "square.and.arrow.up") {}
+                        Button("Delete Trip", systemImage: "trash", role: .destructive) {}
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .accessibilityLabel("More")
+                    }
+                }
+            }
+            .sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $showingAddItem) {
-            AddTripItemView(tripId: trip.id, onCreated: { _ in
+            AddTripItemView(tripId: trip.id, onSaved: { _ in
                 Task { await load() }
             })
+        }
+        .sheet(isPresented: $showingEditTrip) {
+            AddTripView(trip: trip) { updated in
+                trip = updated
+                // Dates may have shifted, so rebuild the day-by-day itinerary.
+                Task { await load() }
+            }
+        }
+        .sheet(item: $selectedItem) { item in
+            TripItemDetailView(item: item) { _ in
+                Task { await load() }
+            }
         }
         .task { if days == nil { await load() } }
     }
@@ -166,6 +202,8 @@ struct TripDetailView: View {
                 coverCard(item)
             }
         }
+        .contentShape(.rect)
+        .onTapGesture { selectedItem = item }
         .mask {
             GeometryReader { geo in
                 let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
@@ -331,6 +369,8 @@ struct TripDetailView: View {
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
         .background(Color.appForeground.opacity(0.1), in: .rect(cornerRadius: 10))
+        .contentShape(.rect)
+        .onTapGesture { selectedItem = stay.item }
     }
 
     // MARK: - Loading / error
