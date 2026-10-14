@@ -5,36 +5,83 @@
 
 import SwiftUI
 
-/// A card summarizing a trip in the list.
+/// A tall, "story"-style tile summarizing a trip in the grid.
 struct TripCard: View {
     let trip: Trip
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(trip.title)
-                .font(.title3.bold())
-            Text(trip.dateRangeText)
-                .font(.subheadline)
-                .foregroundStyle(Color.appForeground.opacity(0.85))
-            if let description = trip.description, !description.isEmpty {
-                Text(description)
-                    .font(.footnote)
-                    .foregroundStyle(Color.appForeground.opacity(0.7))
-                    .lineLimit(2)
-            }
+        ZStack(alignment: .bottomLeading) {
+            cover
+            scrim
+            info
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Color.appCard.opacity(0.6), in: .rect(cornerRadius: 12))
+        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+        .clipShape(.rect(cornerRadius: 16))
         .overlay {
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 16)
                 .strokeBorder(Color.appForeground.opacity(0.15))
         }
+    }
+
+    /// The cover image, or a styled placeholder when none is set / still loading.
+    @ViewBuilder
+    private var cover: some View {
+        if let urlString = trip.coverImageUrl, let url = URL(string: urlString) {
+            AsyncImage(url: url) { image in
+                image
+                    .resizable()
+                    .scaledToFill()
+            } placeholder: {
+                placeholder
+            }
+        } else {
+            placeholder
+        }
+    }
+
+    /// A warm gradient with a translucent travel glyph, shown when there's no cover art.
+    private var placeholder: some View {
+        LinearGradient(
+            colors: [Color.appCard, Color.appAccent],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay {
+            Image(systemName: "mountain.2.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(Color.appForeground.opacity(0.35))
+                .offset(y: -32)
+        }
+    }
+
+    /// A bottom-up gradient so the text stays legible over any image.
+    private var scrim: some View {
+        LinearGradient(
+            colors: [.clear, .black.opacity(0.65)],
+            startPoint: .center,
+            endPoint: .bottom
+        )
+    }
+
+    private var info: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(trip.title)
+                .font(.headline)
+                .lineLimit(2)
+            Text(trip.dateRangeText)
+                .font(.caption)
+                .foregroundStyle(Color.appForeground.opacity(0.85))
+                .lineLimit(1)
+        }
+        .foregroundStyle(Color.appForeground)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
     }
 }
 
 #Preview {
     TripCard(trip: .sample)
+        .frame(width: 180)
         .padding()
         .appTheme()
 }

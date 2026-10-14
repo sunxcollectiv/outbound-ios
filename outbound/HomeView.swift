@@ -13,6 +13,11 @@ struct HomeView: View {
     @State private var store = TripStore()
     @State private var showingAddTrip = false
 
+    private let columns = [
+        GridItem(.flexible(), spacing: 16),
+        GridItem(.flexible(), spacing: 16)
+    ]
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -55,7 +60,7 @@ struct HomeView: View {
             emptyState
         } else {
             ScrollView {
-                VStack(spacing: 16) {
+                LazyVGrid(columns: columns, spacing: 16) {
                     ForEach(store.trips) { trip in
                         NavigationLink {
                             TripDetailView(trip: trip)
