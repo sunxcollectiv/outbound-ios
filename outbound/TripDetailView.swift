@@ -68,12 +68,25 @@ struct TripDetailView: View {
                 Image(systemName: "chevron.backward")
                     .accessibilityLabel("Back")
             }
-            AppToolbarButton(placement: .topBarTrailing) {
-                showingAddItem = true
-            } label: {
-                Image(systemName: "plus")
-                    .accessibilityLabel("Add Item")
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 4) {
+                    Button {
+                        showingAddItem = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .accessibilityLabel("Add Item")
+                    }
+                    Menu {
+                        Button("Edit Trip", systemImage: "pencil") {}
+                        Button("Share", systemImage: "square.and.arrow.up") {}
+                        Button("Delete Trip", systemImage: "trash", role: .destructive) {}
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .accessibilityLabel("More")
+                    }
+                }
             }
+            .sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $showingAddItem) {
             AddTripItemView(tripId: trip.id, onCreated: { _ in

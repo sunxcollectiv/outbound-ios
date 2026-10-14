@@ -68,3 +68,18 @@ struct AppToolbarButton<Label: View>: ToolbarContent {
         .sharedBackgroundVisibility(.hidden)
     }
 }
+
+/// A navigation-bar menu with the same glass-free styling as `AppToolbarButton`:
+/// a label (typically an icon) that presents a dropdown of actions on tap.
+struct AppToolbarMenu<Label: View, Content: View>: ToolbarContent {
+    let placement: ToolbarItemPlacement
+    @ViewBuilder let content: () -> Content
+    @ViewBuilder let label: () -> Label
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: placement) {
+            Menu(content: content, label: label)
+        }
+        .sharedBackgroundVisibility(.hidden)
+    }
+}
