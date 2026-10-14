@@ -12,14 +12,25 @@ import SwiftUI
 /// the seam for later: each `TripItemKind` will grow its own tailored layout
 /// (e.g. check-in/check-out emphasis for lodging, route/leg details for transit).
 struct TripItemDetailView: View {
-    let item: TripItem
+    @State private var item: TripItem
+
+    /// Called with the updated item after an edit is saved, so the presenter can
+    /// refresh its itinerary.
+    var onSaved: (TripItem) -> Void
 
     @Environment(\.dismiss) private var dismiss
+
+    @State private var showingEdit = false
 
     /// A soft off-white sheet — 90% white so it reads as light without the glare
     /// of pure white — with near-black text for contrast.
     private let sheetBackground = Color(white: 0.9)
     private let sheetForeground = Color(white: 0.1)
+
+    init(item: TripItem, onSaved: @escaping (TripItem) -> Void = { _ in }) {
+        _item = State(initialValue: item)
+        self.onSaved = onSaved
+    }
 
     var body: some View {
         NavigationStack {
@@ -38,12 +49,21 @@ struct TripItemDetailView: View {
             .toolbarBackground(sheetBackground, for: .navigationBar)
             .toolbarColorScheme(.light, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Edit") { showingEdit = true }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
         }
         .presentationBackground(sheetBackground)
+        .sheet(isPresented: $showingEdit) {
+            AddTripItemView(tripId: item.tripId, item: item) { updated in
+                item = updated
+                onSaved(updated)
+            }
+        }
     }
 
     /// The per-kind body. Every kind currently funnels to the same generic layout;

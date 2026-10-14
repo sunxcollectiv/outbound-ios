@@ -93,7 +93,7 @@ struct TripDetailView: View {
             .sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $showingAddItem) {
-            AddTripItemView(tripId: trip.id, onCreated: { _ in
+            AddTripItemView(tripId: trip.id, onSaved: { _ in
                 Task { await load() }
             })
         }
@@ -105,7 +105,9 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: item)
+            TripItemDetailView(item: item) { _ in
+                Task { await load() }
+            }
         }
         .task { if days == nil { await load() } }
     }

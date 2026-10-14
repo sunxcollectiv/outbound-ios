@@ -43,11 +43,13 @@ struct TripItem: Codable, Identifiable, Equatable {
 
 /// Request shapes for a trip's items.
 ///
-///     GET  /trips/{id}/items              -> [TripItemRead]
-///     POST /trips/{id}/items  TripItemCreate -> TripItemRead (201)
+///     GET   /trips/{id}/items                 -> [TripItemRead]
+///     POST  /trips/{id}/items  TripItemCreate -> TripItemRead (201)
+///     PATCH /trips/{id}/items/{itemId} TripItemUpdate -> TripItemRead
 enum TripItemsAPI {
     /// `TripItemCreate` — body for `POST /trips/{id}/items`. Locations come later,
-    /// so only kind, title, times, and notes are sent here.
+    /// so only kind, title, times, and notes are sent here. The same shape is reused
+    /// for edits via `update`.
     struct CreateRequest: Encodable {
         let kind: TripItemKind
         let scope: TripItemScope
@@ -63,6 +65,10 @@ enum TripItemsAPI {
 
     static func create(tripId: String, _ body: CreateRequest) -> Endpoint {
         Endpoint(path: "/trips/\(tripId)/items", method: .post, body: body)
+    }
+
+    static func update(tripId: String, itemId: String, _ body: CreateRequest) -> Endpoint {
+        Endpoint(path: "/trips/\(tripId)/items/\(itemId)", method: .patch, body: body)
     }
 }
 
