@@ -96,7 +96,7 @@ struct TripDetailView: View {
             .sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $showingAddItem) {
-            AddTripItemView(tripId: trip.id, defaultZone: defaultNewItemZone, onSaved: { _ in
+            TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, onSaved: { _ in
                 Task { await load() }
             })
         }

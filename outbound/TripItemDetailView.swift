@@ -70,7 +70,7 @@ struct TripItemDetailView: View {
         }
         .presentationBackground(sheetBackground)
         .sheet(isPresented: $showingEdit) {
-            AddTripItemView(tripId: item.tripId, item: item) { updated in
+            TripItemFormView(tripId: item.tripId, item: item) { updated in
                 item = updated
                 onSaved(updated)
             }

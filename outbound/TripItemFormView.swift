@@ -1,5 +1,5 @@
 //
-//  AddTripItemView.swift
+//  TripItemFormView.swift
 //  outbound
 //
 
@@ -16,7 +16,7 @@ import SwiftUI
 /// Pass an existing `item` to edit it; omit it to create a new one. `defaultZone`
 /// is the zone a new item's start defaults to — the zone the traveler ends up in
 /// after the chronologically last item, so a new item continues from there.
-struct AddTripItemView: View {
+struct TripItemFormView: View {
     let tripId: String
 
     @Environment(\.dismiss) private var dismiss
@@ -355,5 +355,5 @@ struct AddTripItemView: View {
 }
 
 #Preview {
-    AddTripItemView(tripId: "sample")
+    TripItemFormView(tripId: "sample")
 }
