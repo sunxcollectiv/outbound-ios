@@ -13,8 +13,9 @@ import SwiftUI
 /// The zone is chosen separately, so changing it keeps the wall time and only moves
 /// the underlying instant — matching the server's "right time, wrong zone" fix.
 ///
-/// Pass an existing `item` to edit it; omit it to create a new one. `dayTimeZones`
-/// are the zones of the day being added to (the first is the default for new items).
+/// Pass an existing `item` to edit it; omit it to create a new one. `defaultZone`
+/// is the zone a new item's start defaults to — the zone the traveler ends up in
+/// after the chronologically last item, so a new item continues from there.
 struct AddTripItemView: View {
     let tripId: String
 
@@ -23,8 +24,8 @@ struct AddTripItemView: View {
     /// The item being edited, or `nil` when creating a new one.
     private let item: TripItem?
 
-    /// The zones of the day this item is being added to; the first is the default.
-    private let dayTimeZones: [TimeZone]
+    /// The zone a new item's start defaults to (from the last item chronologically).
+    private let defaultZone: TimeZone?
 
     /// Called with the created or updated item after a successful save.
     var onSaved: (TripItem) -> Void
@@ -65,10 +66,10 @@ struct AddTripItemView: View {
     /// The zone actually used for the end: an explicit choice, else the start zone.
     private var effectiveEndZone: TimeZone { endZone ?? startZone }
 
-    init(tripId: String, item: TripItem? = nil, dayTimeZones: [TimeZone] = [], onSaved: @escaping (TripItem) -> Void = { _ in }) {
+    init(tripId: String, item: TripItem? = nil, defaultZone: TimeZone? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }) {
         self.tripId = tripId
         self.item = item
-        self.dayTimeZones = dayTimeZones
+        self.defaultZone = defaultZone
         self.onSaved = onSaved
         _kind = State(initialValue: item?.kind ?? .activity)
         _scope = State(initialValue: item?.scope ?? .group)
@@ -80,7 +81,7 @@ struct AddTripItemView: View {
         let start = Self.wallClock(of: item?.startsAt, in: item?.startTimezone) ?? Date()
         _startsAt = State(initialValue: start)
         _endsAt = State(initialValue: Self.wallClock(of: item?.endsAt, in: item?.endTimezone) ?? start)
-        _startZone = State(initialValue: item?.startTimezone ?? dayTimeZones.first ?? .current)
+        _startZone = State(initialValue: item?.startTimezone ?? defaultZone ?? .current)
         _endZone = State(initialValue: item?.endTimezone)
     }
 

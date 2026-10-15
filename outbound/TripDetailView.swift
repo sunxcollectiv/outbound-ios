@@ -96,7 +96,7 @@ struct TripDetailView: View {
             .sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $showingAddItem) {
-            AddTripItemView(tripId: trip.id, dayTimeZones: selectedDayTimeZones, onSaved: { _ in
+            AddTripItemView(tripId: trip.id, defaultZone: defaultNewItemZone, onSaved: { _ in
                 Task { await load() }
             })
         }
@@ -411,10 +411,21 @@ struct TripDetailView: View {
         .padding()
     }
 
-    /// The zones of the currently shown day, used to default the add-item zone picker.
+    /// The zones of the currently shown day, used as a fallback for the add-item picker.
     private var selectedDayTimeZones: [TimeZone] {
         guard let date = days?.first(where: { $0.dayNumber == selection })?.date else { return [] }
         return dayTimeZones[date] ?? []
+    }
+
+    /// The zone a newly added item should default to: the zone the traveler is in at the
+    /// end of the chronologically last item (its end zone, else its start zone). Falls
+    /// back to the selected day's zone when the trip has no items yet.
+    private var defaultNewItemZone: TimeZone? {
+        let items = (days ?? []).flatMap { $0.items + $0.lodging.map(\.item) }
+        if let last = items.max(by: { ($0.endsAt ?? $0.startsAt) < ($1.endsAt ?? $1.startsAt) }) {
+            return last.endTimezone ?? last.startTimezone
+        }
+        return selectedDayTimeZones.first
     }
 
     private func load() async {

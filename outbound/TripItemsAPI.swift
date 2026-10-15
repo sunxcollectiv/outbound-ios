@@ -83,11 +83,14 @@ extension TripItem {
         return Self.zoneAbbreviation(endTimezone, at: endsAt)
     }
 
-    /// A short, localized name for a zone at a given moment (handles DST), e.g. "PDT".
+    /// A short code for a zone at a given moment (handles DST), e.g. "EST"/"EDT".
+    ///
+    /// Uses `TimeZone.abbreviation(for:)` so we get three-letter codes rather than the
+    /// "GMT+11"-style text `.specificName(.short)` falls back to for some zones. Zones
+    /// that have no code of their own still surface as a GMT offset here; that's the one
+    /// remaining case to tidy up as we extend coverage.
     static func zoneAbbreviation(_ zone: TimeZone, at date: Date) -> String {
-        var style = Date.FormatStyle.dateTime.timeZone(.specificName(.short))
-        style.timeZone = zone
-        return date.formatted(style)
+        zone.abbreviation(for: date) ?? zone.identifier
     }
 }
 
