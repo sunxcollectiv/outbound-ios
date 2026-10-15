@@ -24,8 +24,8 @@ enum TripItemScope: String, Codable, CaseIterable, Identifiable {
     var label: String { rawValue.capitalized }
 }
 
-/// `TripItemRead` from the backend. Nested location/traveler objects are omitted
-/// for now — they'll be added when the itinerary is wired up.
+/// `TripItemRead` from the backend. `place`/`endPlace` are the associated places
+/// (end place is used by transit for the destination); traveler objects are omitted.
 struct TripItem: Codable, Identifiable, Equatable {
     let id: String
     let tripId: String
@@ -37,6 +37,8 @@ struct TripItem: Codable, Identifiable, Equatable {
     var startsAt: Date
     var endsAt: Date?
     var imageUrl: String?
+    var place: Place?
+    var endPlace: Place?
     let createdAt: Date
     let updatedAt: Date
 }
@@ -100,6 +102,8 @@ extension TripItem {
         startsAt: .now,
         endsAt: nil,
         imageUrl: nil,
+        place: nil,
+        endPlace: nil,
         createdAt: .now,
         updatedAt: .now
     )

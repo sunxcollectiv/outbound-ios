@@ -22,6 +22,11 @@ struct TripItemDetailView: View {
 
     @State private var showingEdit = false
 
+    /// Google Place Details for the item's place and (for transit) its destination,
+    /// loaded on appear when a google place id is present.
+    @State private var startDetails: PlaceDetails?
+    @State private var endDetails: PlaceDetails?
+
     /// A soft off-white sheet — 90% white so it reads as light without the glare
     /// of pure white — with near-black text for contrast.
     private let sheetBackground = Color(white: 0.9)
@@ -44,6 +49,7 @@ struct TripItemDetailView: View {
             }
             .foregroundStyle(sheetForeground)
             .tint(Color.appAccent)
+            .task(id: placeTaskKey) { await loadPlaceDetails() }
             .navigationTitle(item.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(sheetBackground, for: .navigationBar)
@@ -81,6 +87,17 @@ struct TripItemDetailView: View {
     private var genericDetail: some View {
         VStack(alignment: .leading, spacing: 24) {
             header
+
+            if item.kind == .transit {
+                if let place = item.place {
+                    placeSection(title: "From", place: place, details: startDetails)
+                }
+                if let endPlace = item.endPlace {
+                    placeSection(title: "To", place: endPlace, details: endDetails)
+                }
+            } else if let place = item.place {
+                placeSection(title: "Location", place: place, details: startDetails)
+            }
 
             detailSection(title: startLabel) {
                 Text(item.startsAt, format: .dateTime.weekday().month().day().hour().minute())
@@ -151,6 +168,112 @@ struct TripItemDetailView: View {
 
     private var startLabel: String { item.kind == .lodging ? "Check-in" : "Starts" }
     private var endLabel: String { item.kind == .lodging ? "Check-out" : "Ends" }
+
+    // MARK: - Place details
+
+    /// Changes whenever the item's place(s) change, so the loader re-runs after an edit.
+    private var placeTaskKey: String {
+        "\(item.place?.id ?? "")|\(item.endPlace?.id ?? "")"
+    }
+
+    /// Loads Google Place Details for whichever places have a google place id. Failures
+    /// are ignored — the section falls back to the stored place fields.
+    private func loadPlaceDetails() async {
+        startDetails = nil
+        endDetails = nil
+        if let gid = item.place?.googlePlaceId {
+            startDetails = try? await GooglePlacesClient.shared.placeDetails(placeId: gid)
+        }
+        if item.kind == .transit, let gid = item.endPlace?.googlePlaceId {
+            endDetails = try? await GooglePlacesClient.shared.placeDetails(placeId: gid)
+        }
+    }
+
+    /// A place block: name, type, rating, address, hours, and contact links. Uses live
+    /// Google details when available, otherwise the place's stored fields.
+    @ViewBuilder
+    private func placeSection(title: String, place: Place, details: PlaceDetails?) -> some View {
+        let name = details?.name ?? place.name
+        let address = details?.address ?? place.address
+
+        detailSection(title: title) {
+            VStack(alignment: .leading, spacing: 10) {
+                if let name, name != item.title {
+                    Text(name).font(.body.weight(.semibold))
+                }
+
+                if details?.typeLabel != nil || details?.rating != nil {
+                    HStack(spacing: 10) {
+                        if let type = details?.typeLabel {
+                            Text(type)
+                        }
+                        if let rating = details?.rating {
+                            HStack(spacing: 3) {
+                                Image(systemName: "star.fill").foregroundStyle(.yellow)
+                                Text(String(format: "%.1f", rating))
+                                if let count = details?.userRatingCount {
+                                    Text("(\(count.formatted()))").foregroundStyle(sheetForeground.opacity(0.6))
+                                }
+                            }
+                        }
+                    }
+                    .font(.subheadline)
+                }
+
+                if let address {
+                    Text(address).foregroundStyle(sheetForeground.opacity(0.85))
+                }
+
+                if let details, !details.weekdayHours.isEmpty {
+                    hoursDisclosure(details)
+                }
+
+                contactLinks(details)
+            }
+        }
+    }
+
+    private func hoursDisclosure(_ details: PlaceDetails) -> some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(details.weekdayHours, id: \.self) { line in
+                    Text(line).font(.subheadline)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 4)
+        } label: {
+            HStack(spacing: 8) {
+                Text("Hours").font(.subheadline.weight(.medium))
+                if let openNow = details.openNow {
+                    Text(openNow ? "Open now" : "Closed")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background((openNow ? Color.green : Color.red).opacity(0.18), in: .capsule)
+                        .foregroundStyle(openNow ? Color.green : Color.red)
+                }
+            }
+        }
+        .tint(sheetForeground)
+    }
+
+    @ViewBuilder
+    private func contactLinks(_ details: PlaceDetails?) -> some View {
+        if let phone = details?.phone,
+           let url = URL(string: "tel://\(phone.filter { !$0.isWhitespace })") {
+            Link(destination: url) { Label(phone, systemImage: "phone.fill") }
+                .font(.subheadline)
+        }
+        if let website = details?.website, let url = URL(string: website) {
+            Link(destination: url) { Label("Website", systemImage: "globe") }
+                .font(.subheadline)
+        }
+        if let maps = details?.mapsURL, let url = URL(string: maps) {
+            Link(destination: url) { Label("Open in Google Maps", systemImage: "map.fill") }
+                .font(.subheadline)
+        }
+    }
 }
 
 #Preview {

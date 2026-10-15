@@ -30,6 +30,24 @@ struct PlaceSuggestion: Identifiable, Equatable {
     var id: String { placeId }
 }
 
+/// Rich details for a single place, fetched on demand from Google Place Details.
+/// Everything is optional since any given place may not have, say, a phone or hours.
+struct PlaceDetails: Equatable {
+    let name: String?
+    let address: String?
+    /// Human-readable primary type, e.g. "Observation Deck".
+    let typeLabel: String?
+    /// Whether the place is open right now, if Google reports it.
+    let openNow: Bool?
+    /// One line per weekday, e.g. "Monday: 9:00 AM – 11:00 PM".
+    let weekdayHours: [String]
+    let phone: String?
+    let website: String?
+    let rating: Double?
+    let userRatingCount: Int?
+    let mapsURL: String?
+}
+
 /// Talks to the Google Places API (New) for place search.
 ///
 /// This is a separate service from the Outbound backend — a different host that
@@ -66,8 +84,40 @@ final class GooglePlacesClient {
         return key
     }
 
+    /// Place Details (New) is a GET with a per-place URL. Google bills by field, so the
+    /// mask asks only for what the detail sheet shows.
+    private static let detailsFieldMask = [
+        "displayName",
+        "formattedAddress",
+        "regularOpeningHours.weekdayDescriptions",
+        "currentOpeningHours.openNow",
+        "internationalPhoneNumber",
+        "websiteUri",
+        "rating",
+        "userRatingCount",
+        "primaryTypeDisplayName",
+        "googleMapsUri",
+    ].joined(separator: ",")
+
     private struct AutocompleteRequest: Encodable {
         let input: String
+    }
+
+    private struct DetailsResponse: Decodable {
+        struct LocalizedText: Decodable { let text: String }
+        struct OpeningHours: Decodable { let weekdayDescriptions: [String]? }
+        struct CurrentHours: Decodable { let openNow: Bool? }
+
+        let displayName: LocalizedText?
+        let formattedAddress: String?
+        let primaryTypeDisplayName: LocalizedText?
+        let regularOpeningHours: OpeningHours?
+        let currentOpeningHours: CurrentHours?
+        let internationalPhoneNumber: String?
+        let websiteUri: String?
+        let rating: Double?
+        let userRatingCount: Int?
+        let googleMapsUri: String?
     }
 
     private struct AutocompleteResponse: Decodable {
@@ -124,5 +174,34 @@ final class GooglePlacesClient {
                 secondaryText: prediction.structuredFormat?.secondaryText?.text
             )
         }
+    }
+
+    /// Fetches rich details (address, hours, phone, website, rating, …) for a Google
+    /// place id. Throws on network or decoding failures.
+    func placeDetails(placeId: String) async throws -> PlaceDetails {
+        guard !apiKey.isEmpty else {
+            throw GooglePlacesError.missingAPIKey
+        }
+
+        let url = URL(string: "https://places.googleapis.com/v1/places/\(placeId)")!
+        var request = URLRequest(url: url)
+        request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
+        request.setValue(Self.detailsFieldMask, forHTTPHeaderField: "X-Goog-FieldMask")
+
+        let (data, _) = try await session.data(for: request)
+        let r = try decoder.decode(DetailsResponse.self, from: data)
+
+        return PlaceDetails(
+            name: r.displayName?.text,
+            address: r.formattedAddress,
+            typeLabel: r.primaryTypeDisplayName?.text,
+            openNow: r.currentOpeningHours?.openNow,
+            weekdayHours: r.regularOpeningHours?.weekdayDescriptions ?? [],
+            phone: r.internationalPhoneNumber,
+            website: r.websiteUri,
+            rating: r.rating,
+            userRatingCount: r.userRatingCount,
+            mapsURL: r.googleMapsUri
+        )
     }
 }
