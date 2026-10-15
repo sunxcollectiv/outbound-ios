@@ -13,6 +13,9 @@ struct TripDetailView: View {
     @State private var trip: Trip
 
     @State private var days: [ItineraryDay]?
+    /// The trip's days keyed by date, for the zones to default the add-item picker to.
+    /// Loaded alongside the itinerary (which doesn't carry zones yet) and joined on date.
+    @State private var dayTimeZones: [String: [TimeZone]] = [:]
     @State private var selection: Int
     @State private var errorMessage: String?
     @State private var showingAddItem = false
@@ -93,7 +96,7 @@ struct TripDetailView: View {
             .sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $showingAddItem) {
-            AddTripItemView(tripId: trip.id, onSaved: { _ in
+            AddTripItemView(tripId: trip.id, dayTimeZones: selectedDayTimeZones, onSaved: { _ in
                 Task { await load() }
             })
         }
@@ -262,7 +265,7 @@ struct TripDetailView: View {
                 }
                 .overlay(alignment: .top) {
                     HStack {
-                        Text(item.startsAt, format: .dateTime.hour().minute())
+                        Text(item.startText(.dateTime.hour().minute()))
                             .monospacedDigit()
                         Spacer()
                         Text(statusLabel(item))
@@ -307,7 +310,7 @@ struct TripDetailView: View {
     private func transitCard(_ item: TripItem) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(item.startsAt, format: .dateTime.hour().minute())
+                Text(item.startText(.dateTime.hour().minute()))
                     .monospacedDigit()
                 Spacer()
                 Text(statusLabel(item))
@@ -408,6 +411,12 @@ struct TripDetailView: View {
         .padding()
     }
 
+    /// The zones of the currently shown day, used to default the add-item zone picker.
+    private var selectedDayTimeZones: [TimeZone] {
+        guard let date = days?.first(where: { $0.dayNumber == selection })?.date else { return [] }
+        return dayTimeZones[date] ?? []
+    }
+
     private func load() async {
         do {
             let itinerary = try await api.send(TripsAPI.itinerary(tripId: trip.id), as: Itinerary.self)
@@ -416,6 +425,11 @@ struct TripDetailView: View {
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+        // The day zones are a best-effort join for the add-item picker; a failure here
+        // shouldn't block the itinerary, so it's loaded separately and ignored on error.
+        if let tripDays = try? await api.send(TripDaysAPI.list(tripId: trip.id), as: [TripDay].self) {
+            dayTimeZones = Dictionary(tripDays.map { ($0.date, $0.timeZones) }, uniquingKeysWith: { first, _ in first })
         }
     }
 }

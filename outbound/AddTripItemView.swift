@@ -45,10 +45,14 @@ struct AddTripItemView: View {
 
     /// The place for this item, picked via the title search → sent as `place_id`.
     @State private var startPlace: Place?
+    /// The start place's time zone from Google, used to drive `startZone` when picked.
+    @State private var startPlaceZone: TimeZone?
     /// The destination place for transit items → sent as `end_place_id`. The text it
     /// searches on is kept separately since it isn't the item's title.
     @State private var endPlace: Place?
     @State private var endPlaceText = ""
+    /// The destination place's time zone from Google, used to drive `endZone`.
+    @State private var endPlaceZone: TimeZone?
 
     private enum TimeField { case start, end }
 
@@ -113,7 +117,8 @@ struct AddTripItemView: View {
                         PlaceSearchField(
                             placeholder: kind == .transit ? "Title or search origin" : "Title or search a place",
                             text: $title,
-                            resolvedPlace: $startPlace
+                            resolvedPlace: $startPlace,
+                            resolvedTimeZone: $startPlaceZone
                         )
 
                         if kind == .transit {
@@ -124,7 +129,8 @@ struct AddTripItemView: View {
                                 PlaceSearchField(
                                     placeholder: "Search destination",
                                     text: $endPlaceText,
-                                    resolvedPlace: $endPlace
+                                    resolvedPlace: $endPlace,
+                                    resolvedTimeZone: $endPlaceZone
                                 )
                             }
                         }
@@ -140,7 +146,7 @@ struct AddTripItemView: View {
                                     }
                             }
 
-                            zoneRow(title: "Time zone", selection: $startZone)
+                            zoneNote(startZone)
 
                             Divider().overlay(Color.appForeground.opacity(0.2))
 
@@ -155,7 +161,7 @@ struct AddTripItemView: View {
                                         .datePickerStyle(.graphical)
                                         .labelsHidden()
                                 }
-                                zoneRow(title: "End time zone", selection: endZoneBinding)
+                                zoneNote(effectiveEndZone)
                             }
                         }
                         .padding(14)
@@ -193,12 +199,12 @@ struct AddTripItemView: View {
                     }
                 }
             }
-            // A chosen place is authoritative for the zone, so follow it when picked.
-            .onChange(of: startPlace) { _, place in
-                if let zone = place?.timeZone { startZone = zone }
+            // A chosen place is authoritative for the zone, so follow it when resolved.
+            .onChange(of: startPlaceZone) { _, zone in
+                if let zone { startZone = zone }
             }
-            .onChange(of: endPlace) { _, place in
-                if let zone = place?.timeZone { endZone = zone }
+            .onChange(of: endPlaceZone) { _, zone in
+                if let zone { endZone = zone }
             }
         }
         .appTheme()
@@ -220,49 +226,21 @@ struct AddTripItemView: View {
         .buttonStyle(.plain)
     }
 
-    /// A row with a menu of candidate zones (the day's zones, any picked place's zone,
-    /// and the device zone), showing the current choice.
-    private func zoneRow(title: String, selection: Binding<TimeZone>) -> some View {
+    /// A read-only caption noting the time zone a time is in, sitting under its row.
+    /// Zone selection is driven by the picked place for now; manual choice comes later.
+    private func zoneNote(_ zone: TimeZone) -> some View {
         HStack {
-            Text(title)
             Spacer()
-            Menu {
-                ForEach(zoneOptions, id: \.identifier) { zone in
-                    Button(zoneLabel(zone)) { selection.wrappedValue = zone }
-                }
-            } label: {
-                Text(zoneLabel(selection.wrappedValue))
-                    .foregroundStyle(Color.appAccent)
-            }
+            Text(zoneLabel(zone))
+                .font(.caption)
+                .foregroundStyle(Color.appForeground.opacity(0.6))
         }
-    }
-
-    /// Writes to `endZone`; reads it falling back to the start zone.
-    private var endZoneBinding: Binding<TimeZone> {
-        Binding(get: { effectiveEndZone }, set: { endZone = $0 })
-    }
-
-    /// Candidate zones for the pickers, de-duplicated and in priority order.
-    private var zoneOptions: [TimeZone] {
-        var seen = Set<String>()
-        var result: [TimeZone] = []
-        func add(_ zone: TimeZone?) {
-            guard let zone, seen.insert(zone.identifier).inserted else { return }
-            result.append(zone)
-        }
-        dayTimeZones.forEach(add)
-        add(startPlace?.timeZone)
-        add(endPlace?.timeZone)
-        add(startZone)
-        add(endZone)
-        add(.current)
-        return result
     }
 
     /// A friendly label for a zone, e.g. "Tokyo (JST)".
     private func zoneLabel(_ zone: TimeZone) -> String {
-        let city = zone.identifier.split(separator: "/").last
-            .map { $0.replacingOccurrences(of: "_", with: " ") } ?? Substring(zone.identifier)
+        let city = (zone.identifier.split(separator: "/").last.map(String.init) ?? zone.identifier)
+            .replacingOccurrences(of: "_", with: " ")
         return "\(city) (\(TripItem.zoneAbbreviation(zone, at: startsAt)))"
     }
 

@@ -87,8 +87,8 @@ extension ItineraryDay {
             let date = Calendar.current.date(from: components) ?? Date(timeIntervalSince1970: 0)
             return TripItem(
                 id: "\(title)", tripId: "sample", kind: kind, scope: .group,
-                title: title, notes: notes, tags: tags, startsAt: date, endsAt: nil,
-                imageUrl: image, createdAt: date, updatedAt: date
+                title: title, notes: notes, tags: tags, startsAt: date, startTimezone: .current,
+                endsAt: nil, endTimezone: nil, imageUrl: image, createdAt: date, updatedAt: date
             )
         }
         return [

@@ -65,14 +65,16 @@ extension Trip {
 ///     POST  /trips  TripCreate -> TripRead (201)
 ///     PATCH /trips/{id} TripUpdate -> TripRead
 enum TripsAPI {
-    /// `TripCreate` — body for `POST /trips`. Timezone and locations are derived from
-    /// the trip's items later, so only name, dates, and description are sent here.
+    /// `TripCreate` — body for `POST /trips`. An optional `timezone` (IANA) seeds every
+    /// day of the trip with that zone, so items can be added without picking a zone each
+    /// time; it's sent on creation and left nil for edits (PATCH doesn't take it).
     /// The same shape is reused for edits via `update`.
     struct CreateRequest: Encodable {
         let title: String
         let description: String?
         let startDate: String
         let endDate: String
+        var timezone: String?
     }
 
     static let list = Endpoint(path: "/trips")

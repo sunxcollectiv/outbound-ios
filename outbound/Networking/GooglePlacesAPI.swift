@@ -181,6 +181,28 @@ final class GooglePlacesClient {
         }
     }
 
+    /// Fetches just the IANA time zone for a Google place id (a cheap, single-field
+    /// request). Returns nil if Google doesn't report one. Throws on network failures.
+    func placeTimeZone(placeId: String) async throws -> TimeZone? {
+        guard !apiKey.isEmpty else {
+            throw GooglePlacesError.missingAPIKey
+        }
+
+        struct TimeZoneResponse: Decodable {
+            struct Zone: Decodable { let id: String? }
+            let timeZone: Zone?
+        }
+
+        let url = URL(string: "https://places.googleapis.com/v1/places/\(placeId)")!
+        var request = URLRequest(url: url)
+        request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
+        request.setValue("timeZone", forHTTPHeaderField: "X-Goog-FieldMask")
+
+        let (data, _) = try await session.data(for: request)
+        let response = try decoder.decode(TimeZoneResponse.self, from: data)
+        return response.timeZone?.id.flatMap(TimeZone.init(identifier:))
+    }
+
     /// Fetches rich details (address, hours, phone, website, rating, …) for a Google
     /// place id. Throws on network or decoding failures.
     func placeDetails(placeId: String) async throws -> PlaceDetails {
