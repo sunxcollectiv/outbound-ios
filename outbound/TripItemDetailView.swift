@@ -57,9 +57,11 @@ struct TripItemDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Edit") { showingEdit = true }
+                        .buttonStyle(DarkPillButtonStyle())
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                        .buttonStyle(DarkPillButtonStyle())
                 }
             }
         }
@@ -273,6 +275,21 @@ struct TripItemDetailView: View {
             Link(destination: url) { Label("Open in Google Maps", systemImage: "map.fill") }
                 .font(.subheadline)
         }
+    }
+}
+
+/// A compact toolbar button: light text on a dark pill, so the top actions read
+/// clearly against the light sheet background.
+private struct DarkPillButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .fixedSize()
+            .foregroundStyle(Color(white: 0.95))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(Color(white: 0.15), in: .capsule)
+            .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
 
