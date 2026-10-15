@@ -101,8 +101,8 @@ struct TripDetailView: View {
             .sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $showingAddItem) {
-            TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, onSaved: { _ in
-                Task { await load() }
+            TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, onSaved: { saved in
+                Task { await load(focusItemId: saved.id) }
             })
         }
         .sheet(isPresented: $showingEditTrip) {
@@ -113,8 +113,8 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: item) { _ in
-                Task { await load() }
+            TripItemDetailView(item: item) { saved in
+                Task { await load(focusItemId: saved.id) }
             }
         }
         .task { if days == nil { await load() } }
@@ -454,11 +454,28 @@ struct TripDetailView: View {
         return selectedDayTimeZones.first
     }
 
-    private func load() async {
+    /// The day to show after a reload: the day holding the just-saved item when given,
+    /// otherwise the current day if it still exists, falling back to the first day.
+    private func resolveSelection(in days: [ItineraryDay], focusItemId: String?) -> Int {
+        if let focusItemId,
+           let day = days.first(where: { day in
+               (day.items + day.lodging.map(\.item)).contains { $0.id == focusItemId }
+           }) {
+            return day.dayNumber
+        }
+        if days.contains(where: { $0.dayNumber == selection }) {
+            return selection
+        }
+        return days.first?.dayNumber ?? 1
+    }
+
+    /// Reloads the itinerary. Pass `focusItemId` after a save to land on the day that
+    /// item sits on; otherwise the current day is kept (falling back to the first).
+    private func load(focusItemId: String? = nil) async {
         do {
             let itinerary = try await api.send(TripsAPI.itinerary(tripId: trip.id), as: Itinerary.self)
             days = itinerary.days
-            selection = itinerary.days.first?.dayNumber ?? 1
+            selection = resolveSelection(in: itinerary.days, focusItemId: focusItemId)
             errorMessage = nil
             await loadPlaceDetails(for: itinerary.days)
         } catch {
