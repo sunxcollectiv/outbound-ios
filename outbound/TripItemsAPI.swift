@@ -24,8 +24,8 @@ enum TripItemScope: String, Codable, CaseIterable, Identifiable {
     var label: String { rawValue.capitalized }
 }
 
-/// `TripItemRead` from the backend. Nested location/traveler objects are omitted
-/// for now — they'll be added when the itinerary is wired up.
+/// `TripItemRead` from the backend. `place`/`endPlace` are the associated places
+/// (end place is used by transit for the destination); traveler objects are omitted.
 struct TripItem: Codable, Identifiable, Equatable {
     let id: String
     let tripId: String
@@ -37,6 +37,8 @@ struct TripItem: Codable, Identifiable, Equatable {
     var startsAt: Date
     var endsAt: Date?
     var imageUrl: String?
+    var place: Place?
+    var endPlace: Place?
     let createdAt: Date
     let updatedAt: Date
 }
@@ -47,8 +49,8 @@ struct TripItem: Codable, Identifiable, Equatable {
 ///     POST  /trips/{id}/items  TripItemCreate -> TripItemRead (201)
 ///     PATCH /trips/{id}/items/{itemId} TripItemUpdate -> TripItemRead
 enum TripItemsAPI {
-    /// `TripItemCreate` — body for `POST /trips/{id}/items`. Locations come later,
-    /// so only kind, scope, title, times, and notes are sent here.
+    /// `TripItemCreate` — body for `POST /trips/{id}/items`. `placeId`/`endPlaceId` are
+    /// internal place UUIDs (from `POST /places`); nil values are omitted from the JSON.
     struct CreateRequest: Encodable {
         let kind: TripItemKind
         let scope: TripItemScope
@@ -56,17 +58,22 @@ enum TripItemsAPI {
         let notes: String?
         let startsAt: Date
         let endsAt: Date?
+        let placeId: String?
+        let endPlaceId: String?
     }
 
     /// `TripItemUpdate` — body for `PATCH /trips/{id}/items/{itemId}`. Every field is
     /// optional server-side. Notably it has **no `scope`** (the backend rejects extra
-    /// fields), so scope isn't editable through this endpoint.
+    /// fields), so scope isn't editable through this endpoint. Nil place ids are omitted,
+    /// leaving any existing places untouched.
     struct UpdateRequest: Encodable {
         let kind: TripItemKind
         let title: String
         let notes: String?
         let startsAt: Date
         let endsAt: Date?
+        let placeId: String?
+        let endPlaceId: String?
     }
 
     static func list(tripId: String) -> Endpoint {
@@ -95,6 +102,8 @@ extension TripItem {
         startsAt: .now,
         endsAt: nil,
         imageUrl: nil,
+        place: nil,
+        endPlace: nil,
         createdAt: .now,
         updatedAt: .now
     )

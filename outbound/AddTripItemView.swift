@@ -30,6 +30,13 @@ struct AddTripItemView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
+    /// The place for this item, picked via the title search → sent as `place_id`.
+    @State private var startPlace: Place?
+    /// The destination place for transit items → sent as `end_place_id`. The text it
+    /// searches on is kept separately since it isn't the item's title.
+    @State private var endPlace: Place?
+    @State private var endPlaceText = ""
+
     private enum TimeField { case start, end }
 
     private let api = APIClient.shared
@@ -81,9 +88,24 @@ struct AddTripItemView: View {
                             .pickerStyle(.segmented)
                         }
 
-                        TextField("Title", text: $title)
-                            .textInputAutocapitalization(.words)
-                            .appField()
+                        PlaceSearchField(
+                            placeholder: kind == .transit ? "Title or search origin" : "Title or search a place",
+                            text: $title,
+                            resolvedPlace: $startPlace
+                        )
+
+                        if kind == .transit {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Destination")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.appForeground.opacity(0.8))
+                                PlaceSearchField(
+                                    placeholder: "Search destination",
+                                    text: $endPlaceText,
+                                    resolvedPlace: $endPlace
+                                )
+                            }
+                        }
 
                         VStack(spacing: 8) {
                             timeRow(title: startLabel, date: startsAt, field: .start)
@@ -178,16 +200,22 @@ struct AddTripItemView: View {
                 let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
                 let resolvedNotes = trimmedNotes.isEmpty ? nil : trimmedNotes
                 let resolvedEnd = hasEndTime ? endsAt : nil
+                // End place only applies to transit (origin → destination).
+                let endPlaceId = kind == .transit ? endPlace?.id : nil
 
                 let endpoint: Endpoint
                 if let item {
                     // The update endpoint has no `scope` field, so it isn't sent here.
+                    // Place ids are omitted when nil, so an edit that doesn't touch the
+                    // place search leaves the existing places unchanged.
                     let body = TripItemsAPI.UpdateRequest(
                         kind: kind,
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startsAt,
-                        endsAt: resolvedEnd
+                        endsAt: resolvedEnd,
+                        placeId: startPlace?.id,
+                        endPlaceId: endPlaceId
                     )
                     endpoint = TripItemsAPI.update(tripId: tripId, itemId: item.id, body)
                 } else {
@@ -197,7 +225,9 @@ struct AddTripItemView: View {
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startsAt,
-                        endsAt: resolvedEnd
+                        endsAt: resolvedEnd,
+                        placeId: startPlace?.id,
+                        endPlaceId: endPlaceId
                     )
                     endpoint = TripItemsAPI.create(tripId: tripId, body)
                 }
