@@ -44,8 +44,10 @@ struct TripItemFormView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    /// The place for this item, picked via the title search → sent as `place_id`.
+    /// The place for this item, picked via the location search → sent as `place_id`.
     @State private var startPlace: Place?
+    /// The text the location field searches on, kept separate from the item's title.
+    @State private var startPlaceText: String
     /// The start place's time zone from Google, used to drive `startZone` when picked.
     @State private var startPlaceZone: TimeZone?
     /// The destination place for transit items → sent as `end_place_id`. The text it
@@ -74,6 +76,9 @@ struct TripItemFormView: View {
         _kind = State(initialValue: item?.kind ?? .activity)
         _scope = State(initialValue: item?.scope ?? .group)
         _title = State(initialValue: item?.title ?? "")
+        // Prefill the location with the existing place name (if the backend has enriched
+        // it); leaving `startPlace` nil so an untouched edit keeps the current place.
+        _startPlaceText = State(initialValue: item?.place?.name ?? "")
         _hasEndTime = State(initialValue: item?.endsAt != nil)
         _notes = State(initialValue: item?.notes ?? "")
         // Load the item's wall clock onto the device-zone canvas (so the picker shows
@@ -115,12 +120,21 @@ struct TripItemFormView: View {
                             .pickerStyle(.segmented)
                         }
 
-                        PlaceSearchField(
-                            placeholder: kind == .transit ? "Title or search origin" : "Title or search a place",
-                            text: $title,
-                            resolvedPlace: $startPlace,
-                            resolvedTimeZone: $startPlaceZone
-                        )
+                        TextField("Title", text: $title)
+                            .textInputAutocapitalization(.words)
+                            .appField()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(kind == .transit ? "Origin" : "Location")
+                                .font(.subheadline)
+                                .foregroundStyle(Color.appForeground.opacity(0.8))
+                            PlaceSearchField(
+                                placeholder: kind == .transit ? "Search origin" : "Search a place",
+                                text: $startPlaceText,
+                                resolvedPlace: $startPlace,
+                                resolvedTimeZone: $startPlaceZone
+                            )
+                        }
 
                         if kind == .transit {
                             VStack(alignment: .leading, spacing: 8) {
