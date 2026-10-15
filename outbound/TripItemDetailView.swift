@@ -59,10 +59,12 @@ struct TripItemDetailView: View {
                     Button("Edit") { showingEdit = true }
                         .buttonStyle(DarkPillButtonStyle())
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                         .buttonStyle(DarkPillButtonStyle())
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .presentationBackground(sheetBackground)
