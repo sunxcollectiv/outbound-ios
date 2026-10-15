@@ -46,6 +46,8 @@ struct PlaceDetails: Equatable {
     let rating: Double?
     let userRatingCount: Int?
     let mapsURL: String?
+    let latitude: Double?
+    let longitude: Double?
 }
 
 /// Talks to the Google Places API (New) for place search.
@@ -97,6 +99,7 @@ final class GooglePlacesClient {
         "userRatingCount",
         "primaryTypeDisplayName",
         "googleMapsUri",
+        "location",
     ].joined(separator: ",")
 
     private struct AutocompleteRequest: Encodable {
@@ -107,6 +110,7 @@ final class GooglePlacesClient {
         struct LocalizedText: Decodable { let text: String }
         struct OpeningHours: Decodable { let weekdayDescriptions: [String]? }
         struct CurrentHours: Decodable { let openNow: Bool? }
+        struct Location: Decodable { let latitude: Double?; let longitude: Double? }
 
         let displayName: LocalizedText?
         let formattedAddress: String?
@@ -118,6 +122,7 @@ final class GooglePlacesClient {
         let rating: Double?
         let userRatingCount: Int?
         let googleMapsUri: String?
+        let location: Location?
     }
 
     private struct AutocompleteResponse: Decodable {
@@ -201,7 +206,9 @@ final class GooglePlacesClient {
             website: r.websiteUri,
             rating: r.rating,
             userRatingCount: r.userRatingCount,
-            mapsURL: r.googleMapsUri
+            mapsURL: r.googleMapsUri,
+            latitude: r.location?.latitude,
+            longitude: r.location?.longitude
         )
     }
 }

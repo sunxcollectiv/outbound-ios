@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import MapKit
 
 /// A sheet showing the details of a single trip item — an activity, a piece of
 /// lodging, or a transit leg.
@@ -233,8 +234,38 @@ struct TripItemDetailView: View {
                 }
 
                 contactLinks(details)
+
+                if let coordinate = coordinate(place: place, details: details) {
+                    placeMap(coordinate: coordinate, name: name ?? place.name ?? item.title)
+                }
             }
         }
+    }
+
+    /// Prefers Google's coordinates (reliably present) and falls back to the
+    /// backend-enriched place coordinates when details haven't loaded.
+    private func coordinate(place: Place, details: PlaceDetails?) -> CLLocationCoordinate2D? {
+        if let lat = details?.latitude, let lon = details?.longitude {
+            return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+        if let lat = place.latitude, let lon = place.longitude {
+            return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+        return nil
+    }
+
+    /// A compact, non-interactive map pinning the place.
+    private func placeMap(coordinate: CLLocationCoordinate2D, name: String) -> some View {
+        Map(initialPosition: .region(MKCoordinateRegion(
+            center: coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        ))) {
+            Marker(name, coordinate: coordinate)
+                .tint(Color.appAccent)
+        }
+        .frame(height: 180)
+        .clipShape(.rect(cornerRadius: 12))
+        .allowsHitTesting(false)
     }
 
     private func hoursDisclosure(_ details: PlaceDetails) -> some View {
