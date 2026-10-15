@@ -53,7 +53,7 @@ struct TripItemFormView: View {
     /// The destination place for transit items → sent as `end_place_id`. The text it
     /// searches on is kept separately since it isn't the item's title.
     @State private var endPlace: Place?
-    @State private var endPlaceText = ""
+    @State private var endPlaceText: String
     /// The destination place's time zone from Google, used to drive `endZone`.
     @State private var endPlaceZone: TimeZone?
 
@@ -76,9 +76,11 @@ struct TripItemFormView: View {
         _kind = State(initialValue: item?.kind ?? .activity)
         _scope = State(initialValue: item?.scope ?? .group)
         _title = State(initialValue: item?.title ?? "")
-        // Prefill the location with the existing place name (if the backend has enriched
-        // it); leaving `startPlace` nil so an untouched edit keeps the current place.
+        // Prefill the location fields with the existing place names (if the backend has
+        // enriched them), leaving `startPlace`/`endPlace` nil so an untouched edit keeps
+        // the current places. Names that are still null get filled from Google on appear.
         _startPlaceText = State(initialValue: item?.place?.name ?? "")
+        _endPlaceText = State(initialValue: item?.endPlace?.name ?? "")
         _hasEndTime = State(initialValue: item?.endsAt != nil)
         _notes = State(initialValue: item?.notes ?? "")
         // Load the item's wall clock onto the device-zone canvas (so the picker shows
@@ -221,8 +223,25 @@ struct TripItemFormView: View {
             .onChange(of: endPlaceZone) { _, zone in
                 if let zone { endZone = zone }
             }
+            .task { await prefillPlaceNames() }
         }
         .appTheme()
+    }
+
+    /// Fills the location fields with the place names from Google when editing. The
+    /// backend enriches its own place name asynchronously, so `item.place?.name` is
+    /// often still null here; Google's copy is reliably available. Only fills a field
+    /// left empty by the backend, and leaves it untouched on failure. Safe against
+    /// re-triggering a search: the fields aren't focused when this runs.
+    private func prefillPlaceNames() async {
+        if startPlaceText.isEmpty, let gid = item?.place?.googlePlaceId,
+           let name = try? await GooglePlacesClient.shared.placeDetails(placeId: gid).name {
+            startPlaceText = name
+        }
+        if kind == .transit, endPlaceText.isEmpty, let gid = item?.endPlace?.googlePlaceId,
+           let name = try? await GooglePlacesClient.shared.placeDetails(placeId: gid).name {
+            endPlaceText = name
+        }
     }
 
     /// A tappable row showing a date/time; tapping toggles the inline picker below it.

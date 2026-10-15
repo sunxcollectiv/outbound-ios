@@ -32,6 +32,10 @@ struct PlaceSearchField: View {
     /// Set when we fill the text from a suggestion, so the resulting change doesn't
     /// immediately kick off another search.
     @State private var isFillingFromSuggestion = false
+    /// Tracks whether the user is actively editing the field, so a programmatic change
+    /// to `text` (e.g. prefilling an edit form) doesn't trigger a search or clear the
+    /// current selection — only typing in the focused field searches.
+    @FocusState private var isFocused: Bool
 
     private let places = GooglePlacesClient.shared
     private let api = APIClient.shared
@@ -41,6 +45,7 @@ struct PlaceSearchField: View {
             TextField(placeholder, text: $text)
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
+                .focused($isFocused)
                 .appField()
                 .onChange(of: text) { _, newValue in onTextChanged(newValue) }
 
@@ -123,6 +128,10 @@ struct PlaceSearchField: View {
             isFillingFromSuggestion = false
             return
         }
+
+        // Ignore programmatic changes (e.g. prefilling an edit form): without focus
+        // there's no user typing to autocomplete, and we mustn't clear the selection.
+        guard isFocused else { return }
 
         // Typing invalidates any previously selected/resolved place.
         selected = nil
