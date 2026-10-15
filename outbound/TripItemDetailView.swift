@@ -105,12 +105,12 @@ struct TripItemDetailView: View {
             }
 
             detailSection(title: startLabel) {
-                Text("\(item.startText(.dateTime.weekday().month().day().hour().minute())) \(item.startZoneAbbreviation)")
+                Text([item.startText(.dateTime.weekday().month().day().hour().minute()), item.startZoneAbbreviation].compactMap { $0 }.joined(separator: " "))
             }
 
             if let endText = item.endText(.dateTime.weekday().month().day().hour().minute()) {
                 detailSection(title: endLabel) {
-                    Text("\(endText) \(item.endZoneAbbreviation ?? "")")
+                    Text([endText, item.endZoneAbbreviation].compactMap { $0 }.joined(separator: " "))
                 }
             }
 

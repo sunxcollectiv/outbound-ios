@@ -453,11 +453,19 @@ struct TripDetailView: View {
 
     /// The zone a newly added item should default to: the zone the traveler is in at the
     /// end of the chronologically last item (its end zone, else its start zone). Falls
-    /// back to the selected day's zone when the trip has no items yet.
+    /// back to the selected day's zone when the trip has no items yet or the last one
+    /// is zoneless.
     private var defaultNewItemZone: TimeZone? {
-        let items = (days ?? []).flatMap { $0.items + $0.lodging.map(\.item) }
-        if let last = items.max(by: { ($0.endsAt ?? $0.startsAt) < ($1.endsAt ?? $1.startsAt) }) {
-            return last.endTimezone ?? last.startTimezone
+        // Zoneless items are ordered by their wall clock read in their day's zone.
+        let timed = (days ?? []).flatMap { day in
+            let fallback = dayTimeZones[day.date]?.first ?? .current
+            return (day.items + day.lodging.map(\.item)).map { item in
+                (item, item.endInstant(fallbackZone: fallback) ?? item.startInstant(fallbackZone: fallback))
+            }
+        }
+        if let last = timed.max(by: { $0.1 < $1.1 })?.0,
+           let zone = last.endTimezone ?? last.startTimezone {
+            return zone
         }
         return selectedDayTimeZones.first
     }

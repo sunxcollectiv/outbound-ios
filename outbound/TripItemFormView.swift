@@ -40,7 +40,9 @@ struct TripItemFormView: View {
     @State private var startsAt: Date
     @State private var hasEndTime: Bool
     @State private var endsAt: Date
-    @State private var startZone: TimeZone
+    /// The start zone, when one is known (the item's, a picked place's, or the trip's
+    /// default). nil shows no zone and saves the item without one.
+    @State private var startZone: TimeZone?
     /// The end zone; `nil` means "follow the start zone" until the user or a place sets it.
     @State private var endZone: TimeZone?
     @State private var notes: String
@@ -70,7 +72,7 @@ struct TripItemFormView: View {
     private var endLabel: String { kind == .lodging ? "Check-out" : "Ends" }
 
     /// The zone actually used for the end: an explicit choice, else the start zone.
-    private var effectiveEndZone: TimeZone { endZone ?? startZone }
+    private var effectiveEndZone: TimeZone? { endZone ?? startZone }
 
     init(tripId: String, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }) {
         self.tripId = tripId
@@ -86,17 +88,18 @@ struct TripItemFormView: View {
         // the current places. Names that are still null get filled from Google on appear.
         _startPlaceText = State(initialValue: item?.place?.name ?? "")
         _endPlaceText = State(initialValue: item?.endPlace?.name ?? "")
-        _hasEndTime = State(initialValue: item?.endsAt != nil)
+        _hasEndTime = State(initialValue: item?.endsAtLocal != nil)
         _notes = State(initialValue: item?.notes ?? "")
         // Load the item's wall clock onto the device-zone canvas (so the picker shows
         // the same numbers), or for a new item start on the day being viewed at the
         // current time-of-day (falling back to "now" when no day was supplied).
-        let start = Self.wallClock(of: item?.startsAt, in: item?.startTimezone)
+        // `startsAtLocal` is a floating UTC date, so reading it in UTC gives the wall clock.
+        let start = Self.wallClock(of: item?.startsAtLocal, in: .gmt)
             ?? Self.canvasStart(onDay: defaultDate)
             ?? Self.roundedToMinuteInterval(Date())
         _startsAt = State(initialValue: start)
-        _endsAt = State(initialValue: Self.wallClock(of: item?.endsAt, in: item?.endTimezone) ?? start)
-        _startZone = State(initialValue: item?.startTimezone ?? defaultZone ?? .current)
+        _endsAt = State(initialValue: Self.wallClock(of: item?.endsAtLocal, in: .gmt) ?? start)
+        _startZone = State(initialValue: item == nil ? defaultZone : item?.startTimezone)
         _endZone = State(initialValue: item?.endTimezone)
         // SwiftUI's DatePicker has no minute-interval option, so set it on the
         // underlying UIDatePicker. This is app-wide, but the only other pickers
@@ -175,7 +178,7 @@ struct TripItemFormView: View {
                                     }
                             }
 
-                            zoneNote(startZone)
+                            if let startZone { zoneNote(startZone) }
 
                             Divider().overlay(Color.appForeground.opacity(0.2))
 
@@ -190,7 +193,7 @@ struct TripItemFormView: View {
                                         .datePickerStyle(.graphical)
                                         .labelsHidden()
                                 }
-                                zoneNote(effectiveEndZone)
+                                if let effectiveEndZone { zoneNote(effectiveEndZone) }
                             }
                         }
                         .padding(14)
@@ -295,7 +298,7 @@ struct TripItemFormView: View {
         guard !trimmedTitle.isEmpty else { return }
         // Validate ordering on instants, not wall clocks, so cross-zone legs are allowed.
         if hasEndTime,
-           Self.instant(of: endsAt, in: effectiveEndZone) < Self.instant(of: startsAt, in: startZone) {
+           Self.instant(of: endsAt, in: effectiveEndZone ?? .gmt) < Self.instant(of: startsAt, in: startZone ?? .gmt) {
             errorMessage = "End time can't be before the start time."
             return
         }
@@ -308,7 +311,8 @@ struct TripItemFormView: View {
                 let resolvedNotes = trimmedNotes.isEmpty ? nil : trimmedNotes
                 let startWall = Self.naiveString(from: startsAt)
                 let endWall = hasEndTime ? Self.naiveString(from: endsAt) : nil
-                let endZoneId = hasEndTime ? effectiveEndZone.identifier : nil
+                let startZoneId = startZone?.identifier
+                let endZoneId = hasEndTime ? effectiveEndZone?.identifier : nil
                 // End place only applies to transit (origin → destination).
                 let endPlaceId = kind == .transit ? endPlace?.id : nil
 
@@ -322,7 +326,7 @@ struct TripItemFormView: View {
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startWall,
-                        startTimezone: startZone.identifier,
+                        startTimezone: startZoneId,
                         endsAt: endWall,
                         endTimezone: endZoneId,
                         placeId: startPlace?.id,
@@ -336,7 +340,7 @@ struct TripItemFormView: View {
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startWall,
-                        startTimezone: startZone.identifier,
+                        startTimezone: startZoneId,
                         endsAt: endWall,
                         endTimezone: endZoneId,
                         placeId: startPlace?.id,
