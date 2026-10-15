@@ -6,8 +6,15 @@
 import SwiftUI
 
 /// Modal for manually adding or editing a trip item. Collects a kind, title,
-/// start/end times, and optional notes. Locations come later, derived separately.
-/// Pass an existing `item` to edit it; omit it to create a new one.
+/// start/end times with their time zones, and optional notes.
+///
+/// Times are entered as wall clocks on a neutral canvas (the device zone), so the
+/// numbers the user sees are what gets sent as the naive `starts_at`/`ends_at`.
+/// The zone is chosen separately, so changing it keeps the wall time and only moves
+/// the underlying instant — matching the server's "right time, wrong zone" fix.
+///
+/// Pass an existing `item` to edit it; omit it to create a new one. `dayTimeZones`
+/// are the zones of the day being added to (the first is the default for new items).
 struct AddTripItemView: View {
     let tripId: String
 
@@ -15,6 +22,9 @@ struct AddTripItemView: View {
 
     /// The item being edited, or `nil` when creating a new one.
     private let item: TripItem?
+
+    /// The zones of the day this item is being added to; the first is the default.
+    private let dayTimeZones: [TimeZone]
 
     /// Called with the created or updated item after a successful save.
     var onSaved: (TripItem) -> Void
@@ -25,6 +35,9 @@ struct AddTripItemView: View {
     @State private var startsAt: Date
     @State private var hasEndTime: Bool
     @State private var endsAt: Date
+    @State private var startZone: TimeZone
+    /// The end zone; `nil` means "follow the start zone" until the user or a place sets it.
+    @State private var endZone: TimeZone?
     @State private var notes: String
     @State private var activeField: TimeField?
     @State private var isSaving = false
@@ -45,17 +58,26 @@ struct AddTripItemView: View {
     private var startLabel: String { kind == .lodging ? "Check-in" : "Starts" }
     private var endLabel: String { kind == .lodging ? "Check-out" : "Ends" }
 
-    init(tripId: String, item: TripItem? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }) {
+    /// The zone actually used for the end: an explicit choice, else the start zone.
+    private var effectiveEndZone: TimeZone { endZone ?? startZone }
+
+    init(tripId: String, item: TripItem? = nil, dayTimeZones: [TimeZone] = [], onSaved: @escaping (TripItem) -> Void = { _ in }) {
         self.tripId = tripId
         self.item = item
+        self.dayTimeZones = dayTimeZones
         self.onSaved = onSaved
         _kind = State(initialValue: item?.kind ?? .activity)
         _scope = State(initialValue: item?.scope ?? .group)
         _title = State(initialValue: item?.title ?? "")
-        _startsAt = State(initialValue: item?.startsAt ?? Date())
         _hasEndTime = State(initialValue: item?.endsAt != nil)
-        _endsAt = State(initialValue: item?.endsAt ?? item?.startsAt ?? Date())
         _notes = State(initialValue: item?.notes ?? "")
+        // Load the item's wall clock onto the device-zone canvas (so the picker shows
+        // the same numbers), or start from "now" for a new item.
+        let start = Self.wallClock(of: item?.startsAt, in: item?.startTimezone) ?? Date()
+        _startsAt = State(initialValue: start)
+        _endsAt = State(initialValue: Self.wallClock(of: item?.endsAt, in: item?.endTimezone) ?? start)
+        _startZone = State(initialValue: item?.startTimezone ?? dayTimeZones.first ?? .current)
+        _endZone = State(initialValue: item?.endTimezone)
     }
 
     var body: some View {
@@ -118,16 +140,22 @@ struct AddTripItemView: View {
                                     }
                             }
 
+                            zoneRow(title: "Time zone", selection: $startZone)
+
                             Divider().overlay(Color.appForeground.opacity(0.2))
 
                             Toggle(kind == .lodging ? "Set check-out time" : "Set end time", isOn: $hasEndTime.animation())
                             if hasEndTime {
                                 timeRow(title: endLabel, date: endsAt, field: .end)
                                 if activeField == .end {
-                                    DatePicker("", selection: $endsAt, in: startsAt..., displayedComponents: [.date, .hourAndMinute])
+                                    // No wall-clock range: a westbound leg can land at an
+                                    // earlier clock time than it departs. Ordering is checked
+                                    // on instants in `save()`.
+                                    DatePicker("", selection: $endsAt, displayedComponents: [.date, .hourAndMinute])
                                         .datePickerStyle(.graphical)
                                         .labelsHidden()
                                 }
+                                zoneRow(title: "End time zone", selection: endZoneBinding)
                             }
                         }
                         .padding(14)
@@ -165,6 +193,13 @@ struct AddTripItemView: View {
                     }
                 }
             }
+            // A chosen place is authoritative for the zone, so follow it when picked.
+            .onChange(of: startPlace) { _, place in
+                if let zone = place?.timeZone { startZone = zone }
+            }
+            .onChange(of: endPlace) { _, place in
+                if let zone = place?.timeZone { endZone = zone }
+            }
         }
         .appTheme()
     }
@@ -185,10 +220,58 @@ struct AddTripItemView: View {
         .buttonStyle(.plain)
     }
 
+    /// A row with a menu of candidate zones (the day's zones, any picked place's zone,
+    /// and the device zone), showing the current choice.
+    private func zoneRow(title: String, selection: Binding<TimeZone>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Menu {
+                ForEach(zoneOptions, id: \.identifier) { zone in
+                    Button(zoneLabel(zone)) { selection.wrappedValue = zone }
+                }
+            } label: {
+                Text(zoneLabel(selection.wrappedValue))
+                    .foregroundStyle(Color.appAccent)
+            }
+        }
+    }
+
+    /// Writes to `endZone`; reads it falling back to the start zone.
+    private var endZoneBinding: Binding<TimeZone> {
+        Binding(get: { effectiveEndZone }, set: { endZone = $0 })
+    }
+
+    /// Candidate zones for the pickers, de-duplicated and in priority order.
+    private var zoneOptions: [TimeZone] {
+        var seen = Set<String>()
+        var result: [TimeZone] = []
+        func add(_ zone: TimeZone?) {
+            guard let zone, seen.insert(zone.identifier).inserted else { return }
+            result.append(zone)
+        }
+        dayTimeZones.forEach(add)
+        add(startPlace?.timeZone)
+        add(endPlace?.timeZone)
+        add(startZone)
+        add(endZone)
+        add(.current)
+        return result
+    }
+
+    /// A friendly label for a zone, e.g. "Tokyo (JST)".
+    private func zoneLabel(_ zone: TimeZone) -> String {
+        let city = zone.identifier.split(separator: "/").last
+            .map { $0.replacingOccurrences(of: "_", with: " ") } ?? Substring(zone.identifier)
+        return "\(city) (\(TripItem.zoneAbbreviation(zone, at: startsAt)))"
+    }
+
     private func save() {
         let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
         guard !trimmedTitle.isEmpty else { return }
-        if hasEndTime && endsAt < startsAt {
+        // Validate ordering on instants, not wall clocks, so cross-zone legs are allowed.
+        if hasEndTime,
+           Self.instant(of: endsAt, in: effectiveEndZone) < Self.instant(of: startsAt, in: startZone) {
             errorMessage = "End time can't be before the start time."
             return
         }
@@ -199,7 +282,9 @@ struct AddTripItemView: View {
             do {
                 let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
                 let resolvedNotes = trimmedNotes.isEmpty ? nil : trimmedNotes
-                let resolvedEnd = hasEndTime ? endsAt : nil
+                let startWall = Self.naiveString(from: startsAt)
+                let endWall = hasEndTime ? Self.naiveString(from: endsAt) : nil
+                let endZoneId = hasEndTime ? effectiveEndZone.identifier : nil
                 // End place only applies to transit (origin → destination).
                 let endPlaceId = kind == .transit ? endPlace?.id : nil
 
@@ -212,8 +297,10 @@ struct AddTripItemView: View {
                         kind: kind,
                         title: trimmedTitle,
                         notes: resolvedNotes,
-                        startsAt: startsAt,
-                        endsAt: resolvedEnd,
+                        startsAt: startWall,
+                        startTimezone: startZone.identifier,
+                        endsAt: endWall,
+                        endTimezone: endZoneId,
                         placeId: startPlace?.id,
                         endPlaceId: endPlaceId
                     )
@@ -224,8 +311,10 @@ struct AddTripItemView: View {
                         scope: scope,
                         title: trimmedTitle,
                         notes: resolvedNotes,
-                        startsAt: startsAt,
-                        endsAt: resolvedEnd,
+                        startsAt: startWall,
+                        startTimezone: startZone.identifier,
+                        endsAt: endWall,
+                        endTimezone: endZoneId,
                         placeId: startPlace?.id,
                         endPlaceId: endPlaceId
                     )
@@ -238,6 +327,51 @@ struct AddTripItemView: View {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    // MARK: - Wall-clock helpers
+    //
+    // The pickers hold wall clocks on a neutral canvas: the device zone. Reading or
+    // writing the wall-clock components in that same zone leaves the printed numbers
+    // untouched regardless of which zone the item is actually in.
+
+    /// A formatter producing naive ISO 8601 (no offset) from a canvas date.
+    private static let naiveFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter
+    }()
+
+    private static let canvasComponents: Set<Calendar.Component> = [.year, .month, .day, .hour, .minute, .second]
+
+    /// Naive wall clock (no offset) for a canvas date, e.g. "2026-04-08T16:00:00".
+    private static func naiveString(from canvasDate: Date) -> String {
+        naiveFormatter.string(from: canvasDate)
+    }
+
+    /// Places an item's wall clock (its instant read in `zone`) onto the device-zone
+    /// canvas, so a picker bound to the result shows the same numbers.
+    private static func wallClock(of instant: Date?, in zone: TimeZone?) -> Date? {
+        guard let instant, let zone else { return nil }
+        var source = Calendar(identifier: .gregorian)
+        source.timeZone = zone
+        let components = source.dateComponents(canvasComponents, from: instant)
+        var canvas = Calendar(identifier: .gregorian)
+        canvas.timeZone = .current
+        return canvas.date(from: components)
+    }
+
+    /// The true instant for a canvas wall clock reinterpreted in `zone`.
+    private static func instant(of canvasDate: Date, in zone: TimeZone) -> Date {
+        var canvas = Calendar(identifier: .gregorian)
+        canvas.timeZone = .current
+        let components = canvas.dateComponents(canvasComponents, from: canvasDate)
+        var target = Calendar(identifier: .gregorian)
+        target.timeZone = zone
+        return target.date(from: components) ?? canvasDate
     }
 }
 
