@@ -23,7 +23,10 @@ struct TripDetailView: View {
     @State private var placeDetails: [String: PlaceDetails] = [:]
     @State private var selection: Int
     @State private var errorMessage: String?
-    @State private var showingAddItem = false
+    /// A pending add-item sheet, carrying the day that was shown when add was tapped.
+    /// Presented via `.sheet(item:)` so the form receives the value directly; with
+    /// `.sheet(isPresented:)` the content closure could capture a stale date.
+    @State private var addItemRequest: AddItemRequest?
     @State private var showingEditTrip = false
     @State private var selectedItem: TripItem?
 
@@ -81,7 +84,7 @@ struct TripDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 4) {
                     Button {
-                        showingAddItem = true
+                        addItemRequest = AddItemRequest(date: selectedDay?.calendarDate)
                     } label: {
                         Image(systemName: "plus")
                             .accessibilityLabel("Add Item")
@@ -100,8 +103,8 @@ struct TripDetailView: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
-        .sheet(isPresented: $showingAddItem) {
-            TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, onSaved: { saved in
+        .sheet(item: $addItemRequest) { request in
+            TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
         }
@@ -176,7 +179,7 @@ struct TripDetailView: View {
                 }
 
                 Button {
-                    showingAddItem = true
+                    addItemRequest = AddItemRequest(date: day.calendarDate)
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "plus")
@@ -437,9 +440,14 @@ struct TripDetailView: View {
         .padding()
     }
 
+    /// The day currently shown in the pager.
+    private var selectedDay: ItineraryDay? {
+        days?.first(where: { $0.dayNumber == selection })
+    }
+
     /// The zones of the currently shown day, used as a fallback for the add-item picker.
     private var selectedDayTimeZones: [TimeZone] {
-        guard let date = days?.first(where: { $0.dayNumber == selection })?.date else { return [] }
+        guard let date = selectedDay?.date else { return [] }
         return dayTimeZones[date] ?? []
     }
 
@@ -510,6 +518,12 @@ struct TripDetailView: View {
         }
         placeDetails.merge(fetched) { _, new in new }
     }
+}
+
+/// A request to present the add-item form, defaulting to `date`'s calendar day.
+private struct AddItemRequest: Identifiable {
+    let id = UUID()
+    let date: Date?
 }
 
 /// A horizontally paged container that renders only the current day and its

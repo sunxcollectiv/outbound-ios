@@ -27,6 +27,10 @@ struct TripItemFormView: View {
     /// The zone a new item's start defaults to (from the last item chronologically).
     private let defaultZone: TimeZone?
 
+    /// The calendar day a new item's start defaults to (the day being viewed when add
+    /// was tapped); the time-of-day defaults to now. `nil` falls back to today.
+    private let defaultDate: Date?
+
     /// Called with the created or updated item after a successful save.
     var onSaved: (TripItem) -> Void
 
@@ -68,10 +72,11 @@ struct TripItemFormView: View {
     /// The zone actually used for the end: an explicit choice, else the start zone.
     private var effectiveEndZone: TimeZone { endZone ?? startZone }
 
-    init(tripId: String, item: TripItem? = nil, defaultZone: TimeZone? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }) {
+    init(tripId: String, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }) {
         self.tripId = tripId
         self.item = item
         self.defaultZone = defaultZone
+        self.defaultDate = defaultDate
         self.onSaved = onSaved
         _kind = State(initialValue: item?.kind ?? .activity)
         _scope = State(initialValue: item?.scope ?? .group)
@@ -84,8 +89,11 @@ struct TripItemFormView: View {
         _hasEndTime = State(initialValue: item?.endsAt != nil)
         _notes = State(initialValue: item?.notes ?? "")
         // Load the item's wall clock onto the device-zone canvas (so the picker shows
-        // the same numbers), or start from "now" for a new item.
-        let start = Self.wallClock(of: item?.startsAt, in: item?.startTimezone) ?? Date()
+        // the same numbers), or for a new item start on the day being viewed at the
+        // current time-of-day (falling back to "now" when no day was supplied).
+        let start = Self.wallClock(of: item?.startsAt, in: item?.startTimezone)
+            ?? Self.canvasStart(onDay: defaultDate)
+            ?? Date()
         _startsAt = State(initialValue: start)
         _endsAt = State(initialValue: Self.wallClock(of: item?.endsAt, in: item?.endTimezone) ?? start)
         _startZone = State(initialValue: item?.startTimezone ?? defaultZone ?? .current)
@@ -362,6 +370,18 @@ struct TripItemFormView: View {
     /// Naive wall clock (no offset) for a canvas date, e.g. "2026-04-08T16:00:00".
     private static func naiveString(from canvasDate: Date) -> String {
         naiveFormatter.string(from: canvasDate)
+    }
+
+    /// A new item's default canvas start: `day`'s calendar date at 12:00 PM. Returns
+    /// nil when no day is given, so callers can fall back to now.
+    private static func canvasStart(onDay day: Date?) -> Date? {
+        guard let day else { return nil }
+        var canvas = Calendar(identifier: .gregorian)
+        canvas.timeZone = .current
+        var parts = canvas.dateComponents([.year, .month, .day], from: day)
+        parts.hour = 12
+        parts.minute = 0
+        return canvas.date(from: parts)
     }
 
     /// Places an item's wall clock (its instant read in `zone`) onto the device-zone

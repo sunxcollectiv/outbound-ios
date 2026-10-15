@@ -20,6 +20,10 @@ struct ItineraryDay: Decodable, Identifiable {
 
     var id: Int { dayNumber }
 
+    /// The day's calendar date (local midnight), or nil if the string won't parse.
+    /// Used to seed a new item's default date to the day being viewed.
+    var calendarDate: Date? { Self.isoDate.date(from: date) }
+
     /// The day's date formatted as e.g. "Sat, Nov 1".
     var displayDate: String {
         guard let parsed = Self.isoDate.date(from: date) else { return date }
