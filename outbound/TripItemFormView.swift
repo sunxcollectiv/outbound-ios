@@ -93,11 +93,15 @@ struct TripItemFormView: View {
         // current time-of-day (falling back to "now" when no day was supplied).
         let start = Self.wallClock(of: item?.startsAt, in: item?.startTimezone)
             ?? Self.canvasStart(onDay: defaultDate)
-            ?? Date()
+            ?? Self.roundedToMinuteInterval(Date())
         _startsAt = State(initialValue: start)
         _endsAt = State(initialValue: Self.wallClock(of: item?.endsAt, in: item?.endTimezone) ?? start)
         _startZone = State(initialValue: item?.startTimezone ?? defaultZone ?? .current)
         _endZone = State(initialValue: item?.endTimezone)
+        // SwiftUI's DatePicker has no minute-interval option, so set it on the
+        // underlying UIDatePicker. This is app-wide, but the only other pickers
+        // (AddTripView) are date-only and unaffected.
+        UIDatePicker.appearance().minuteInterval = Self.minuteInterval
     }
 
     var body: some View {
@@ -382,6 +386,16 @@ struct TripItemFormView: View {
         parts.hour = 12
         parts.minute = 0
         return canvas.date(from: parts)
+    }
+
+    /// Minute step of the start/end time pickers.
+    private static let minuteInterval = 15
+
+    /// `date` rounded to the nearest `minuteInterval` mark, so a default value matches
+    /// what the picker displays.
+    private static func roundedToMinuteInterval(_ date: Date) -> Date {
+        let step = TimeInterval(minuteInterval * 60)
+        return Date(timeIntervalSinceReferenceDate: (date.timeIntervalSinceReferenceDate / step).rounded() * step)
     }
 
     /// Places an item's wall clock (its instant read in `zone`) onto the device-zone
