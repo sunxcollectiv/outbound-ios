@@ -182,7 +182,17 @@ struct TripItemFormView: View {
 
                             Divider().overlay(Color.appForeground.opacity(0.2))
 
-                            Toggle(kind == .lodging ? "Set check-out time" : "Set end time", isOn: $hasEndTime.animation())
+                            // The whole row flips the switch. On iOS 26 a bare Toggle in this
+                            // scrolling sheet ignores taps (only a drag moves it), so the row
+                            // handles the tap and the switch is just the indicator.
+                            Button {
+                                withAnimation { hasEndTime.toggle() }
+                            } label: {
+                                Toggle(kind == .lodging ? "Set check-out time" : "Set end time", isOn: .constant(hasEndTime))
+                                    .allowsHitTesting(false)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                             if hasEndTime {
                                 timeRow(title: endLabel, date: endsAt, field: .end)
                                 if activeField == .end {
