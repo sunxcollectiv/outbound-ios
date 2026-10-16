@@ -49,6 +49,8 @@ struct TripItemFormView: View {
     @State private var activeField: TimeField?
     @State private var isSaving = false
     @State private var errorMessage: String?
+    /// Bumped on every failed save so the error scrolls into view even when unchanged.
+    @State private var errorScrollTrigger = 0
 
     /// The place for this item, picked via the location search → sent as `place_id`.
     @State private var startPlace: Place?
@@ -64,6 +66,9 @@ struct TripItemFormView: View {
     @State private var endPlaceZone: TimeZone?
 
     private enum TimeField { case start, end }
+
+    /// Scroll target for the error banner, so a failed save brings it into view.
+    private static let errorAnchor = "error"
 
     private let api = APIClient.shared
 
@@ -111,6 +116,7 @@ struct TripItemFormView: View {
         NavigationStack {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 20) {
                         VStack(alignment: .leading, spacing: 8) {
@@ -209,18 +215,27 @@ struct TripItemFormView: View {
                         .padding(14)
                         .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
 
+                        // Sits right under the times (the usual cause) rather than at the
+                        // bottom, where the keyboard hides it and Save looks unresponsive.
+                        if let errorMessage {
+                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(Color.red.opacity(0.75), in: .rect(cornerRadius: appFieldCornerRadius))
+                                .id(Self.errorAnchor)
+                        }
+
                         TextField("Notes (optional)", text: $notes, axis: .vertical)
                             .lineLimit(3...6)
                             .appField()
-
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
                     }
                     .padding(24)
+                }
+                .onChange(of: errorScrollTrigger) {
+                    withAnimation { proxy.scrollTo(Self.errorAnchor, anchor: .center) }
+                }
                 }
             }
             .foregroundStyle(Color.appForeground)
@@ -310,6 +325,7 @@ struct TripItemFormView: View {
         if hasEndTime,
            Self.instant(of: endsAt, in: effectiveEndZone ?? .gmt) < Self.instant(of: startsAt, in: startZone ?? .gmt) {
             errorMessage = "End time can't be before the start time."
+            errorScrollTrigger += 1
             return
         }
         errorMessage = nil
@@ -363,6 +379,7 @@ struct TripItemFormView: View {
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription
+                errorScrollTrigger += 1
             }
         }
     }
