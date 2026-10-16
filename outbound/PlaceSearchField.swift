@@ -18,6 +18,10 @@ struct PlaceSearchField: View {
     /// The internal place created from the current selection, or `nil` when none is
     /// selected (e.g. the user typed free text instead of picking a suggestion).
     @Binding var resolvedPlace: Place?
+    /// The selected place's IANA time zone, when callers want it (optional so other
+    /// uses of this field don't have to supply a binding). Preferred from Google, with
+    /// the backend place's zone as a fallback; cleared whenever the selection clears.
+    var resolvedTimeZone: Binding<TimeZone?>? = nil
 
     @State private var suggestions: [PlaceSuggestion] = []
     @State private var isSearching = false
@@ -28,6 +32,10 @@ struct PlaceSearchField: View {
     /// Set when we fill the text from a suggestion, so the resulting change doesn't
     /// immediately kick off another search.
     @State private var isFillingFromSuggestion = false
+    /// Tracks whether the user is actively editing the field, so a programmatic change
+    /// to `text` (e.g. prefilling an edit form) doesn't trigger a search or clear the
+    /// current selection — only typing in the focused field searches.
+    @FocusState private var isFocused: Bool
 
     private let places = GooglePlacesClient.shared
     private let api = APIClient.shared
@@ -37,6 +45,7 @@ struct PlaceSearchField: View {
             TextField(placeholder, text: $text)
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
+                .focused($isFocused)
                 .appField()
                 .onChange(of: text) { _, newValue in onTextChanged(newValue) }
 
@@ -120,9 +129,14 @@ struct PlaceSearchField: View {
             return
         }
 
+        // Ignore programmatic changes (e.g. prefilling an edit form): without focus
+        // there's no user typing to autocomplete, and we mustn't clear the selection.
+        guard isFocused else { return }
+
         // Typing invalidates any previously selected/resolved place.
         selected = nil
         resolvedPlace = nil
+        resolvedTimeZone?.wrappedValue = nil
         errorText = nil
 
         searchTask?.cancel()
@@ -166,6 +180,7 @@ struct PlaceSearchField: View {
     /// our places DB, and keeps the returned internal place.
     private func resolve(_ suggestion: PlaceSuggestion) {
         resolvedPlace = nil
+        resolvedTimeZone?.wrappedValue = nil
         errorText = nil
         isResolving = true
         Task {
@@ -175,6 +190,14 @@ struct PlaceSearchField: View {
                 // Ignore if the user changed the selection while this was in flight.
                 guard selected?.placeId == suggestion.placeId else { return }
                 resolvedPlace = place
+
+                // Pull the zone straight from Google (reliable immediately), falling
+                // back to the backend place's zone if Google doesn't report one.
+                if resolvedTimeZone != nil {
+                    let googleZone = try? await places.placeTimeZone(placeId: suggestion.placeId)
+                    guard selected?.placeId == suggestion.placeId else { return }
+                    resolvedTimeZone?.wrappedValue = googleZone ?? place.timeZone
+                }
             } catch {
                 guard selected?.placeId == suggestion.placeId else { return }
                 errorText = error.localizedDescription

@@ -23,6 +23,11 @@ struct Place: Codable, Identifiable, Equatable {
     let timezone: String?
     let photoUrl: String?
     let googlePlaceId: String?
+
+    /// The place's IANA timezone, if the backend has resolved one.
+    var timeZone: TimeZone? {
+        timezone.flatMap(TimeZone.init(identifier:))
+    }
 }
 
 /// Request shapes for places.

@@ -13,9 +13,20 @@ struct TripDetailView: View {
     @State private var trip: Trip
 
     @State private var days: [ItineraryDay]?
+    /// The trip's days keyed by date, for the zones to default the add-item picker to.
+    /// Loaded alongside the itinerary (which doesn't carry zones yet) and joined on date.
+    @State private var dayTimeZones: [String: [TimeZone]] = [:]
+    /// Google Place Details for every place in the itinerary, keyed by google place id.
+    /// The backend enriches its own place records (name/address) asynchronously, so
+    /// those are often still null here; we fetch Google's copy once and cache it so
+    /// cards can show a location immediately. See `loadPlaceDetails(for:)`.
+    @State private var placeDetails: [String: PlaceDetails] = [:]
     @State private var selection: Int
     @State private var errorMessage: String?
-    @State private var showingAddItem = false
+    /// A pending add-item sheet, carrying the day that was shown when add was tapped.
+    /// Presented via `.sheet(item:)` so the form receives the value directly; with
+    /// `.sheet(isPresented:)` the content closure could capture a stale date.
+    @State private var addItemRequest: AddItemRequest?
     @State private var showingEditTrip = false
     @State private var selectedItem: TripItem?
 
@@ -73,7 +84,7 @@ struct TripDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 4) {
                     Button {
-                        showingAddItem = true
+                        addItemRequest = AddItemRequest(date: selectedDay?.calendarDate)
                     } label: {
                         Image(systemName: "plus")
                             .accessibilityLabel("Add Item")
@@ -92,9 +103,9 @@ struct TripDetailView: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
-        .sheet(isPresented: $showingAddItem) {
-            AddTripItemView(tripId: trip.id, onSaved: { _ in
-                Task { await load() }
+        .sheet(item: $addItemRequest) { request in
+            TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, onSaved: { saved in
+                Task { await load(focusItemId: saved.id) }
             })
         }
         .sheet(isPresented: $showingEditTrip) {
@@ -105,8 +116,8 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: item) { _ in
-                Task { await load() }
+            TripItemDetailView(item: item) { saved in
+                Task { await load(focusItemId: saved.id) }
             }
         }
         .task { if days == nil { await load() } }
@@ -168,7 +179,7 @@ struct TripDetailView: View {
                 }
 
                 Button {
-                    showingAddItem = true
+                    addItemRequest = AddItemRequest(date: day.calendarDate)
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "plus")
@@ -262,7 +273,7 @@ struct TripDetailView: View {
                 }
                 .overlay(alignment: .top) {
                     HStack {
-                        Text(item.startsAt, format: .dateTime.hour().minute())
+                        Text(item.startText(.dateTime.hour().minute()))
                             .monospacedDigit()
                         Spacer()
                         Text(statusLabel(item))
@@ -280,7 +291,7 @@ struct TripDetailView: View {
             }
 
             HStack {
-                locationLabel
+                locationLabel(item)
                 Spacer()
                 assigneeAvatar
             }
@@ -307,7 +318,7 @@ struct TripDetailView: View {
     private func transitCard(_ item: TripItem) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(item.startsAt, format: .dateTime.hour().minute())
+                Text(item.startText(.dateTime.hour().minute()))
                     .monospacedDigit()
                 Spacer()
                 Text(statusLabel(item))
@@ -320,7 +331,7 @@ struct TripDetailView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(item.title)
                         .font(.title3.weight(.bold))
-                    locationLabel
+                    locationLabel(item)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -333,12 +344,33 @@ struct TripDetailView: View {
         .padding(.vertical, 6)
     }
 
-    /// Placeholder for an item's location, which the backend doesn't send yet.
-    private var locationLabel: some View {
-        Text("[location]")
-            .font(.caption)
-            .tracking(1)
-            .foregroundStyle(Color.appForeground.opacity(0.7))
+    /// The item's location: the place name over its address. Prefers the cached Google
+    /// details (reliably present), falling back to the backend place's own fields. The
+    /// name is dropped when it just repeats the title (shown elsewhere on the card), and
+    /// the whole row is hidden when there's neither a name nor an address to show.
+    @ViewBuilder
+    private func locationLabel(_ item: TripItem) -> some View {
+        let details = item.place?.googlePlaceId.flatMap { placeDetails[$0] }
+        let name = details?.name ?? item.place?.name
+        let address = details?.address ?? item.place?.address
+        let showName = name.map { $0 != item.title } ?? false
+        if showName || address != nil {
+            VStack(alignment: .leading, spacing: 2) {
+                if showName, let name {
+                    Text(name)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.appForeground)
+                        .lineLimit(1)
+                }
+                if let address {
+                    Text(address)
+                        .font(.caption2)
+                        .foregroundStyle(Color.appForeground.opacity(0.6))
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     /// The thin circular stand-in for an item's assignee avatar.
@@ -408,16 +440,98 @@ struct TripDetailView: View {
         .padding()
     }
 
-    private func load() async {
+    /// The day currently shown in the pager.
+    private var selectedDay: ItineraryDay? {
+        days?.first(where: { $0.dayNumber == selection })
+    }
+
+    /// The zones of the currently shown day, used as a fallback for the add-item picker.
+    private var selectedDayTimeZones: [TimeZone] {
+        guard let date = selectedDay?.date else { return [] }
+        return dayTimeZones[date] ?? []
+    }
+
+    /// The zone a newly added item should default to: the zone the traveler is in at the
+    /// end of the chronologically last item (its end zone, else its start zone). Falls
+    /// back to the selected day's zone when the trip has no items yet or the last one
+    /// is zoneless.
+    private var defaultNewItemZone: TimeZone? {
+        // Zoneless items are ordered by their wall clock read in their day's zone.
+        let timed = (days ?? []).flatMap { day in
+            let fallback = dayTimeZones[day.date]?.first ?? .current
+            return (day.items + day.lodging.map(\.item)).map { item in
+                (item, item.endInstant(fallbackZone: fallback) ?? item.startInstant(fallbackZone: fallback))
+            }
+        }
+        if let last = timed.max(by: { $0.1 < $1.1 })?.0,
+           let zone = last.endTimezone ?? last.startTimezone {
+            return zone
+        }
+        return selectedDayTimeZones.first
+    }
+
+    /// The day to show after a reload: the day holding the just-saved item when given,
+    /// otherwise the current day if it still exists, falling back to the first day.
+    private func resolveSelection(in days: [ItineraryDay], focusItemId: String?) -> Int {
+        if let focusItemId,
+           let day = days.first(where: { day in
+               (day.items + day.lodging.map(\.item)).contains { $0.id == focusItemId }
+           }) {
+            return day.dayNumber
+        }
+        if days.contains(where: { $0.dayNumber == selection }) {
+            return selection
+        }
+        return days.first?.dayNumber ?? 1
+    }
+
+    /// Reloads the itinerary. Pass `focusItemId` after a save to land on the day that
+    /// item sits on; otherwise the current day is kept (falling back to the first).
+    private func load(focusItemId: String? = nil) async {
         do {
             let itinerary = try await api.send(TripsAPI.itinerary(tripId: trip.id), as: Itinerary.self)
             days = itinerary.days
-            selection = itinerary.days.first?.dayNumber ?? 1
+            selection = resolveSelection(in: itinerary.days, focusItemId: focusItemId)
             errorMessage = nil
+            await loadPlaceDetails(for: itinerary.days)
         } catch {
             errorMessage = error.localizedDescription
         }
+        // The day zones are a best-effort join for the add-item picker; a failure here
+        // shouldn't block the itinerary, so it's loaded separately and ignored on error.
+        if let tripDays = try? await api.send(TripDaysAPI.list(tripId: trip.id), as: [TripDay].self) {
+            dayTimeZones = Dictionary(tripDays.map { ($0.date, $0.timeZones) }, uniquingKeysWith: { first, _ in first })
+        }
     }
+
+    /// Fetches Google Place Details for every place referenced by the itinerary and
+    /// caches them by google place id, so cards can render a name/address even before
+    /// the backend has enriched its own place records. Best-effort: places already
+    /// cached are skipped, and individual lookups that fail are simply left out.
+    private func loadPlaceDetails(for days: [ItineraryDay]) async {
+        let items = days.flatMap { $0.items + $0.lodging.map(\.item) }
+        let ids = Set(items.flatMap { [$0.place?.googlePlaceId, $0.endPlace?.googlePlaceId] }.compactMap { $0 })
+        let missing = ids.subtracting(placeDetails.keys)
+        guard !missing.isEmpty else { return }
+
+        let fetched = await withTaskGroup(of: (String, PlaceDetails?).self) { group in
+            for id in missing {
+                group.addTask { (id, try? await GooglePlacesClient.shared.placeDetails(placeId: id)) }
+            }
+            var results: [String: PlaceDetails] = [:]
+            for await (id, details) in group {
+                if let details { results[id] = details }
+            }
+            return results
+        }
+        placeDetails.merge(fetched) { _, new in new }
+    }
+}
+
+/// A request to present the add-item form, defaulting to `date`'s calendar day.
+private struct AddItemRequest: Identifiable {
+    let id = UUID()
+    let date: Date?
 }
 
 /// A horizontally paged container that renders only the current day and its

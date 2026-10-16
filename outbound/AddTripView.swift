@@ -150,7 +150,9 @@ struct AddTripView: View {
                     title: name,
                     description: trimmedDescription.isEmpty ? nil : trimmedDescription,
                     startDate: Self.apiDateFormatter.string(from: startDate),
-                    endDate: Self.apiDateFormatter.string(from: endDate)
+                    endDate: Self.apiDateFormatter.string(from: endDate),
+                    // Seed the trip's days with the device's zone on create; PATCH doesn't take it.
+                    timezone: isEditing ? nil : TimeZone.current.identifier
                 )
                 let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
                 let saved = try await api.send(endpoint, as: Trip.self)

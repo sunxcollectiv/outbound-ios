@@ -70,7 +70,7 @@ struct TripItemDetailView: View {
         }
         .presentationBackground(sheetBackground)
         .sheet(isPresented: $showingEdit) {
-            AddTripItemView(tripId: item.tripId, item: item) { updated in
+            TripItemFormView(tripId: item.tripId, item: item) { updated in
                 item = updated
                 onSaved(updated)
             }
@@ -105,12 +105,12 @@ struct TripItemDetailView: View {
             }
 
             detailSection(title: startLabel) {
-                Text(item.startsAt, format: .dateTime.weekday().month().day().hour().minute())
+                Text([item.startText(.dateTime.weekday().month().day().hour().minute()), item.startZoneAbbreviation].compactMap { $0 }.joined(separator: " "))
             }
 
-            if let endsAt = item.endsAt {
+            if let endText = item.endText(.dateTime.weekday().month().day().hour().minute()) {
                 detailSection(title: endLabel) {
-                    Text(endsAt, format: .dateTime.weekday().month().day().hour().minute())
+                    Text([endText, item.endZoneAbbreviation].compactMap { $0 }.joined(separator: " "))
                 }
             }
 

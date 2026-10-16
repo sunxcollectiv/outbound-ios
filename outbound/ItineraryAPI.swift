@@ -20,6 +20,35 @@ struct ItineraryDay: Decodable, Identifiable {
 
     var id: Int { dayNumber }
 
+    private enum CodingKeys: String, CodingKey {
+        case date, dayNumber, lodging, items
+    }
+
+    /// Re-sorts `items` by the wall clock shown on each card. The server orders by UTC
+    /// instant, which zoneless items don't have, so they'd otherwise land after zoned
+    /// ones regardless of time. Ties fall back to the instant (UTC for zoneless).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        date = try c.decode(String.self, forKey: .date)
+        dayNumber = try c.decode(Int.self, forKey: .dayNumber)
+        lodging = try c.decode([LodgingStay].self, forKey: .lodging)
+        items = try c.decode([TripItem].self, forKey: .items).sorted {
+            ($0.startsAtLocal, $0.startInstant(fallbackZone: .gmt))
+                < ($1.startsAtLocal, $1.startInstant(fallbackZone: .gmt))
+        }
+    }
+
+    init(date: String, dayNumber: Int, lodging: [LodgingStay], items: [TripItem]) {
+        self.date = date
+        self.dayNumber = dayNumber
+        self.lodging = lodging
+        self.items = items
+    }
+
+    /// The day's calendar date (local midnight), or nil if the string won't parse.
+    /// Used to seed a new item's default date to the day being viewed.
+    var calendarDate: Date? { Self.isoDate.date(from: date) }
+
     /// The day's date formatted as e.g. "Sat, Nov 1".
     var displayDate: String {
         guard let parsed = Self.isoDate.date(from: date) else { return date }
@@ -84,11 +113,14 @@ extension ItineraryDay {
             var components = DateComponents()
             components.year = 2026; components.month = 11; components.day = 1
             components.hour = hour; components.minute = minute
-            let date = Calendar.current.date(from: components) ?? Date(timeIntervalSince1970: 0)
+            // Wall clocks are floating UTC dates (see `TripItem.startsAtLocal`).
+            var floating = Calendar(identifier: .gregorian)
+            floating.timeZone = .gmt
+            let date = floating.date(from: components) ?? Date(timeIntervalSince1970: 0)
             return TripItem(
                 id: "\(title)", tripId: "sample", kind: kind, scope: .group,
-                title: title, notes: notes, tags: tags, startsAt: date, endsAt: nil,
-                imageUrl: image, createdAt: date, updatedAt: date
+                title: title, notes: notes, tags: tags, startsAtLocal: date, startsAtUtc: nil, startTimezone: nil,
+                endsAtLocal: nil, endsAtUtc: nil, endTimezone: nil, imageUrl: image, createdAt: date, updatedAt: date
             )
         }
         return [
