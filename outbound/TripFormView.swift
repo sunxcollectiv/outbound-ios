@@ -21,8 +21,8 @@ struct TripFormView: View {
     @State private var startDate: Date
     @State private var endDate: Date
     @State private var description: String
-    /// The trip's area. The form edits a single area, so an edited trip shows its first.
-    @State private var area: Area?
+    /// The areas the trip covers, shown as chips.
+    @State private var areas: [Area]
     @State private var activeField: DateField?
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -40,7 +40,7 @@ struct TripFormView: View {
         _description = State(initialValue: trip?.description ?? "")
         _startDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.startDate) } ?? Date())
         _endDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.endDate) } ?? Date())
-        _area = State(initialValue: trip?.areas?.first)
+        _areas = State(initialValue: trip?.areas ?? [])
     }
 
     var body: some View {
@@ -53,7 +53,7 @@ struct TripFormView: View {
                             .textInputAutocapitalization(.words)
                             .appField()
 
-                        AreaSearchField("Area (e.g. Kyoto)", selection: $area)
+                        areaChips
 
                         VStack(alignment: .leading, spacing: 6) {
                             VStack(spacing: 8) {
@@ -123,10 +123,43 @@ struct TripFormView: View {
     }
 
     /// The `area_ids` to send. Sending a list replaces all of the trip's areas, so an
-    /// edit that leaves the area as it was sends nothing and keeps any others.
+    /// edit that leaves them as they were sends nothing.
     private var areaIdsToSave: [String]? {
-        if let trip, area?.id == trip.areas?.first?.id { return nil }
-        return area.map { [$0.id] } ?? []
+        let ids = areas.map(\.id)
+        if let trip, ids == (trip.areas ?? []).map(\.id) { return nil }
+        return ids
+    }
+
+    /// A chip per area, then a dashed chip for adding another.
+    private var areaChips: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Areas")
+                .font(.subheadline.weight(.semibold))
+            FlowLayout(spacing: 8) {
+                ForEach(areas) { area in
+                    Text(area.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Color.black.opacity(0.85))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.9), in: .rect(cornerRadius: 8))
+                }
+                // TODO: open area search to add one.
+                Button {} label: {
+                    Label("Add area", systemImage: "plus")
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                                .foregroundStyle(Color.appForeground.opacity(0.7))
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// A tappable row showing a date; tapping toggles the inline picker below it.
