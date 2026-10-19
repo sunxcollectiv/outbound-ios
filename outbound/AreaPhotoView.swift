@@ -61,7 +61,7 @@ struct AreaPhotoView<Placeholder: View>: View {
                 .lineLimit(1)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(.black.opacity(0.45), in: .capsule)
+                .background(.black.opacity(0.3), in: .capsule)
                 .padding(8)
         }
     }
