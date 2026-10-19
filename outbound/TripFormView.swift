@@ -126,12 +126,10 @@ struct TripFormView: View {
         .appTheme()
     }
 
-    /// The `area_ids` to send. Sending a list replaces all of the trip's areas, so an
-    /// edit that leaves them as they were sends nothing.
-    private var areaIdsToSave: [String]? {
-        let ids = areas.map(\.id).filter { !areaIdsToRemove.contains($0) }
-        if let trip, ids == (trip.areas ?? []).map(\.id) { return nil }
-        return ids
+    /// The `area_ids` to send: the final selection, without any chips marked for
+    /// removal. The server replaces the trip's areas with exactly this list.
+    private var areaIdsToSave: [String] {
+        areas.map(\.id).filter { !areaIdsToRemove.contains($0) }
     }
 
     /// An area's chip, with a button that toggles marking it for removal.
