@@ -11,7 +11,7 @@ import SwiftUI
 ///   "Arrival at <place>" / "Check-out from <place>", naming the item for reference;
 /// - other transit entries (departure, layover) are a dark compact card under the
 ///   booking's title;
-/// - everything else is a cover card with artwork.
+/// - everything else is a cover card, topped by its place's photo when it has one.
 ///
 /// `placeDetails` is the itinerary's cache of Google Place Details by google place id,
 /// preferred over the backend's place fields (which are often still being enriched).
@@ -91,23 +91,22 @@ struct ItineraryEntryCard: View {
         .padding(.vertical, 6)
     }
 
-    /// The cover art: the entry's place's server-resolved cover photo, else the
-    /// placeholder (also shown while the photo loads, or if it fails to).
+    /// The cover art: the entry's place's server-resolved cover photo, else a plain
+    /// fill (also shown while the photo loads, or if it fails to).
     @ViewBuilder
     private var cover: some View {
         if let photo = coverPhoto {
-            PlacePhotoView(photo: photo) { dummyCover }
+            PlacePhotoView(photo: photo) { coverFill }
         } else {
-            dummyCover
+            coverFill
         }
     }
 
     private var coverPhoto: CoverPhoto? { entry.place?.coverPhoto }
 
-    private var dummyCover: some View {
-        Image("DummyCover")
-            .resizable()
-            .scaledToFill()
+    /// A warm gradient in the card's tones, matching the trip cards' placeholder.
+    private var coverFill: some View {
+        LinearGradient(colors: [.appCard, .appAccent], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     // MARK: - Compact cards
