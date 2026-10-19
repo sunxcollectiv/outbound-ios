@@ -23,6 +23,7 @@ struct TripFormView: View {
     @State private var description: String
     /// The areas the trip covers, shown as chips.
     @State private var areas: [Area]
+    @State private var showingAreaPicker = false
     @State private var activeField: DateField?
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -144,8 +145,7 @@ struct TripFormView: View {
                         .padding(.vertical, 8)
                         .background(Color.white.opacity(0.9), in: .rect(cornerRadius: 8))
                 }
-                // TODO: open area search to add one.
-                Button {} label: {
+                Button { showingAreaPicker = true } label: {
                     Label("Add area", systemImage: "plus")
                         .font(.subheadline.weight(.medium))
                         .padding(.horizontal, 12)
@@ -160,6 +160,9 @@ struct TripFormView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: $showingAreaPicker) {
+            AreaPickerSheet(excludedIds: Set(areas.map(\.id))) { areas.append($0) }
+        }
     }
 
     /// A tappable row showing a date; tapping toggles the inline picker below it.
