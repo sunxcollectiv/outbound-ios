@@ -38,7 +38,15 @@ struct AreaPhotoView<Placeholder: View>: View {
                 Color.clear
                     .overlay { Image(uiImage: image).resizable().scaledToFill() }
                     .clipped()
-                    .overlay(alignment: .topLeading) { attribution }
+                    .overlay(alignment: .topLeading) {
+                        // Caps the chip at 75% of the photo's width; a shorter credit
+                        // keeps its own size.
+                        GeometryReader { proxy in
+                            attribution
+                                .frame(width: proxy.size.width * 0.75, alignment: .leading)
+                                .padding(8)
+                        }
+                    }
                     .transition(.opacity)
             }
         }
@@ -58,8 +66,8 @@ struct AreaPhotoView<Placeholder: View>: View {
         if let name = photo.attribution {
             if let profile = photo.attributionUrl {
                 chip(name: name)
-                    // A high-priority tap, so it wins over the card's navigation link
-                    // underneath (a nested Button doesn't).
+                    // A high-priority tap, so it wins over the card's own tap and
+                    // long-press gestures underneath (a nested Button doesn't).
                     .highPriorityGesture(TapGesture().onEnded { confirmingProfile = true })
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction { confirmingProfile = true }
@@ -77,16 +85,15 @@ struct AreaPhotoView<Placeholder: View>: View {
     }
 
     /// A capsule chip reading "Photo by Jane Doe on Unsplash" that grows with the text
-    /// up to the frame's width, then cuts the text off at the end.
+    /// up to the width it's given, then cuts the text off at the end.
     private func chip(name: String) -> some View {
         Text("Photo by \(name) on Unsplash")
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: 8, weight: .medium))
             .foregroundStyle(.white.opacity(0.9))
             .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
             .background(.black.opacity(0.3), in: .capsule)
             .contentShape(.capsule)
-            .padding(8)
     }
 }
