@@ -20,7 +20,9 @@ struct TripCard: View {
         .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
     }
 
-    /// The cover image, or a styled placeholder when none is set / still loading.
+    /// The trip's own cover image, else the first area photo, else a styled
+    /// placeholder. An area photo fetched after the list loads fades in over the
+    /// placeholder.
     @ViewBuilder
     private var cover: some View {
         if let urlString = trip.coverImageUrl, let url = URL(string: urlString) {
@@ -31,9 +33,16 @@ struct TripCard: View {
             } placeholder: {
                 placeholder
             }
+        } else if let photo = areaCoverPhoto {
+            AreaPhotoView(photo: photo) { placeholder }
         } else {
             placeholder
         }
+    }
+
+    /// The photo of the first of the trip's areas that has one.
+    private var areaCoverPhoto: AreaPhoto? {
+        trip.areas?.lazy.compactMap(\.coverPhoto).first
     }
 
     /// A solid color shown when there's no cover art, picked from the trip's id so it

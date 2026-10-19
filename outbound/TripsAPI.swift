@@ -18,6 +18,9 @@ struct Trip: Codable, Identifiable, Equatable {
     /// The areas (countries/cities) this trip covers, in order. Optional so trips
     /// still decode from a backend that doesn't send the field yet.
     var areas: [Area]?
+    /// Ids of `areas` that have no photos yet. The trip is usable as is; the client
+    /// asks `POST /areas/refresh-photos` for these and patches the areas in.
+    var areasMissingPhotos: [String]?
     let createdAt: Date
     let updatedAt: Date
 }
