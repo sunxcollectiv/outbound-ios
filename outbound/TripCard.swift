@@ -83,6 +83,8 @@ struct TripCard: View {
             startPoint: .center,
             endPoint: .bottom
         )
+        // Purely visual: let taps through to the photo credit chip underneath.
+        .allowsHitTesting(false)
     }
 
     private var info: some View {
