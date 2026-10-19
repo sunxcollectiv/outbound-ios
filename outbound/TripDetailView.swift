@@ -207,7 +207,9 @@ struct TripDetailView: View {
     @ViewBuilder
     private func itemRow(_ entry: ItineraryEntry) -> some View {
         Group {
-            if entry.item.kind == .transit {
+            if entry.phase == .checkOut {
+                derivedCard(entry, detail: nil)
+            } else if entry.item.kind == .transit {
                 transitCard(entry)
             } else {
                 coverCard(entry)
@@ -314,10 +316,28 @@ struct TripDetailView: View {
             .scaledToFill()
     }
 
-    /// A transit entry at the spot its phase stands for. The item's title stays as the
-    /// heading (the entry is part of that booking); underneath ride the leg's carrier
-    /// and flight number and, at a layover, the time on the ground and onward departure.
+    /// A transit entry at the spot its phase stands for. An arrival gets the light
+    /// derived-moment card; otherwise the item's title stays as the heading (the entry
+    /// is part of that booking), with `transitDetail` underneath.
+    @ViewBuilder
     private func transitCard(_ entry: ItineraryEntry) -> some View {
+        if entry.phase == .arrival {
+            derivedCard(entry, detail: transitDetail(entry))
+        } else {
+            transitCard(
+                time: entry.timeText(.dateTime.hour().minute()),
+                // Where in the journey this is matters more on transit than a tag does.
+                badge: entry.phase.map { $0.label.uppercased() } ?? statusLabel(entry.item),
+                title: entry.item.title,
+                detail: transitDetail(entry),
+                place: entry.place
+            )
+        }
+    }
+
+    /// The line under a transit card's title: at a layover the time on the ground and
+    /// onward departure, then the leg's carrier and flight number. Nil when empty.
+    private func transitDetail(_ entry: ItineraryEntry) -> String? {
         var details: [String] = []
         if entry.phase == .layover {
             if let minutes = entry.layoverMinutes {
@@ -329,28 +349,28 @@ struct TripDetailView: View {
             }
         }
         if let label = entry.segment?.label { details.append(label) }
+        return details.isEmpty ? nil : details.joined(separator: " · ")
+    }
 
-        // An arrival is a derived moment of the booking rather than the booking itself:
-        // a light card headed by where you land, with the booking named for reference.
-        if entry.phase == .arrival {
-            let placeName = placeName(entry.place)
-            return transitCard(
-                time: entry.timeText(.dateTime.hour().minute()),
-                badge: entry.item.title.uppercased(),
-                title: placeName.map { "Arrival at \($0)" } ?? "Arrival",
-                detail: details.isEmpty ? nil : details.joined(separator: " · "),
-                place: entry.place,
-                placeNameShown: placeName,
-                style: .light
-            )
-        }
+    /// A derived moment of an item rather than the item itself (an arrival, a
+    /// check-out): a light card headed "Arrival at <place>" / "Check-out from <place>",
+    /// with the item named top-right for reference — or its kind, when the name just
+    /// repeats the place. A stay without a place falls back to its own name (that's
+    /// where you're leaving).
+    private func derivedCard(_ entry: ItineraryEntry, detail: String?) -> some View {
+        let placeName = placeName(entry.place) ?? (entry.item.kind == .lodging ? entry.item.title : nil)
+        let phase = entry.phase?.label ?? entry.item.kind.label
+        // You arrive at a place but check out from one.
+        let preposition = entry.phase == .checkOut ? "from" : "at"
+        let reference = entry.item.title == placeName ? entry.item.kind.label : entry.item.title
         return transitCard(
             time: entry.timeText(.dateTime.hour().minute()),
-            // Where in the journey this is matters more on transit than a tag does.
-            badge: entry.phase.map { $0.label.uppercased() } ?? statusLabel(entry.item),
-            title: entry.item.title,
-            detail: details.isEmpty ? nil : details.joined(separator: " · "),
-            place: entry.place
+            badge: reference.uppercased(),
+            title: placeName.map { "\(phase) \(preposition) \($0)" } ?? phase,
+            detail: detail,
+            place: entry.place,
+            placeNameShown: placeName,
+            style: .light
         )
     }
 
