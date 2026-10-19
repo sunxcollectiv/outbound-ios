@@ -21,12 +21,12 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.appBackground.ignoresSafeArea()
+                Color.tripsBackground.ignoresSafeArea()
                 content
             }
             .foregroundStyle(Color.appForeground)
             .navigationTitle("Trips")
-            .toolbarBackground(Color.appBackground, for: .navigationBar)
+            .toolbarBackground(Color.tripsBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 AppToolbarButton(placement: .topBarLeading) {
