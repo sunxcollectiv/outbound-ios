@@ -36,6 +36,13 @@ final class TripStore {
         }
     }
 
+    /// Swaps in an edited trip so its card updates without a full reload.
+    func update(_ trip: Trip) {
+        guard let index = trips.firstIndex(where: { $0.id == trip.id }) else { return }
+        trips[index] = trip
+        refreshAreaPhotos(for: [trip])
+    }
+
     /// Inserts a just-created trip at the top so it shows without a full reload.
     func add(_ trip: Trip) {
         trips.insert(trip, at: 0)
