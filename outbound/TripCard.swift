@@ -77,11 +77,16 @@ struct TripCard: View {
         return Int(hash % UInt64(count))
     }
 
-    /// A bottom-up gradient so the text stays legible over any image.
+    /// A bottom-up gradient so the text stays legible over any image. It starts 20%
+    /// down the card and darkens steadily to nearly opaque at the bottom.
     private var scrim: some View {
         LinearGradient(
-            colors: [.clear, .black.opacity(0.65)],
-            startPoint: .center,
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black.opacity(0.45), location: 0.55),
+                .init(color: .black.opacity(0.85), location: 1),
+            ],
+            startPoint: UnitPoint(x: 0.5, y: 0.2),
             endPoint: .bottom
         )
         // Purely visual: let taps through to the photo credit chip underneath.
