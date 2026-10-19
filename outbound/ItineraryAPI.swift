@@ -16,8 +16,8 @@ struct ItineraryDay: Decodable, Identifiable {
     let date: String
     let dayNumber: Int
     let lodging: [LodgingStay]
-    /// The day's items. A transit leg with a real arrival appears twice across the
-    /// itinerary (departure and arrival entries sharing one `item.id`).
+    /// The day's timeline. An item can appear more than once across the itinerary (its
+    /// departure and arrival, check-in and check-out, layovers), sharing one `item.id`.
     let entries: [ItineraryEntry]
 
     var id: Int { dayNumber }
@@ -164,37 +164,31 @@ struct ItineraryEntry: Decodable, Identifiable {
         }
     }
 
-    /// The wall clock this entry is shown (and sorted) at: the end for an end phase,
-    /// the landing at the stop for a layover, else the start.
-    var displayLocal: Date {
-        if let inbound = layoverInbound, let landed = inbound.endsAtLocal { return landed }
-        return isEnd ? (item.endsAtLocal ?? item.startsAtLocal) : item.startsAtLocal
-    }
+    /// The wall clock this entry is shown (and sorted) at: the landing at the stop for
+    /// a layover, the end for an end phase, else the start.
+    var displayLocal: Date { moment.local }
 
     /// The true moment of `displayLocal`, for tie-breaking (UTC for zoneless items).
-    var displayInstant: Date {
-        if let inbound = layoverInbound, let landed = inbound.endsAtLocal {
-            return inbound.endsAtUtc ?? TripItem.instant(ofLocal: landed, in: .gmt)
+    var displayInstant: Date { moment.instant }
+
+    private var moment: (local: Date, instant: Date) {
+        // The span whose end this entry sits at, if any: the leg landing at a layover,
+        // or the item itself for an end phase.
+        let endOf: (any WallClockSpan)? = if let inbound = layoverInbound { inbound } else if isEnd { item } else { nil }
+        if let endOf, let end = endOf.endsAtLocal, let instant = endOf.endInstant(fallbackZone: .gmt) {
+            return (end, instant)
         }
-        return isEnd
-            ? (item.endInstant(fallbackZone: .gmt) ?? item.startInstant(fallbackZone: .gmt))
-            : item.startInstant(fallbackZone: .gmt)
+        return (item.startsAtLocal, item.startInstant(fallbackZone: .gmt))
     }
 
     /// The entry's wall clock as written, e.g. "4:00 PM".
     func timeText(_ style: Date.FormatStyle) -> String {
-        Self.wallText(displayLocal, style)
+        WallClock.text(displayLocal, style)
     }
 
     /// When the onward leg leaves a layover, e.g. "11:40 AM"; nil otherwise.
     func layoverDepartureText(_ style: Date.FormatStyle) -> String? {
-        layoverOutbound.map { Self.wallText($0.startsAtLocal, style) }
-    }
-
-    private static func wallText(_ local: Date, _ style: Date.FormatStyle) -> String {
-        var style = style
-        style.timeZone = .gmt
-        return local.formatted(style)
+        layoverOutbound?.startText(style)
     }
 
     init(item: TripItem, phase: ItineraryPhase? = nil, layoverPlace: Place? = nil, layoverMinutes: Int? = nil) {

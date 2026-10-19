@@ -315,7 +315,7 @@ struct TripItemFormView: View {
     private func zoneLabel(_ zone: TimeZone) -> String {
         let city = (zone.identifier.split(separator: "/").last.map(String.init) ?? zone.identifier)
             .replacingOccurrences(of: "_", with: " ")
-        return "\(city) (\(TripItem.zoneAbbreviation(zone, at: startsAt)))"
+        return "\(city) (\(WallClock.zoneAbbreviation(zone, at: startsAt)))"
     }
 
     private func save() {
