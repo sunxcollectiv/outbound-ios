@@ -295,7 +295,7 @@ struct TripDetailView: View {
             HStack {
                 locationLabel(entry.place, title: item.title)
                 Spacer()
-                assigneeAvatar
+                assigneeAvatar()
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 16)
@@ -329,6 +329,21 @@ struct TripDetailView: View {
             }
         }
         if let label = entry.segment?.label { details.append(label) }
+
+        // An arrival is a derived moment of the booking rather than the booking itself:
+        // a light card headed by where you land, with the booking named for reference.
+        if entry.phase == .arrival {
+            let placeName = placeName(entry.place)
+            return transitCard(
+                time: entry.timeText(.dateTime.hour().minute()),
+                badge: entry.item.title.uppercased(),
+                title: placeName.map { "Arrival at \($0)" } ?? "Arrival",
+                detail: details.isEmpty ? nil : details.joined(separator: " · "),
+                place: entry.place,
+                placeNameShown: placeName,
+                style: .light
+            )
+        }
         return transitCard(
             time: entry.timeText(.dateTime.hour().minute()),
             // Where in the journey this is matters more on transit than a tag does.
@@ -339,10 +354,25 @@ struct TripDetailView: View {
         )
     }
 
+    /// Colors for a transit card: the regular dark card, or a light one (90% white with
+    /// near-black text) for derived moments like an arrival.
+    private struct TransitCardStyle {
+        let background: Color
+        let foreground: Color
+
+        static let regular = TransitCardStyle(background: .appCard, foreground: .appForeground)
+        static let light = TransitCardStyle(background: Color(white: 0.9), foreground: Color(white: 0.1))
+    }
+
     /// A cover-less card for transit: the same box as a cover card minus the image —
     /// time + badge across the top, the title and an optional detail line, then a
     /// location row with the assignee avatar.
-    private func transitCard(time: String, badge: String, title: String, detail: String?, place: Place?) -> some View {
+    /// `placeNameShown` is a place name already in the title, so the location row
+    /// doesn't repeat it (defaults to the title itself).
+    private func transitCard(
+        time: String, badge: String, title: String, detail: String?, place: Place?,
+        placeNameShown: String? = nil, style: TransitCardStyle = .regular
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(time)
@@ -350,9 +380,10 @@ struct TripDetailView: View {
                 Spacer()
                 Text(badge)
                     .tracking(1.5)
+                    .lineLimit(1)
             }
             .font(.caption.weight(.bold))
-            .foregroundStyle(Color.appForeground.opacity(0.7))
+            .foregroundStyle(style.foreground.opacity(0.7))
 
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -361,19 +392,25 @@ struct TripDetailView: View {
                     if let detail {
                         Text(detail)
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(Color.appForeground.opacity(0.75))
+                            .foregroundStyle(style.foreground.opacity(0.75))
                     }
-                    locationLabel(place, title: title)
+                    locationLabel(place, title: placeNameShown ?? title, foreground: style.foreground)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                assigneeAvatar
+                assigneeAvatar(tint: style.foreground)
             }
         }
+        .foregroundStyle(style.foreground)
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.appCard, in: .rect(cornerRadius: 16))
+        .background(style.background, in: .rect(cornerRadius: 16))
         .padding(.vertical, 6)
+    }
+
+    /// A place's display name: the cached Google name, else the backend's.
+    private func placeName(_ place: Place?) -> String? {
+        place?.googlePlaceId.flatMap { placeDetails[$0] }?.name ?? place?.name
     }
 
     /// A card's location: the place name over its address. Prefers the cached Google
@@ -381,23 +418,22 @@ struct TripDetailView: View {
     /// name is dropped when it just repeats the title (shown elsewhere on the card), and
     /// the whole row is hidden when there's neither a name nor an address to show.
     @ViewBuilder
-    private func locationLabel(_ place: Place?, title: String) -> some View {
-        let details = place?.googlePlaceId.flatMap { placeDetails[$0] }
-        let name = details?.name ?? place?.name
-        let address = details?.address ?? place?.address
+    private func locationLabel(_ place: Place?, title: String, foreground: Color = .appForeground) -> some View {
+        let name = placeName(place)
+        let address = place?.googlePlaceId.flatMap { placeDetails[$0] }?.address ?? place?.address
         let showName = name.map { $0 != title } ?? false
         if showName || address != nil {
             VStack(alignment: .leading, spacing: 2) {
                 if showName, let name {
                     Text(name)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.appForeground)
+                        .foregroundStyle(foreground)
                         .lineLimit(1)
                 }
                 if let address {
                     Text(address)
                         .font(.caption2)
-                        .foregroundStyle(Color.appForeground.opacity(0.6))
+                        .foregroundStyle(foreground.opacity(0.6))
                         .lineLimit(1)
                 }
             }
@@ -405,10 +441,11 @@ struct TripDetailView: View {
         }
     }
 
-    /// The thin circular stand-in for an item's assignee avatar.
-    private var assigneeAvatar: some View {
+    /// The thin circular stand-in for an item's assignee avatar, stroked in `tint` so it
+    /// reads on both dark and light cards.
+    private func assigneeAvatar(tint: Color = .appForeground) -> some View {
         Circle()
-            .strokeBorder(Color.appForeground.opacity(0.35), lineWidth: 1)
+            .strokeBorder(tint.opacity(0.35), lineWidth: 1)
             .frame(width: 30, height: 30)
     }
 
