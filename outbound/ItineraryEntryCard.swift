@@ -43,15 +43,13 @@ struct ItineraryEntryCard: View {
 
     // MARK: - Cover card
 
-    /// A full-width card: a cover (a placeholder until per-item artwork is wired up)
-    /// with time + badge overlaid and the title across its bottom, over an info strip
-    /// with the location and an assignee avatar.
+    /// A full-width card: a cover (the place's cover photo when it has one) with time +
+    /// badge overlaid and the title across its bottom, over an info strip with the
+    /// location and an assignee avatar.
     private var coverCard: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
-                Image("DummyCover")
-                    .resizable()
-                    .scaledToFill()
+                cover
                     .frame(height: 170)
                     .frame(maxWidth: .infinity)
                     .clipped()
@@ -75,6 +73,8 @@ struct ItineraryEntryCard: View {
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                     .padding(14)
+                    // Clear the photo credit along the cover's bottom edge.
+                    .padding(.bottom, coverPhoto == nil ? 0 : 8)
             }
 
             HStack {
@@ -89,6 +89,25 @@ struct ItineraryEntryCard: View {
         }
         .clipShape(.rect(cornerRadius: 16))
         .padding(.vertical, 6)
+    }
+
+    /// The cover art: the entry's place's server-resolved cover photo, else the
+    /// placeholder (also shown while the photo loads, or if it fails to).
+    @ViewBuilder
+    private var cover: some View {
+        if let photo = coverPhoto {
+            PlacePhotoView(photo: photo) { dummyCover }
+        } else {
+            dummyCover
+        }
+    }
+
+    private var coverPhoto: CoverPhoto? { entry.place?.coverPhoto }
+
+    private var dummyCover: some View {
+        Image("DummyCover")
+            .resizable()
+            .scaledToFill()
     }
 
     // MARK: - Compact cards
