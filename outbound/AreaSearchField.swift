@@ -5,45 +5,18 @@
 
 import SwiftUI
 
-/// A geographic area a trip covers (a city, region, or neighbourhood), e.g. "Kyoto".
-/// Placeholder shape until the backend's areas API lands.
-struct Area: Codable, Identifiable, Equatable, Hashable {
-    let id: String
-    var name: String
-    /// Broader context shown under the name, e.g. "Kansai, Japan".
-    var subtitle: String?
-}
-
 /// Looks up areas matching a typed query.
 protocol AreaSearching {
     func search(_ query: String) async throws -> [Area]
 }
 
-/// Filters a fixed in-memory list. Stands in for the areas API until it exists.
-struct StubAreaSearch: AreaSearching {
-    var areas: [Area] = Self.sampleAreas
+/// Searches areas through `GET /areas`.
+struct APIAreaSearch: AreaSearching {
+    var api = APIClient.shared
 
     func search(_ query: String) async throws -> [Area] {
-        areas.filter {
-            $0.name.localizedCaseInsensitiveContains(query)
-                || ($0.subtitle?.localizedCaseInsensitiveContains(query) ?? false)
-        }
+        try await api.send(AreasAPI.search(query), as: [Area].self)
     }
-
-    static let sampleAreas: [Area] = [
-        Area(id: "tokyo", name: "Tokyo", subtitle: "Kantō, Japan"),
-        Area(id: "kyoto", name: "Kyoto", subtitle: "Kansai, Japan"),
-        Area(id: "osaka", name: "Osaka", subtitle: "Kansai, Japan"),
-        Area(id: "hokkaido", name: "Hokkaido", subtitle: "Japan"),
-        Area(id: "paris", name: "Paris", subtitle: "Île-de-France, France"),
-        Area(id: "provence", name: "Provence", subtitle: "France"),
-        Area(id: "lisbon", name: "Lisbon", subtitle: "Portugal"),
-        Area(id: "amalfi", name: "Amalfi Coast", subtitle: "Campania, Italy"),
-        Area(id: "tuscany", name: "Tuscany", subtitle: "Italy"),
-        Area(id: "nyc", name: "New York City", subtitle: "New York, USA"),
-        Area(id: "big-sur", name: "Big Sur", subtitle: "California, USA"),
-        Area(id: "mexico-city", name: "Mexico City", subtitle: "Mexico"),
-    ]
 }
 
 /// A text field with autosuggest for picking an `Area`. Typing shows matching areas;
@@ -52,7 +25,7 @@ struct StubAreaSearch: AreaSearching {
 struct AreaSearchField: View {
     let placeholder: String
     @Binding var selection: Area?
-    var search: any AreaSearching = StubAreaSearch()
+    var search: any AreaSearching = APIAreaSearch()
 
     @State private var text: String
     @State private var suggestions: [Area] = []
@@ -63,7 +36,7 @@ struct AreaSearchField: View {
     @State private var isFillingFromSuggestion = false
     @FocusState private var isFocused: Bool
 
-    init(_ placeholder: String, selection: Binding<Area?>, search: any AreaSearching = StubAreaSearch()) {
+    init(_ placeholder: String, selection: Binding<Area?>, search: any AreaSearching = APIAreaSearch()) {
         self.placeholder = placeholder
         _selection = selection
         self.search = search

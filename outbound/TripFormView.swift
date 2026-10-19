@@ -21,7 +21,7 @@ struct TripFormView: View {
     @State private var startDate: Date
     @State private var endDate: Date
     @State private var description: String
-    /// Local only for now: not loaded from or sent to the API until the areas endpoint exists.
+    /// Local only for now: trips have no area field on the backend yet, so this isn't loaded or saved.
     @State private var area: Area?
     @State private var activeField: DateField?
     @State private var isSaving = false
