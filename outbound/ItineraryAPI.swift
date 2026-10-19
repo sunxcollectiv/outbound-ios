@@ -9,6 +9,19 @@ import Foundation
 struct Itinerary: Decodable {
     let trip: Trip
     let days: [ItineraryDay]
+    /// Places whose Google data is due a refresh. The itinerary is usable as is; the
+    /// client asks `POST /places/refresh` for these and patches its cards by id.
+    let stalePlaceIds: [String]
+
+    private enum CodingKeys: String, CodingKey { case trip, days, stalePlaceIds }
+
+    /// Treats a missing `stale_place_ids` (an older server) as none.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        trip = try c.decode(Trip.self, forKey: .trip)
+        days = try c.decode([ItineraryDay].self, forKey: .days)
+        stalePlaceIds = try c.decodeIfPresent([String].self, forKey: .stalePlaceIds) ?? []
+    }
 }
 
 /// One calendar day of a trip, including any lodging that spans it and the day's entries.

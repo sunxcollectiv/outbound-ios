@@ -11,15 +11,21 @@ import SwiftUI
 ///   "Arrival at <place>" / "Check-out from <place>", naming the item for reference;
 /// - other transit entries (departure, layover) are a dark compact card under the
 ///   booking's title;
-/// - everything else is a cover card with artwork.
+/// - everything else is a plain card — or, when its place has a photo, a cover card
+///   topped by that photo.
 ///
-/// `placeDetails` is the itinerary's cache of Google Place Details by google place id,
-/// preferred over the backend's place fields (which are often still being enriched).
+/// `places` is the itinerary's single copy of each place, looked up by id, so a place
+/// patched there updates every card showing it. `placeDetails` is its cache of Google
+/// Place Details by google place id, preferred over the backend's place fields (which
+/// are often still being enriched).
 struct ItineraryEntryCard: View {
     let entry: ItineraryEntry
+    let places: ItineraryPlaces
     let placeDetails: [String: PlaceDetails]
 
     private var item: TripItem { entry.item }
+    /// The place this entry is at, from the itinerary's shared copy.
+    private var place: Place? { places.current(entry.place) }
     private var time: String { entry.timeText(.dateTime.hour().minute()) }
 
     var body: some View {
@@ -28,9 +34,11 @@ struct ItineraryEntryCard: View {
             derivedCard
         default:
             if item.kind == .transit {
-                compactCard(badge: badge, title: item.title, detail: transitDetail, place: entry.place)
+                compactCard(badge: badge, title: item.title, detail: transitDetail, place: place)
+            } else if let photo = place?.coverPhoto {
+                coverCard(photo)
             } else {
-                coverCard
+                plainCard
             }
         }
     }
@@ -41,54 +49,96 @@ struct ItineraryEntryCard: View {
         (entry.phase?.label ?? item.tags.first ?? item.kind.label).uppercased()
     }
 
-    // MARK: - Cover card
+    // MARK: - Full-width cards
 
-    /// A full-width card: a cover (a placeholder until per-item artwork is wired up)
-    /// with time + badge overlaid and the title across its bottom, over an info strip
-    /// with the location and an assignee avatar.
-    private var coverCard: some View {
+    /// The default full-width card: time + badge over the title in a short top
+    /// section, a faint rule, then the info strip with the location and an assignee
+    /// avatar.
+    private var plainCard: some View {
+        VStack(spacing: 0) {
+            // Sized to its content: a fixed gap above the title, then however many
+            // lines the title takes.
+            VStack(alignment: .leading, spacing: 30) {
+                timeAndBadge
+                Text(item.title)
+                    .font(.title3.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(Color.appForeground)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Inset to line up with the text above and below it.
+            Rectangle()
+                .fill(Color.appForeground.opacity(0.3))
+                .frame(height: 1)
+                .padding(.horizontal, 14)
+
+            infoStrip
+        }
+        .background(Color.appCard)
+        .clipShape(.rect(cornerRadius: 16))
+        .padding(.vertical, 6)
+    }
+
+    /// A full-width card for a place with a photo: the photo as a cover with time +
+    /// badge overlaid and the title across its bottom, over the info strip.
+    private func coverCard(_ photo: CoverPhoto) -> some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
-                Image("DummyCover")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(height: 170)
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .overlay {
-                        LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
-                    }
-                    .overlay(alignment: .top) {
-                        HStack {
-                            Text(time)
-                                .monospacedDigit()
-                            Spacer()
-                            Text(badge)
-                                .tracking(1.5)
-                        }
-                        .font(.caption.weight(.bold))
+                // The gradient shows while the photo loads, or if it fails to.
+                PlacePhotoView(photo: photo) {
+                    LinearGradient(colors: [.appCard, .appAccent], startPoint: .topLeading, endPoint: .bottomTrailing)
+                }
+                .frame(height: 170)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .overlay {
+                    LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
+                }
+                .overlay(alignment: .top) {
+                    timeAndBadge
                         .foregroundStyle(.white)
                         .padding(14)
-                    }
+                }
 
                 Text(item.title)
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                     .padding(14)
+                    // Clear the photo credit along the cover's bottom edge.
+                    .padding(.bottom, 8)
             }
 
-            HStack {
-                locationLabel(entry.place, hidingName: item.title)
-                Spacer()
-                assigneeAvatar()
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 16)
-            .frame(maxWidth: .infinity)
-            .background(Color.appCard)
+            infoStrip
         }
         .clipShape(.rect(cornerRadius: 16))
         .padding(.vertical, 6)
+    }
+
+    /// The row across the top of a full-width card: the time, and the badge opposite.
+    private var timeAndBadge: some View {
+        HStack {
+            Text(time)
+                .monospacedDigit()
+            Spacer()
+            Text(badge)
+                .tracking(1.5)
+        }
+        .font(.caption.weight(.bold))
+    }
+
+    /// The bottom of a full-width card: the location and an assignee avatar.
+    private var infoStrip: some View {
+        HStack {
+            locationLabel(place, hidingName: item.title)
+            Spacer()
+            assigneeAvatar()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .background(Color.appCard)
     }
 
     // MARK: - Compact cards
@@ -98,17 +148,17 @@ struct ItineraryEntryCard: View {
     /// when the name just repeats the place. A stay without a place falls back to its
     /// own name (that's where you're leaving).
     private var derivedCard: some View {
-        let place = placeName(entry.place) ?? (item.kind == .lodging ? item.title : nil)
+        let name = placeName(place) ?? (item.kind == .lodging ? item.title : nil)
         let phase = entry.phase?.label ?? item.kind.label
         // You arrive at a place but check out from one.
         let preposition = entry.phase == .checkOut ? "from" : "at"
-        let reference = item.title == place ? item.kind.label : item.title
+        let reference = item.title == name ? item.kind.label : item.title
         return compactCard(
             badge: reference.uppercased(),
-            title: place.map { "\(phase) \(preposition) \($0)" } ?? phase,
+            title: name.map { "\(phase) \(preposition) \($0)" } ?? phase,
             detail: transitDetail,
-            place: entry.place,
-            placeNameShown: place,
+            place: place,
+            placeNameShown: name,
             style: .light
         )
     }
