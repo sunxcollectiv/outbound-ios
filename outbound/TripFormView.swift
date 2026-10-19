@@ -23,6 +23,9 @@ struct TripFormView: View {
     @State private var description: String
     /// The areas the trip covers, shown as chips.
     @State private var areas: [Area]
+    /// Ids of areas marked for removal. They stay as chips, faded, until the trip is
+    /// saved without them, so a mistaken tap can be undone.
+    @State private var areaIdsToRemove: Set<String> = []
     @State private var showingAreaPicker = false
     @State private var activeField: DateField?
     @State private var isSaving = false
@@ -126,9 +129,39 @@ struct TripFormView: View {
     /// The `area_ids` to send. Sending a list replaces all of the trip's areas, so an
     /// edit that leaves them as they were sends nothing.
     private var areaIdsToSave: [String]? {
-        let ids = areas.map(\.id)
+        let ids = areas.map(\.id).filter { !areaIdsToRemove.contains($0) }
         if let trip, ids == (trip.areas ?? []).map(\.id) { return nil }
         return ids
+    }
+
+    /// An area's chip, with a button that toggles marking it for removal.
+    private func areaChip(_ area: Area) -> some View {
+        let isMarked = areaIdsToRemove.contains(area.id)
+        return HStack(spacing: 6) {
+            Text(area.name)
+                .font(.subheadline.weight(.medium))
+            Button {
+                if isMarked {
+                    areaIdsToRemove.remove(area.id)
+                } else {
+                    areaIdsToRemove.insert(area.id)
+                }
+            } label: {
+                Image(systemName: isMarked ? "minus.circle.fill" : "xmark")
+                    .font(.footnote.weight(.semibold))
+                    // Same footprint for both icons so the chip doesn't change width.
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isMarked ? "Keep \(area.name)" : "Remove \(area.name)")
+        }
+        .foregroundStyle(Color.black.opacity(0.85))
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.9), in: .rect(cornerRadius: 8))
+        .opacity(isMarked ? 0.8 : 1)
     }
 
     /// A chip per area, then a dashed chip for adding another.
@@ -138,12 +171,7 @@ struct TripFormView: View {
                 .font(.subheadline.weight(.semibold))
             FlowLayout(spacing: 8) {
                 ForEach(areas) { area in
-                    Text(area.name)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Color.black.opacity(0.85))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.9), in: .rect(cornerRadius: 8))
+                    areaChip(area)
                 }
                 Button { showingAreaPicker = true } label: {
                     Label("Add area", systemImage: "plus")
