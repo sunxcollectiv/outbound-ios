@@ -7,23 +7,28 @@ import SwiftUI
 
 /// A place's cover photo filling its frame, with the photographer credit Google
 /// requires in the bottom-trailing corner (each name linked to its profile when the
-/// server gives one). Shows `placeholder` while the image loads, and keeps showing it
-/// if loading fails — a cover `url` can 403 once its reference expires.
+/// server gives one). Shows `placeholder` while the image loads, fades the photo in
+/// over it once it arrives, and keeps showing the placeholder if loading fails — a
+/// cover `url` can 403 once its reference expires.
 struct PlacePhotoView<Placeholder: View>: View {
     let photo: CoverPhoto
     @ViewBuilder var placeholder: Placeholder
 
     var body: some View {
-        AsyncImage(url: photo.url) { phase in
-            if let image = phase.image {
-                // Fill whatever frame the caller gives, so the credit sits in the
-                // visible corner rather than off the edge of the scaled-to-fill image.
-                Color.clear
-                    .overlay { image.resizable().scaledToFill() }
-                    .clipped()
-                    .overlay(alignment: .bottomTrailing) { attribution }
-            } else {
+        // The placeholder stays underneath and the photo fades in over it, rather
+        // than cutting from one to the other the moment it arrives.
+        AsyncImage(url: photo.url, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
+            ZStack {
                 placeholder
+                if let image = phase.image {
+                    // Fill whatever frame the caller gives, so the credit sits in the
+                    // visible corner rather than off the edge of the scaled-to-fill image.
+                    Color.clear
+                        .overlay { image.resizable().scaledToFill() }
+                        .clipped()
+                        .overlay(alignment: .bottomTrailing) { attribution }
+                        .transition(.opacity)
+                }
             }
         }
     }
