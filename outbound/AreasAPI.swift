@@ -33,7 +33,12 @@ struct AreaRef: Codable, Identifiable, Equatable {
 /// Request shapes for the areas endpoints.
 ///
 ///     GET /areas?q=&kind=&limit=&offset= -> [AreaRead]
+///     GET /areas/{id}                    -> AreaRead
 enum AreasAPI {
+    static func read(id: String) -> Endpoint {
+        Endpoint(path: "/areas/\(id)")
+    }
+
     /// Text-searches areas by name, best match first. `kind` restricts results to one
     /// kind (e.g. "city").
     static func search(_ query: String, kind: String? = nil, limit: Int = 10) -> Endpoint {

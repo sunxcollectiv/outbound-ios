@@ -53,6 +53,11 @@ struct AreaSearchField: View {
                     .autocorrectionDisabled()
                     .focused($isFocused)
                     .onChange(of: text) { _, newValue in onTextChanged(newValue) }
+                    // Show a selection set from outside (e.g. loaded for an edit form).
+                    // Unfocused, the text change doesn't trigger a search.
+                    .onChange(of: selection) { _, newValue in
+                        if let newValue, newValue.name != text, !isFocused { text = newValue.name }
+                    }
                 if !text.isEmpty {
                     Button("Clear", systemImage: "xmark.circle.fill", action: clear)
                         .labelStyle(.iconOnly)

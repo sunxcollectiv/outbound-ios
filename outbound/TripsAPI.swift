@@ -15,6 +15,9 @@ struct Trip: Codable, Identifiable, Equatable {
     var startDate: String
     var endDate: String
     var coverImageUrl: String?
+    /// Ids of the areas (countries/cities) this trip covers. Optional so trips still
+    /// decode from a backend that doesn't send the field yet.
+    var areaIds: [String]?
     let createdAt: Date
     let updatedAt: Date
 }
@@ -69,12 +72,16 @@ enum TripsAPI {
     /// day of the trip with that zone, so items can be added without picking a zone each
     /// time; it's sent on creation and left nil for edits (PATCH doesn't take it).
     /// The same shape is reused for edits via `update`.
+    ///
+    /// `areaIds` replaces the trip's whole set of areas. Nil keys are omitted, so on
+    /// an edit leave it nil to keep the existing areas untouched.
     struct CreateRequest: Encodable {
         let title: String
         let description: String?
         let startDate: String
         let endDate: String
         var timezone: String?
+        var areaIds: [String]?
     }
 
     static let list = Endpoint(path: "/trips")
