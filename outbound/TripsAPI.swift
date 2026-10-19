@@ -15,9 +15,9 @@ struct Trip: Codable, Identifiable, Equatable {
     var startDate: String
     var endDate: String
     var coverImageUrl: String?
-    /// Ids of the areas (countries/cities) this trip covers. Optional so trips still
-    /// decode from a backend that doesn't send the field yet.
-    var areaIds: [String]?
+    /// The areas (countries/cities) this trip covers, in order. Optional so trips
+    /// still decode from a backend that doesn't send the field yet.
+    var areas: [Area]?
     let createdAt: Date
     let updatedAt: Date
 }

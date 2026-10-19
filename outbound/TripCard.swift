@@ -68,6 +68,7 @@ struct TripCard: View {
             Text(trip.title)
                 .font(.headline)
                 .lineLimit(2)
+            areaTags
             Text(trip.dateRangeText)
                 .font(.caption)
                 .foregroundStyle(Color.appForeground.opacity(0.85))
@@ -76,6 +77,34 @@ struct TripCard: View {
         .foregroundStyle(Color.appForeground)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
+    }
+
+    /// The trip's areas as small tags. Shows every tag when they fit on one line,
+    /// otherwise the first one plus a "+N" count.
+    @ViewBuilder
+    private var areaTags: some View {
+        let areas = trip.areas ?? []
+        if let first = areas.first {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 4) {
+                    ForEach(areas) { areaTag($0.name) }
+                }
+                HStack(spacing: 4) {
+                    areaTag(first.name)
+                    if areas.count > 1 { areaTag("+\(areas.count - 1)") }
+                }
+            }
+        }
+    }
+
+    private func areaTag(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .foregroundStyle(Color.black.opacity(0.85))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.white, in: .rect(cornerRadius: 4))
     }
 }
 

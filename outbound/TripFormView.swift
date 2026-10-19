@@ -21,11 +21,8 @@ struct TripFormView: View {
     @State private var startDate: Date
     @State private var endDate: Date
     @State private var description: String
-    /// The trip's area. When editing, it's fetched from the trip's first area id.
+    /// The trip's area. The form edits a single area, so an edited trip shows its first.
     @State private var area: Area?
-    /// Whether the user picked or cleared the area. Edits only send `area_ids` when
-    /// set, since sending a list replaces all of the trip's areas.
-    @State private var didEditArea = false
     @State private var activeField: DateField?
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -43,6 +40,7 @@ struct TripFormView: View {
         _description = State(initialValue: trip?.description ?? "")
         _startDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.startDate) } ?? Date())
         _endDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.endDate) } ?? Date())
+        _area = State(initialValue: trip?.areas?.first)
     }
 
     var body: some View {
@@ -55,7 +53,7 @@ struct TripFormView: View {
                             .textInputAutocapitalization(.words)
                             .appField()
 
-                        AreaSearchField("Area (e.g. Kyoto)", selection: editableArea)
+                        AreaSearchField("Area (e.g. Kyoto)", selection: $area)
 
                         VStack(alignment: .leading, spacing: 6) {
                             VStack(spacing: 8) {
@@ -122,28 +120,13 @@ struct TripFormView: View {
             }
         }
         .appTheme()
-        .task { await loadArea() }
     }
 
-    /// The area binding handed to the search field, so user changes are recorded
-    /// separately from the area loaded on edit.
-    private var editableArea: Binding<Area?> {
-        Binding(
-            get: { area },
-            set: { newValue in
-                area = newValue
-                didEditArea = true
-            }
-        )
-    }
-
-    /// Fetches the edited trip's area so the field shows it. The form edits a single
-    /// area, so only the first is shown. On failure the field stays blank, and saving
-    /// without touching it leaves the trip's areas unchanged.
-    private func loadArea() async {
-        guard let id = trip?.areaIds?.first, area == nil else { return }
-        guard let loaded = try? await api.send(AreasAPI.read(id: id), as: Area.self) else { return }
-        if !didEditArea { area = loaded }
+    /// The `area_ids` to send. Sending a list replaces all of the trip's areas, so an
+    /// edit that leaves the area as it was sends nothing and keeps any others.
+    private var areaIdsToSave: [String]? {
+        if let trip, area?.id == trip.areas?.first?.id { return nil }
+        return area.map { [$0.id] } ?? []
     }
 
     /// A tappable row showing a date; tapping toggles the inline picker below it.
@@ -182,8 +165,7 @@ struct TripFormView: View {
                     endDate: Self.apiDateFormatter.string(from: endDate),
                     // Seed the trip's days with the device's zone on create; PATCH doesn't take it.
                     timezone: isEditing ? nil : TimeZone.current.identifier,
-                    // Omitted on an untouched edit so the trip keeps its existing areas.
-                    areaIds: isEditing && !didEditArea ? nil : area.map { [$0.id] } ?? []
+                    areaIds: areaIdsToSave
                 )
                 let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
                 let saved = try await api.send(endpoint, as: Trip.self)
