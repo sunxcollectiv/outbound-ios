@@ -20,7 +20,7 @@ struct TripCard: View {
         .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
     }
 
-    /// The trip's own cover image, else the first area photo, else a styled
+    /// The trip's own cover image, else the first area's photo, else a styled
     /// placeholder. An area photo fetched after the list loads fades in over the
     /// placeholder.
     @ViewBuilder
@@ -40,9 +40,10 @@ struct TripCard: View {
         }
     }
 
-    /// The photo of the first of the trip's areas that has one.
+    /// The first area's default photo. Only the first area's is used, even when a
+    /// later one has a photo, so the cover always matches the leading area.
     private var areaCoverPhoto: AreaPhoto? {
-        trip.areas?.lazy.compactMap(\.coverPhoto).first
+        trip.areas?.first?.coverPhoto
     }
 
     /// A solid color shown when there's no cover art, picked from the trip's id so it

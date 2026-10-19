@@ -44,11 +44,18 @@ final class TripStore {
 
     /// Asks the server for photos of the areas these trips flagged as missing them (in
     /// batches of `AreasAPI.refreshPhotosBatchLimit`), patching each batch in as it
-    /// lands. Runs in the background so callers don't wait on it. Best-effort: a
+    /// lands. Only each trip's first area is asked for, since that's the only one a
+    /// card shows. Runs in the background so callers don't wait on it. Best-effort: a
     /// failed batch leaves its areas without photos.
     private func refreshAreaPhotos(for trips: [Trip]) {
         var seen = Set<String>()
-        let ids = trips.flatMap { $0.areasMissingPhotos ?? [] }.filter { seen.insert($0).inserted }
+        let ids = trips
+            .compactMap { trip -> String? in
+                guard let first = trip.areas?.first?.id,
+                      trip.areasMissingPhotos?.contains(first) == true else { return nil }
+                return first
+            }
+            .filter { seen.insert($0).inserted }
         guard !ids.isEmpty else { return }
 
         photoRefresh?.cancel()

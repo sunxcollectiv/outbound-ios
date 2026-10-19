@@ -18,23 +18,31 @@ struct Area: Codable, Identifiable, Equatable {
     let kind: String?
     /// The broader area this one sits in, e.g. the country a city is in.
     let parent: AreaRef?
-    /// Curated photos, best first. Empty until the server has fetched some; a trip
-    /// lists such areas in `areasMissingPhotos`. Optional so responses that leave the
-    /// field out still decode.
-    var photos: [AreaPhoto]?
+    /// The area's cover photo and its credit, kept on the area itself. Nil until the
+    /// server has fetched one; a trip lists such areas in `areasMissingPhotos`. Kept
+    /// as strings so a malformed URL drops the photo rather than failing the decode.
+    let defaultPhotoUrl: String?
+    let defaultPhotoAttribution: String?
+    let defaultPhotoAttributionUrl: String?
 
     /// Context shown under the name in search results, e.g. "Japan" for Kyoto.
     var subtitle: String? { parent?.name }
 
-    /// The photo to use as a cover, if the area has one.
-    var coverPhoto: AreaPhoto? { photos?.first }
+    /// The cover photo, if the area has one.
+    var coverPhoto: AreaPhoto? {
+        guard let url = defaultPhotoUrl.flatMap(URL.init(string:)) else { return nil }
+        return AreaPhoto(
+            url: url,
+            attribution: defaultPhotoAttribution,
+            attributionUrl: defaultPhotoAttributionUrl.flatMap(URL.init(string:))
+        )
+    }
 }
 
-/// `AreaPhotoRead`: an Unsplash photo of an area. `url` hotlinks Unsplash's CDN, and
-/// Unsplash requires crediting `attribution` (the photographer), linked to
-/// `attributionUrl`, wherever the photo is shown.
-struct AreaPhoto: Codable, Identifiable, Equatable {
-    let id: String
+/// An area's Unsplash cover photo. `url` hotlinks Unsplash's CDN, and Unsplash
+/// requires crediting `attribution` (the photographer), linked to `attributionUrl`,
+/// wherever the photo is shown.
+struct AreaPhoto: Equatable {
     let url: URL
     let attribution: String?
     let attributionUrl: URL?
