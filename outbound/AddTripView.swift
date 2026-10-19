@@ -21,6 +21,8 @@ struct AddTripView: View {
     @State private var startDate: Date
     @State private var endDate: Date
     @State private var description: String
+    /// Local only for now: not loaded from or sent to the API until the areas endpoint exists.
+    @State private var area: Area?
     @State private var activeField: DateField?
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -49,6 +51,8 @@ struct AddTripView: View {
                         TextField("Trip name", text: $title)
                             .textInputAutocapitalization(.words)
                             .appField()
+
+                        AreaSearchField("Area (e.g. Kyoto)", selection: $area)
 
                         VStack(alignment: .leading, spacing: 6) {
                             VStack(spacing: 8) {
