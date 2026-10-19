@@ -108,7 +108,7 @@ struct TripItemFormView: View {
         _endZone = State(initialValue: item?.endTimezone)
         // SwiftUI's DatePicker has no minute-interval option, so set it on the
         // underlying UIDatePicker. This is app-wide, but the only other pickers
-        // (AddTripView) are date-only and unaffected.
+        // (TripFormView) are date-only and unaffected.
         UIDatePicker.appearance().minuteInterval = Self.minuteInterval
     }
 

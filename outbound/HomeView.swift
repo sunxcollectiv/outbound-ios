@@ -42,7 +42,7 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $showingAddTrip) {
-                AddTripView(onSaved: { store.add($0) })
+                TripFormView(onSaved: { store.add($0) })
             }
             .task { await store.load() }
         }

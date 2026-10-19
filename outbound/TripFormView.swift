@@ -1,5 +1,5 @@
 //
-//  AddTripView.swift
+//  TripFormView.swift
 //  outbound
 //
 
@@ -8,7 +8,7 @@ import SwiftUI
 /// Modal for manually creating or editing a trip. Collects a name, start/end dates,
 /// and an optional description. Timezone and locations come later, derived from trip
 /// items. Pass an existing `trip` to edit it; omit it to create a new one.
-struct AddTripView: View {
+struct TripFormView: View {
     @Environment(\.dismiss) private var dismiss
 
     /// The trip being edited, or `nil` when creating a new one.
@@ -179,5 +179,5 @@ struct AddTripView: View {
 }
 
 #Preview {
-    AddTripView()
+    TripFormView()
 }
