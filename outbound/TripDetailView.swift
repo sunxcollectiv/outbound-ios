@@ -13,6 +13,10 @@ struct TripDetailView: View {
     @State private var trip: Trip
 
     @State private var days: [ItineraryDay]?
+    /// Each day's cards (keyed by `ItineraryDay.date`), rebuilt whenever `days` loads.
+    /// Transit is laid out from its segments here, so a stop can sit on another day
+    /// than the entry the server sent; see `ItineraryTimeline`.
+    @State private var cardsByDate: [String: [ItineraryCard]] = [:]
     /// The trip's days keyed by date, for the zones to default the add-item picker to.
     /// Loaded alongside the itinerary (which doesn't carry zones yet) and joined on date.
     @State private var dayTimeZones: [String: [TimeZone]] = [:]
@@ -45,6 +49,7 @@ struct TripDetailView: View {
     init(trip: Trip, days: [ItineraryDay]? = nil) {
         _trip = State(initialValue: trip)
         _days = State(initialValue: days)
+        _cardsByDate = State(initialValue: ItineraryTimeline.cards(for: days ?? []))
         _selection = State(initialValue: days?.first?.dayNumber ?? 1)
     }
 
@@ -166,15 +171,16 @@ struct TripDetailView: View {
                     lodgingRow(stay)
                 }
 
-                if day.items.isEmpty && day.lodging.isEmpty {
+                let cards = cardsByDate[day.date] ?? []
+                if cards.isEmpty && day.lodging.isEmpty {
                     Text("Nothing planned")
                         .font(.subheadline)
                         .foregroundStyle(Color.appForeground.opacity(0.5))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
                 } else {
-                    ForEach(day.items) { item in
-                        itemRow(item)
+                    ForEach(cards) { card in
+                        itemRow(card)
                     }
                 }
 
@@ -205,16 +211,20 @@ struct TripDetailView: View {
     // MARK: - Rows
 
     @ViewBuilder
-    private func itemRow(_ item: TripItem) -> some View {
+    private func itemRow(_ card: ItineraryCard) -> some View {
         Group {
-            if item.kind == .transit {
-                transitCard(item)
-            } else {
-                coverCard(item)
+            switch card {
+            case .transit(let stop):
+                transitStopCard(stop)
+            case .entry(let entry) where entry.item.kind == .transit:
+                transitEntryCard(entry)
+            case .entry(let entry):
+                coverCard(entry)
             }
         }
         .contentShape(.rect)
-        .onTapGesture { selectedItem = item }
+        // Every card of a booking (each stop, each end) opens the same record.
+        .onTapGesture { selectedItem = card.item }
         .mask {
             GeometryReader { geo in
                 let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
@@ -257,8 +267,9 @@ struct TripDetailView: View {
     /// A full-width card for a non-transit item: a cover (artwork when the item has
     /// one, otherwise a placeholder) with time + status overlaid, the title across
     /// its bottom, and an attached info strip carrying the notes and an assignee avatar.
-    private func coverCard(_ item: TripItem) -> some View {
-        VStack(spacing: 0) {
+    private func coverCard(_ entry: ItineraryEntry) -> some View {
+        let item = entry.item
+        return VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
                 coverImage
                 .frame(height: 170)
@@ -273,10 +284,10 @@ struct TripDetailView: View {
                 }
                 .overlay(alignment: .top) {
                     HStack {
-                        Text(item.startText(.dateTime.hour().minute()))
+                        Text(entry.timeText(.dateTime.hour().minute()))
                             .monospacedDigit()
                         Spacer()
-                        Text(statusLabel(item))
+                        Text(statusLabel(item, phase: entry.phase?.label))
                             .tracking(1.5)
                     }
                     .font(.caption.weight(.bold))
@@ -291,7 +302,7 @@ struct TripDetailView: View {
             }
 
             HStack {
-                locationLabel(item)
+                locationLabel(entry.place, title: item.title)
                 Spacer()
                 assigneeAvatar
             }
@@ -312,16 +323,65 @@ struct TripDetailView: View {
             .scaledToFill()
     }
 
-    /// A cover-less card for transit items: the same box as a cover card minus the
-    /// image — time + status across the top, the title, then a location row with the
-    /// assignee avatar.
-    private func transitCard(_ item: TripItem) -> some View {
+    /// A stop along a transit booking's legs — the main way transit shows up. The
+    /// booking's title stays as the heading (the stop is part of it); the leg's carrier
+    /// and flight number, its position in a multi-leg booking, and at a layover the
+    /// time on the ground ride underneath.
+    private func transitStopCard(_ stop: TransitStop) -> some View {
+        var details: [String] = []
+        switch stop.kind {
+        case .departure:
+            if let leg = stop.outbound { details += legDetails(leg, in: stop) }
+        case .arrival:
+            if let leg = stop.inbound { details += legDetails(leg, in: stop) }
+        case .layover:
+            if let duration = stop.layoverDuration {
+                details.append("\(duration.formatted(.units(allowed: [.hours, .minutes], width: .narrow))) layover")
+            }
+            if let departs = stop.departureText(.dateTime.hour().minute()) {
+                details.append("departs \(departs)")
+            }
+            if let leg = stop.outbound, let label = leg.label { details.append(label) }
+        }
+        return transitCard(
+            time: stop.timeText(.dateTime.hour().minute()),
+            badge: stop.kind.label.uppercased(),
+            title: stop.item.title,
+            detail: details.isEmpty ? nil : details.joined(separator: " · "),
+            place: stop.place
+        )
+    }
+
+    /// A leg's carrier/flight label and, for a multi-leg booking, which leg it is.
+    private func legDetails(_ leg: TransitSegment, in stop: TransitStop) -> [String] {
+        var details = [leg.label].compactMap { $0 }
+        if let index = stop.legIndex(of: leg), index.count > 1 {
+            details.append("Leg \(index.number) of \(index.count)")
+        }
+        return details
+    }
+
+    /// A transit item without segments, shown at the end its entry stands for.
+    private func transitEntryCard(_ entry: ItineraryEntry) -> some View {
+        transitCard(
+            time: entry.timeText(.dateTime.hour().minute()),
+            badge: statusLabel(entry.item, phase: entry.phase?.label),
+            title: entry.item.title,
+            detail: nil,
+            place: entry.place
+        )
+    }
+
+    /// A cover-less card for transit: the same box as a cover card minus the image —
+    /// time + badge across the top, the title and an optional detail line, then a
+    /// location row with the assignee avatar.
+    private func transitCard(time: String, badge: String, title: String, detail: String?, place: Place?) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(item.startText(.dateTime.hour().minute()))
+                Text(time)
                     .monospacedDigit()
                 Spacer()
-                Text(statusLabel(item))
+                Text(badge)
                     .tracking(1.5)
             }
             .font(.caption.weight(.bold))
@@ -329,9 +389,14 @@ struct TripDetailView: View {
 
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(item.title)
+                    Text(title)
                         .font(.title3.weight(.bold))
-                    locationLabel(item)
+                    if let detail {
+                        Text(detail)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Color.appForeground.opacity(0.75))
+                    }
+                    locationLabel(place, title: title)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -344,16 +409,16 @@ struct TripDetailView: View {
         .padding(.vertical, 6)
     }
 
-    /// The item's location: the place name over its address. Prefers the cached Google
+    /// A card's location: the place name over its address. Prefers the cached Google
     /// details (reliably present), falling back to the backend place's own fields. The
     /// name is dropped when it just repeats the title (shown elsewhere on the card), and
     /// the whole row is hidden when there's neither a name nor an address to show.
     @ViewBuilder
-    private func locationLabel(_ item: TripItem) -> some View {
-        let details = item.place?.googlePlaceId.flatMap { placeDetails[$0] }
-        let name = details?.name ?? item.place?.name
-        let address = details?.address ?? item.place?.address
-        let showName = name.map { $0 != item.title } ?? false
+    private func locationLabel(_ place: Place?, title: String) -> some View {
+        let details = place?.googlePlaceId.flatMap { placeDetails[$0] }
+        let name = details?.name ?? place?.name
+        let address = details?.address ?? place?.address
+        let showName = name.map { $0 != title } ?? false
         if showName || address != nil {
             VStack(alignment: .leading, spacing: 2) {
                 if showName, let name {
@@ -380,10 +445,10 @@ struct TripDetailView: View {
             .frame(width: 30, height: 30)
     }
 
-    /// The badge shown top-right of a featured card: the item's first tag if it has
-    /// one (e.g. "RESERVED"), otherwise its kind.
-    private func statusLabel(_ item: TripItem) -> String {
-        (item.tags.first ?? item.kind.label).uppercased()
+    /// The badge shown top-right of a card: the item's first tag if it has one (e.g.
+    /// "RESERVED"), then the end the entry stands for (e.g. "CHECK-OUT"), else its kind.
+    private func statusLabel(_ item: TripItem, phase: String? = nil) -> String {
+        (item.tags.first ?? phase ?? item.kind.label).uppercased()
     }
 
     private func lodgingRow(_ stay: LodgingStay) -> some View {
@@ -459,7 +524,7 @@ struct TripDetailView: View {
         // Zoneless items are ordered by their wall clock read in their day's zone.
         let timed = (days ?? []).flatMap { day in
             let fallback = dayTimeZones[day.date]?.first ?? .current
-            return (day.items + day.lodging.map(\.item)).map { item in
+            return day.uniqueItems.map { item in
                 (item, item.endInstant(fallbackZone: fallback) ?? item.startInstant(fallbackZone: fallback))
             }
         }
@@ -475,7 +540,7 @@ struct TripDetailView: View {
     private func resolveSelection(in days: [ItineraryDay], focusItemId: String?) -> Int {
         if let focusItemId,
            let day = days.first(where: { day in
-               (day.items + day.lodging.map(\.item)).contains { $0.id == focusItemId }
+               day.uniqueItems.contains { $0.id == focusItemId }
            }) {
             return day.dayNumber
         }
@@ -491,6 +556,7 @@ struct TripDetailView: View {
         do {
             let itinerary = try await api.send(TripsAPI.itinerary(tripId: trip.id), as: Itinerary.self)
             days = itinerary.days
+            cardsByDate = ItineraryTimeline.cards(for: itinerary.days)
             selection = resolveSelection(in: itinerary.days, focusItemId: focusItemId)
             errorMessage = nil
             await loadPlaceDetails(for: itinerary.days)
@@ -509,8 +575,11 @@ struct TripDetailView: View {
     /// the backend has enriched its own place records. Best-effort: places already
     /// cached are skipped, and individual lookups that fail are simply left out.
     private func loadPlaceDetails(for days: [ItineraryDay]) async {
-        let items = days.flatMap { $0.items + $0.lodging.map(\.item) }
-        let ids = Set(items.flatMap { [$0.place?.googlePlaceId, $0.endPlace?.googlePlaceId] }.compactMap { $0 })
+        let items = days.flatMap(\.uniqueItems)
+        let places = items.flatMap { item in
+            [item.place, item.endPlace] + item.segments.flatMap { [$0.place, $0.endPlace] }
+        }
+        let ids = Set(places.compactMap { $0?.googlePlaceId })
         let missing = ids.subtracting(placeDetails.keys)
         guard !missing.isEmpty else { return }
 

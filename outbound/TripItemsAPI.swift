@@ -62,6 +62,55 @@ struct TripItem: Identifiable, Equatable {
     var endPlace: Place?
     let createdAt: Date
     let updatedAt: Date
+    /// The legs of a transit booking, in travel order (one for a direct trip). Empty
+    /// for other kinds. The itinerary lays transit out from these, not the item's ends.
+    var segments: [TransitSegment] = []
+}
+
+/// `TransitSegmentRead` — one leg of a transit booking, e.g. JFK → LAX on a two-leg
+/// flight. Times follow the same floating wall-clock rules as `TripItem`.
+struct TransitSegment: Identifiable, Equatable, Decodable {
+    let id: String
+    let position: Int
+    var startsAtLocal: Date
+    var startsAtUtc: Date?
+    var startTimezone: TimeZone?
+    var endsAtLocal: Date?
+    var endsAtUtc: Date?
+    var endTimezone: TimeZone?
+    var place: Place?
+    var endPlace: Place?
+    var carrier: String?
+    var flightNumber: String?
+
+    /// The leg's label from its carrier and flight number, e.g. "Qantas QF 12"; nil
+    /// when it has neither.
+    var label: String? {
+        let parts = [carrier, flightNumber].compactMap { $0?.isEmpty == false ? $0 : nil }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, position, startsAt, startsAtUtc, startTimezone
+        case endsAt, endsAtUtc, endTimezone, place, endPlace, carrier, flightNumber
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        position = try c.decode(Int.self, forKey: .position)
+        startsAtLocal = try TripItem.decodeLocal(c, forKey: .startsAt)
+        startsAtUtc = try c.decodeIfPresent(Date.self, forKey: .startsAtUtc)
+        startTimezone = try TripItem.decodeZone(c, forKey: .startTimezone)
+        endsAtLocal = try c.decodeIfPresent(String.self, forKey: .endsAt) == nil
+            ? nil : try TripItem.decodeLocal(c, forKey: .endsAt)
+        endsAtUtc = try c.decodeIfPresent(Date.self, forKey: .endsAtUtc)
+        endTimezone = try TripItem.decodeZone(c, forKey: .endTimezone)
+        place = try c.decodeIfPresent(Place.self, forKey: .place)
+        endPlace = try c.decodeIfPresent(Place.self, forKey: .endPlace)
+        carrier = try c.decodeIfPresent(String.self, forKey: .carrier)
+        flightNumber = try c.decodeIfPresent(String.self, forKey: .flightNumber)
+    }
 }
 
 extension TripItem {
@@ -104,7 +153,7 @@ extension TripItem {
     }
 
     /// A floating wall clock reinterpreted as a real moment in `zone`.
-    private static func instant(ofLocal local: Date, in zone: TimeZone) -> Date {
+    static func instant(ofLocal local: Date, in zone: TimeZone) -> Date {
         var floating = Calendar(identifier: .gregorian)
         floating.timeZone = .gmt
         var target = Calendar(identifier: .gregorian)
@@ -129,7 +178,7 @@ extension TripItem: Decodable {
         case id, tripId, kind, scope, title, notes, tags
         case startTimezone, endTimezone
         case startsAt, endsAt, startsAtUtc, endsAtUtc
-        case imageUrl, place, endPlace, createdAt, updatedAt
+        case imageUrl, place, endPlace, createdAt, updatedAt, segments
     }
 
     init(from decoder: Decoder) throws {
@@ -153,12 +202,14 @@ extension TripItem: Decodable {
         endPlace = try c.decodeIfPresent(Place.self, forKey: .endPlace)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        segments = (try c.decodeIfPresent([TransitSegment].self, forKey: .segments) ?? [])
+            .sorted { $0.position < $1.position }
     }
 
     /// Decodes a naive wall clock like "2026-11-01T11:00:00" (fractional seconds
     /// ignored) into a floating UTC date. Decoded as a string so the decoder's ISO 8601
     /// date strategy, which needs a `Z`/offset, never sees it.
-    private static func decodeLocal(_ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) throws -> Date {
+    static func decodeLocal<K: CodingKey>(_ c: KeyedDecodingContainer<K>, forKey key: K) throws -> Date {
         let string = try c.decode(String.self, forKey: key)
         guard let date = localFormatter.date(from: String(string.prefix(19))) else {
             throw DecodingError.dataCorruptedError(forKey: key, in: c, debugDescription: "Unrecognized local date-time: \(string)")
@@ -174,7 +225,7 @@ extension TripItem: Decodable {
         return formatter
     }()
 
-    private static func decodeZone(_ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) throws -> TimeZone? {
+    static func decodeZone<K: CodingKey>(_ c: KeyedDecodingContainer<K>, forKey key: K) throws -> TimeZone? {
         guard let identifier = try c.decodeIfPresent(String.self, forKey: key) else { return nil }
         return TimeZone(identifier: identifier)
     }
