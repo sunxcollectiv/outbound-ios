@@ -11,7 +11,8 @@ import SwiftUI
 ///   "Arrival at <place>" / "Check-out from <place>", naming the item for reference;
 /// - other transit entries (departure, layover) are a dark compact card under the
 ///   booking's title;
-/// - everything else is a cover card, topped by its place's photo when it has one.
+/// - everything else is a plain card — or, when its place has a photo, a cover card
+///   topped by that photo.
 ///
 /// `placeDetails` is the itinerary's cache of Google Place Details by google place id,
 /// preferred over the backend's place fields (which are often still being enriched).
@@ -29,8 +30,10 @@ struct ItineraryEntryCard: View {
         default:
             if item.kind == .transit {
                 compactCard(badge: badge, title: item.title, detail: transitDetail, place: entry.place)
+            } else if let photo = entry.place?.coverPhoto {
+                coverCard(photo)
             } else {
-                coverCard
+                plainCard
             }
         }
     }
@@ -41,72 +44,96 @@ struct ItineraryEntryCard: View {
         (entry.phase?.label ?? item.tags.first ?? item.kind.label).uppercased()
     }
 
-    // MARK: - Cover card
+    // MARK: - Full-width cards
 
-    /// A full-width card: a cover (the place's cover photo when it has one) with time +
-    /// badge overlaid and the title across its bottom, over an info strip with the
-    /// location and an assignee avatar.
-    private var coverCard: some View {
+    /// The default full-width card: time + badge over the title in a short top
+    /// section, a faint rule, then the info strip with the location and an assignee
+    /// avatar.
+    private var plainCard: some View {
+        VStack(spacing: 0) {
+            // Sized to its content: a fixed gap above the title, then however many
+            // lines the title takes.
+            VStack(alignment: .leading, spacing: 30) {
+                timeAndBadge
+                Text(item.title)
+                    .font(.title3.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(Color.appForeground)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Inset to line up with the text above and below it.
+            Rectangle()
+                .fill(Color.appForeground.opacity(0.3))
+                .frame(height: 1)
+                .padding(.horizontal, 14)
+
+            infoStrip
+        }
+        .background(Color.appCard)
+        .clipShape(.rect(cornerRadius: 16))
+        .padding(.vertical, 6)
+    }
+
+    /// A full-width card for a place with a photo: the photo as a cover with time +
+    /// badge overlaid and the title across its bottom, over the info strip.
+    private func coverCard(_ photo: CoverPhoto) -> some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
-                cover
-                    .frame(height: 170)
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .overlay {
-                        LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
-                    }
-                    .overlay(alignment: .top) {
-                        HStack {
-                            Text(time)
-                                .monospacedDigit()
-                            Spacer()
-                            Text(badge)
-                                .tracking(1.5)
-                        }
-                        .font(.caption.weight(.bold))
+                // The gradient shows while the photo loads, or if it fails to.
+                PlacePhotoView(photo: photo) {
+                    LinearGradient(colors: [.appCard, .appAccent], startPoint: .topLeading, endPoint: .bottomTrailing)
+                }
+                .frame(height: 170)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .overlay {
+                    LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
+                }
+                .overlay(alignment: .top) {
+                    timeAndBadge
                         .foregroundStyle(.white)
                         .padding(14)
-                    }
+                }
 
                 Text(item.title)
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                     .padding(14)
                     // Clear the photo credit along the cover's bottom edge.
-                    .padding(.bottom, coverPhoto == nil ? 0 : 8)
+                    .padding(.bottom, 8)
             }
 
-            HStack {
-                locationLabel(entry.place, hidingName: item.title)
-                Spacer()
-                assigneeAvatar()
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 16)
-            .frame(maxWidth: .infinity)
-            .background(Color.appCard)
+            infoStrip
         }
         .clipShape(.rect(cornerRadius: 16))
         .padding(.vertical, 6)
     }
 
-    /// The cover art: the entry's place's server-resolved cover photo, else a plain
-    /// fill (also shown while the photo loads, or if it fails to).
-    @ViewBuilder
-    private var cover: some View {
-        if let photo = coverPhoto {
-            PlacePhotoView(photo: photo) { coverFill }
-        } else {
-            coverFill
+    /// The row across the top of a full-width card: the time, and the badge opposite.
+    private var timeAndBadge: some View {
+        HStack {
+            Text(time)
+                .monospacedDigit()
+            Spacer()
+            Text(badge)
+                .tracking(1.5)
         }
+        .font(.caption.weight(.bold))
     }
 
-    private var coverPhoto: CoverPhoto? { entry.place?.coverPhoto }
-
-    /// A warm gradient in the card's tones, matching the trip cards' placeholder.
-    private var coverFill: some View {
-        LinearGradient(colors: [.appCard, .appAccent], startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// The bottom of a full-width card: the location and an assignee avatar.
+    private var infoStrip: some View {
+        HStack {
+            locationLabel(entry.place, hidingName: item.title)
+            Spacer()
+            assigneeAvatar()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .background(Color.appCard)
     }
 
     // MARK: - Compact cards
