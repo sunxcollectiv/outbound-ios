@@ -65,7 +65,8 @@ struct CoverPhoto: Codable, Equatable {
 
 /// Request shapes for places.
 ///
-///     POST /places  PlaceFromGoogle -> PlaceRead (201)
+///     POST /places          PlaceFromGoogle       -> PlaceRead (201)
+///     POST /places/refresh  PlacesRefreshRequest  -> PlacesRefreshResponse
 enum PlacesAPI {
     /// `PlaceFromGoogle` — body for `POST /places`. The one thing the client supplies
     /// to register a place is its Google place id; the backend fills in the rest.
@@ -75,5 +76,25 @@ enum PlacesAPI {
 
     static func create(googlePlaceId: String) -> Endpoint {
         Endpoint(path: "/places", method: .post, body: CreateRequest(googlePlaceId: googlePlaceId))
+    }
+
+    /// The most ids `POST /places/refresh` accepts in one request.
+    static let refreshBatchLimit = 100
+
+    /// `PlacesRefreshRequest` — the ids an itinerary flagged as stale.
+    struct RefreshRequest: Encodable {
+        let placeIds: [String]
+    }
+
+    /// `PlacesRefreshResponse` — the current state of each requested place the server
+    /// knows, keyed by id, after a best-effort refresh from Google.
+    struct RefreshResponse: Decodable {
+        let places: [String: Place]
+    }
+
+    /// Refreshes up to `refreshBatchLimit` places. The server only re-fetches the ones
+    /// still due, so repeat calls (or two clients on one trip) don't double-bill.
+    static func refresh(placeIds: [String]) -> Endpoint {
+        Endpoint(path: "/places/refresh", method: .post, body: RefreshRequest(placeIds: placeIds))
     }
 }

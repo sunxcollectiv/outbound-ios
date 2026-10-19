@@ -21,6 +21,10 @@ struct TripDetailView: View {
     /// those are often still null here; we fetch Google's copy once and cache it so
     /// cards can show a location immediately. See `loadPlaceDetails(for:)`.
     @State private var placeDetails: [String: PlaceDetails] = [:]
+    /// One copy of each place in the itinerary, by id, which every card and the item
+    /// sheet read from. Patched in place when stale places come back refreshed, so all
+    /// cards for a place update together. See `refreshStalePlaces(_:)`.
+    @State private var places = ItineraryPlaces()
     @State private var selection: Int
     @State private var errorMessage: String?
     /// A pending add-item sheet, carrying the day that was shown when add was tapped.
@@ -116,7 +120,7 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: item) { saved in
+            TripItemDetailView(item: places.resolving(item)) { saved in
                 Task { await load(focusItemId: saved.id) }
             }
         }
@@ -205,7 +209,7 @@ struct TripDetailView: View {
     // MARK: - Rows
 
     private func itemRow(_ entry: ItineraryEntry) -> some View {
-        ItineraryEntryCard(entry: entry, placeDetails: placeDetails)
+        ItineraryEntryCard(entry: entry, places: places, placeDetails: placeDetails)
             .contentShape(.rect)
             // Every entry of an item (each end, each layover) opens the same record.
             .onTapGesture { selectedItem = entry.item }
@@ -353,9 +357,14 @@ struct TripDetailView: View {
         do {
             let itinerary = try await api.send(TripsAPI.itinerary(tripId: trip.id), as: Itinerary.self)
             days = itinerary.days
+            places = ItineraryPlaces(days: itinerary.days)
             selection = resolveSelection(in: itinerary.days, focusItemId: focusItemId)
             errorMessage = nil
+            // The itinerary is already on screen; stale places refresh alongside the
+            // Google details and patch their cards when they land.
+            async let refresh: Void = refreshStalePlaces(itinerary.stalePlaceIds)
             await loadPlaceDetails(for: itinerary.days)
+            await refresh
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -371,11 +380,7 @@ struct TripDetailView: View {
     /// the backend has enriched its own place records. Best-effort: places already
     /// cached are skipped, and individual lookups that fail are simply left out.
     private func loadPlaceDetails(for days: [ItineraryDay]) async {
-        let items = days.flatMap(\.uniqueItems)
-        let places = items.flatMap { item in
-            [item.place, item.endPlace] + item.segments.flatMap { [$0.place, $0.endPlace] }
-        }
-        let ids = Set(places.compactMap { $0?.googlePlaceId })
+        let ids = Set(days.flatMap(\.places).compactMap(\.googlePlaceId))
         let missing = ids.subtracting(placeDetails.keys)
         guard !missing.isEmpty else { return }
 
@@ -390,6 +395,23 @@ struct TripDetailView: View {
             return results
         }
         placeDetails.merge(fetched) { _, new in new }
+    }
+}
+
+extension TripDetailView {
+    /// Asks the server to refresh the places the itinerary flagged as stale (in batches
+    /// of `PlacesAPI.refreshBatchLimit`), then patches the shared copies so every card
+    /// for those places picks up the new data, cover photo included. Best-effort: a
+    /// failed batch leaves its places as the itinerary delivered them.
+    fileprivate func refreshStalePlaces(_ ids: [String]) async {
+        guard !ids.isEmpty else { return }
+        let batches = stride(from: 0, to: ids.count, by: PlacesAPI.refreshBatchLimit).map {
+            Array(ids[$0..<min($0 + PlacesAPI.refreshBatchLimit, ids.count)])
+        }
+        for batch in batches {
+            guard let response = try? await api.send(PlacesAPI.refresh(placeIds: batch), as: PlacesAPI.RefreshResponse.self) else { continue }
+            places.update(with: response.places)
+        }
     }
 }
 

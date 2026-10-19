@@ -14,13 +14,18 @@ import SwiftUI
 /// - everything else is a plain card — or, when its place has a photo, a cover card
 ///   topped by that photo.
 ///
-/// `placeDetails` is the itinerary's cache of Google Place Details by google place id,
-/// preferred over the backend's place fields (which are often still being enriched).
+/// `places` is the itinerary's single copy of each place, looked up by id, so a place
+/// patched there updates every card showing it. `placeDetails` is its cache of Google
+/// Place Details by google place id, preferred over the backend's place fields (which
+/// are often still being enriched).
 struct ItineraryEntryCard: View {
     let entry: ItineraryEntry
+    let places: ItineraryPlaces
     let placeDetails: [String: PlaceDetails]
 
     private var item: TripItem { entry.item }
+    /// The place this entry is at, from the itinerary's shared copy.
+    private var place: Place? { places.current(entry.place) }
     private var time: String { entry.timeText(.dateTime.hour().minute()) }
 
     var body: some View {
@@ -29,8 +34,8 @@ struct ItineraryEntryCard: View {
             derivedCard
         default:
             if item.kind == .transit {
-                compactCard(badge: badge, title: item.title, detail: transitDetail, place: entry.place)
-            } else if let photo = entry.place?.coverPhoto {
+                compactCard(badge: badge, title: item.title, detail: transitDetail, place: place)
+            } else if let photo = place?.coverPhoto {
                 coverCard(photo)
             } else {
                 plainCard
@@ -126,7 +131,7 @@ struct ItineraryEntryCard: View {
     /// The bottom of a full-width card: the location and an assignee avatar.
     private var infoStrip: some View {
         HStack {
-            locationLabel(entry.place, hidingName: item.title)
+            locationLabel(place, hidingName: item.title)
             Spacer()
             assigneeAvatar()
         }
@@ -143,17 +148,17 @@ struct ItineraryEntryCard: View {
     /// when the name just repeats the place. A stay without a place falls back to its
     /// own name (that's where you're leaving).
     private var derivedCard: some View {
-        let place = placeName(entry.place) ?? (item.kind == .lodging ? item.title : nil)
+        let name = placeName(place) ?? (item.kind == .lodging ? item.title : nil)
         let phase = entry.phase?.label ?? item.kind.label
         // You arrive at a place but check out from one.
         let preposition = entry.phase == .checkOut ? "from" : "at"
-        let reference = item.title == place ? item.kind.label : item.title
+        let reference = item.title == name ? item.kind.label : item.title
         return compactCard(
             badge: reference.uppercased(),
-            title: place.map { "\(phase) \(preposition) \($0)" } ?? phase,
+            title: name.map { "\(phase) \(preposition) \($0)" } ?? phase,
             detail: transitDetail,
-            place: entry.place,
-            placeNameShown: place,
+            place: place,
+            placeNameShown: name,
             style: .light
         )
     }
