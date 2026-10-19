@@ -13,10 +13,6 @@ struct TripDetailView: View {
     @State private var trip: Trip
 
     @State private var days: [ItineraryDay]?
-    /// Each day's cards (keyed by `ItineraryDay.date`), rebuilt whenever `days` loads.
-    /// Transit is laid out from its segments here, so a stop can sit on another day
-    /// than the entry the server sent; see `ItineraryTimeline`.
-    @State private var cardsByDate: [String: [ItineraryCard]] = [:]
     /// The trip's days keyed by date, for the zones to default the add-item picker to.
     /// Loaded alongside the itinerary (which doesn't carry zones yet) and joined on date.
     @State private var dayTimeZones: [String: [TimeZone]] = [:]
@@ -49,7 +45,6 @@ struct TripDetailView: View {
     init(trip: Trip, days: [ItineraryDay]? = nil) {
         _trip = State(initialValue: trip)
         _days = State(initialValue: days)
-        _cardsByDate = State(initialValue: ItineraryTimeline.cards(for: days ?? []))
         _selection = State(initialValue: days?.first?.dayNumber ?? 1)
     }
 
@@ -171,16 +166,15 @@ struct TripDetailView: View {
                     lodgingRow(stay)
                 }
 
-                let cards = cardsByDate[day.date] ?? []
-                if cards.isEmpty && day.lodging.isEmpty {
+                if day.entries.isEmpty && day.lodging.isEmpty {
                     Text("Nothing planned")
                         .font(.subheadline)
                         .foregroundStyle(Color.appForeground.opacity(0.5))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
                 } else {
-                    ForEach(cards) { card in
-                        itemRow(card)
+                    ForEach(day.entries) { entry in
+                        itemRow(entry)
                     }
                 }
 
@@ -211,20 +205,17 @@ struct TripDetailView: View {
     // MARK: - Rows
 
     @ViewBuilder
-    private func itemRow(_ card: ItineraryCard) -> some View {
+    private func itemRow(_ entry: ItineraryEntry) -> some View {
         Group {
-            switch card {
-            case .transit(let stop):
-                transitStopCard(stop)
-            case .entry(let entry) where entry.item.kind == .transit:
-                transitEntryCard(entry)
-            case .entry(let entry):
+            if entry.item.kind == .transit {
+                transitCard(entry)
+            } else {
                 coverCard(entry)
             }
         }
         .contentShape(.rect)
-        // Every card of a booking (each stop, each end) opens the same record.
-        .onTapGesture { selectedItem = card.item }
+        // Every entry of an item (each end, each layover) opens the same record.
+        .onTapGesture { selectedItem = entry.item }
         .mask {
             GeometryReader { geo in
                 let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
@@ -323,51 +314,27 @@ struct TripDetailView: View {
             .scaledToFill()
     }
 
-    /// A stop along a transit booking's legs — the main way transit shows up. The
-    /// booking's title stays as the heading (the stop is part of it); the leg's carrier
-    /// and flight number, its position in a multi-leg booking, and at a layover the
-    /// time on the ground ride underneath.
-    private func transitStopCard(_ stop: TransitStop) -> some View {
+    /// A transit entry at the spot its phase stands for. The item's title stays as the
+    /// heading (the entry is part of that booking); underneath ride the leg's carrier
+    /// and flight number and, at a layover, the time on the ground and onward departure.
+    private func transitCard(_ entry: ItineraryEntry) -> some View {
         var details: [String] = []
-        switch stop.kind {
-        case .departure:
-            if let leg = stop.outbound { details += legDetails(leg, in: stop) }
-        case .arrival:
-            if let leg = stop.inbound { details += legDetails(leg, in: stop) }
-        case .layover:
-            if let duration = stop.layoverDuration {
+        if entry.phase == .layover {
+            if let minutes = entry.layoverMinutes {
+                let duration = Duration.seconds(minutes * 60)
                 details.append("\(duration.formatted(.units(allowed: [.hours, .minutes], width: .narrow))) layover")
             }
-            if let departs = stop.departureText(.dateTime.hour().minute()) {
+            if let departs = entry.layoverDepartureText(.dateTime.hour().minute()) {
                 details.append("departs \(departs)")
             }
-            if let leg = stop.outbound, let label = leg.label { details.append(label) }
         }
+        if let label = entry.segment?.label { details.append(label) }
         return transitCard(
-            time: stop.timeText(.dateTime.hour().minute()),
-            badge: stop.kind.label.uppercased(),
-            title: stop.item.title,
-            detail: details.isEmpty ? nil : details.joined(separator: " · "),
-            place: stop.place
-        )
-    }
-
-    /// A leg's carrier/flight label and, for a multi-leg booking, which leg it is.
-    private func legDetails(_ leg: TransitSegment, in stop: TransitStop) -> [String] {
-        var details = [leg.label].compactMap { $0 }
-        if let index = stop.legIndex(of: leg), index.count > 1 {
-            details.append("Leg \(index.number) of \(index.count)")
-        }
-        return details
-    }
-
-    /// A transit item without segments, shown at the end its entry stands for.
-    private func transitEntryCard(_ entry: ItineraryEntry) -> some View {
-        transitCard(
             time: entry.timeText(.dateTime.hour().minute()),
-            badge: statusLabel(entry.item, phase: entry.phase?.label),
+            // Where in the journey this is matters more on transit than a tag does.
+            badge: entry.phase.map { $0.label.uppercased() } ?? statusLabel(entry.item),
             title: entry.item.title,
-            detail: nil,
+            detail: details.isEmpty ? nil : details.joined(separator: " · "),
             place: entry.place
         )
     }
@@ -556,7 +523,6 @@ struct TripDetailView: View {
         do {
             let itinerary = try await api.send(TripsAPI.itinerary(tripId: trip.id), as: Itinerary.self)
             days = itinerary.days
-            cardsByDate = ItineraryTimeline.cards(for: itinerary.days)
             selection = resolveSelection(in: itinerary.days, focusItemId: focusItemId)
             errorMessage = nil
             await loadPlaceDetails(for: itinerary.days)

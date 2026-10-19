@@ -87,73 +87,125 @@ struct ItineraryDay: Decodable, Identifiable {
     private static let weekday = Date.FormatStyle.dateTime.weekday(.abbreviated)
 }
 
-/// Which end of a two-ended item an itinerary entry stands for: `departure`/`arrival`
-/// for transit, `checkIn`/`checkOut` for lodging.
+/// Which spot of an item an itinerary entry stands for: `departure`/`arrival` (and a
+/// `layover` between legs) for transit, `checkIn`/`checkOut` for lodging.
 enum ItineraryPhase: String, Decodable {
     case departure
     case arrival
+    case layover
     case checkIn = "check_in"
     case checkOut = "check_out"
-
-    /// Whether the entry sits at the item's end rather than its start.
-    var isEnd: Bool { self == .arrival || self == .checkOut }
 
     var label: String {
         switch self {
         case .departure: "Departure"
         case .arrival: "Arrival"
+        case .layover: "Layover"
         case .checkIn: "Check-in"
         case .checkOut: "Check-out"
         }
     }
 }
 
-/// `ItineraryEntry` — one element of a day's `items`: the trip item plus, for an item
-/// with distinct ends, which end this entry stands for. `phase` is nil otherwise.
-///
-/// Transit with segments is laid out from its legs instead (see `ItineraryTimeline`);
-/// the entry's phase only matters for transit without them.
+/// `ItineraryEntry` — one card in a day's timeline. The server derives these: an item
+/// with distinct ends gets one entry per end (`phase`), and a multi-leg transit also
+/// gets a `layover` entry per stop between legs, carrying where and how long. Every
+/// entry of an item shares `item.id`; the item is there for reference. `phase` is nil
+/// for items with a single spot.
 struct ItineraryEntry: Decodable, Identifiable {
     let item: TripItem
     let phase: ItineraryPhase?
+    /// The place waited at, for a `layover` entry.
+    let layoverPlace: Place?
+    /// How long the layover lasts, in minutes, for a `layover` entry.
+    let layoverMinutes: Int?
 
-    /// Unique per entry: both ends of one item share `item.id`.
-    var id: String { "\(item.id)|\(phase?.rawValue ?? "")" }
+    /// Unique per entry: an item's entries share `item.id`, and a transit can have
+    /// several layovers.
+    var id: String { "\(item.id)|\(phase?.rawValue ?? "")|\(layoverPlace?.id ?? "")" }
 
-    private var isEnd: Bool { phase?.isEnd ?? false }
+    private var isEnd: Bool { phase == .arrival || phase == .checkOut }
 
-    /// The place this entry is at: the destination for an arrival, the lodging itself
-    /// at check-out (its end place, if any), else the item's place.
+    /// The place this entry is at: the destination for an arrival, the stop for a
+    /// layover, the lodging itself at check-out (its end place, if any), else the
+    /// item's place.
     var place: Place? {
         switch phase {
         case .arrival: item.endPlace
+        case .layover: layoverPlace
         case .checkOut: item.endPlace ?? item.place
         default: item.place
         }
     }
 
-    /// The wall clock this entry is shown (and sorted) at: the end for an end phase.
-    var displayLocal: Date { isEnd ? (item.endsAtLocal ?? item.startsAtLocal) : item.startsAtLocal }
+    /// For a layover, the leg that lands at the stop. The entry carries no time of its
+    /// own, so the stop's arrival (and the onward departure) are read off the legs.
+    var layoverInbound: TransitSegment? {
+        guard phase == .layover, let stop = layoverPlace?.id else { return nil }
+        return item.segments.dropLast().first { $0.endPlace?.id == stop }
+    }
+
+    /// For a layover, the leg that leaves the stop.
+    var layoverOutbound: TransitSegment? {
+        guard let inbound = layoverInbound,
+              let index = item.segments.firstIndex(of: inbound),
+              item.segments.indices.contains(index + 1) else { return nil }
+        return item.segments[index + 1]
+    }
+
+    /// The leg this entry is about, for its carrier/flight label: the first leg at a
+    /// departure, the last at an arrival, the onward leg at a layover.
+    var segment: TransitSegment? {
+        switch phase {
+        case .departure: item.segments.first
+        case .arrival: item.segments.last
+        case .layover: layoverOutbound
+        default: nil
+        }
+    }
+
+    /// The wall clock this entry is shown (and sorted) at: the end for an end phase,
+    /// the landing at the stop for a layover, else the start.
+    var displayLocal: Date {
+        if let inbound = layoverInbound, let landed = inbound.endsAtLocal { return landed }
+        return isEnd ? (item.endsAtLocal ?? item.startsAtLocal) : item.startsAtLocal
+    }
 
     /// The true moment of `displayLocal`, for tie-breaking (UTC for zoneless items).
     var displayInstant: Date {
-        isEnd
+        if let inbound = layoverInbound, let landed = inbound.endsAtLocal {
+            return inbound.endsAtUtc ?? TripItem.instant(ofLocal: landed, in: .gmt)
+        }
+        return isEnd
             ? (item.endInstant(fallbackZone: .gmt) ?? item.startInstant(fallbackZone: .gmt))
             : item.startInstant(fallbackZone: .gmt)
     }
 
     /// The entry's wall clock as written, e.g. "4:00 PM".
     func timeText(_ style: Date.FormatStyle) -> String {
-        isEnd ? (item.endText(style) ?? item.startText(style)) : item.startText(style)
+        Self.wallText(displayLocal, style)
     }
 
-    init(item: TripItem, phase: ItineraryPhase? = nil) {
+    /// When the onward leg leaves a layover, e.g. "11:40 AM"; nil otherwise.
+    func layoverDepartureText(_ style: Date.FormatStyle) -> String? {
+        layoverOutbound.map { Self.wallText($0.startsAtLocal, style) }
+    }
+
+    private static func wallText(_ local: Date, _ style: Date.FormatStyle) -> String {
+        var style = style
+        style.timeZone = .gmt
+        return local.formatted(style)
+    }
+
+    init(item: TripItem, phase: ItineraryPhase? = nil, layoverPlace: Place? = nil, layoverMinutes: Int? = nil) {
         self.item = item
         self.phase = phase
+        self.layoverPlace = layoverPlace
+        self.layoverMinutes = layoverMinutes
     }
 
     private enum CodingKeys: String, CodingKey {
-        case item, phase
+        case item, phase, layoverPlace, layoverMinutes
     }
 
     /// Also accepts the older flat shape (a bare `TripItemRead`), so the app keeps
@@ -163,9 +215,13 @@ struct ItineraryEntry: Decodable, Identifiable {
         if c.contains(.item) {
             item = try c.decode(TripItem.self, forKey: .item)
             phase = try c.decodeIfPresent(ItineraryPhase.self, forKey: .phase)
+            layoverPlace = try c.decodeIfPresent(Place.self, forKey: .layoverPlace)
+            layoverMinutes = try c.decodeIfPresent(Int.self, forKey: .layoverMinutes)
         } else {
             item = try TripItem(from: decoder)
             phase = nil
+            layoverPlace = nil
+            layoverMinutes = nil
         }
     }
 }
