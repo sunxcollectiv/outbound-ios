@@ -300,19 +300,29 @@ struct TripDetailView: View {
         return LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
     }
 
+    /// A lodging chip: bed icon and name, with an arrow marking the phase, on the left
+    /// for a check-in (arriving) and on the right for a check-out (leaving). A stay in
+    /// progress shows "Staying" instead.
     private func lodgingRow(_ stay: LodgingStay) -> some View {
         HStack(spacing: 8) {
+            if stay.phase == .checkIn {
+                lodgingArrow.padding(.trailing, 7)
+            }
             Image(systemName: "bed.double.fill")
                 .font(.caption)
             Text(stay.item.title)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
-            Spacer(minLength: 4)
-            // Truncate the name rather than the phase when a half-width chip runs short.
-            Text(stay.phase.label)
-                .font(.caption)
-                .foregroundStyle(Color.appForeground.opacity(0.7))
-                .fixedSize()
+            Spacer(minLength: 0)
+            if stay.phase == .staying {
+                Text(stay.phase.label)
+                    .font(.caption)
+                    .foregroundStyle(Color.appForeground.opacity(0.7))
+                    .fixedSize()
+            }
+            if stay.phase == .checkOut {
+                lodgingArrow.padding(.leading, 7)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -320,6 +330,18 @@ struct TripDetailView: View {
         .background(Color.appForeground.opacity(0.1), in: .rect(cornerRadius: 10))
         .contentShape(.rect)
         .onTapGesture { selectedItem = stay.item }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(stay.item.title), \(stay.phase.label)")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { selectedItem = stay.item }
+    }
+
+    private var lodgingArrow: some View {
+        Image(systemName: "arrow.right")
+            .font(.system(size: 8, weight: .heavy))
+            .foregroundStyle(Color(white: 0.15))
+            .frame(width: 16, height: 16)
+            .background(Color.appForeground, in: .circle)
     }
 
     /// A faint hairline flanking the Add Activity button.
