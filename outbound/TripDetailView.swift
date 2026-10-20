@@ -189,9 +189,15 @@ struct TripDetailView: View {
     private func dayPage(_ day: ItineraryDay, scrollLocked: Bool) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                ForEach(day.lodging, id: \.item.id) { stay in
-                    lodgingRow(stay)
-                        .revealIn(hasRevealed)
+                // One line of equal-width chips, so a changeover day shows its check-out
+                // and check-in side by side.
+                if !day.lodging.isEmpty {
+                    HStack(spacing: 10) {
+                        ForEach(day.lodging, id: \.item.id) { stay in
+                            lodgingRow(stay)
+                        }
+                    }
+                    .revealIn(hasRevealed)
                 }
 
                 if day.entries.isEmpty && day.lodging.isEmpty {
@@ -300,10 +306,13 @@ struct TripDetailView: View {
                 .font(.caption)
             Text(stay.item.title)
                 .font(.subheadline.weight(.semibold))
-            Spacer()
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            // Truncate the name rather than the phase when a half-width chip runs short.
             Text(stay.phase.label)
                 .font(.caption)
                 .foregroundStyle(Color.appForeground.opacity(0.7))
+                .fixedSize()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
