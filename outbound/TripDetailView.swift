@@ -113,7 +113,7 @@ struct TripDetailView: View {
             })
         }
         .sheet(isPresented: $showingEditTrip) {
-            AddTripView(trip: trip) { updated in
+            TripFormView(trip: trip) { updated in
                 trip = updated
                 // Dates may have shifted, so rebuild the day-by-day itinerary.
                 Task { await load() }

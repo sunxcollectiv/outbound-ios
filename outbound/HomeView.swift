@@ -6,12 +6,16 @@
 import SwiftUI
 
 /// The main app screen, shown once the user is signed in: a list of the user's trips.
-/// Tapping a trip opens its itinerary.
+/// Tapping a trip opens its itinerary; long-pressing one opens the edit form.
 struct HomeView: View {
     @Environment(AuthStore.self) private var auth
 
     @State private var store = TripStore()
     @State private var showingAddTrip = false
+    /// The trip whose itinerary is pushed, by id so the screen reads the latest copy.
+    @State private var openedTripId: String?
+    /// The trip being edited from a long press.
+    @State private var editingTrip: Trip?
 
     private let columns = [
         GridItem(.flexible(), spacing: 16),
@@ -21,12 +25,12 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.appBackground.ignoresSafeArea()
+                Color.tripsBackground.ignoresSafeArea()
                 content
             }
             .foregroundStyle(Color.appForeground)
             .navigationTitle("Trips")
-            .toolbarBackground(Color.appBackground, for: .navigationBar)
+            .toolbarBackground(Color.tripsBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 AppToolbarButton(placement: .topBarLeading) {
@@ -42,7 +46,15 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $showingAddTrip) {
-                AddTripView(onSaved: { store.add($0) })
+                TripFormView(onSaved: { store.add($0) })
+            }
+            .sheet(item: $editingTrip) { trip in
+                TripFormView(trip: trip, onSaved: { store.update($0) })
+            }
+            .navigationDestination(item: $openedTripId) { id in
+                if let trip = store.trips.first(where: { $0.id == id }) {
+                    TripDetailView(trip: trip)
+                }
             }
             .task { await store.load() }
         }
@@ -60,17 +72,21 @@ struct HomeView: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 16) {
                     ForEach(store.trips) { trip in
-                        NavigationLink {
-                            TripDetailView(trip: trip)
-                        } label: {
-                            TripCard(trip: trip)
-                        }
-                        .buttonStyle(.plain)
+                        // Gestures rather than a NavigationLink: a link fires on release
+                        // even after a long hold, so the long press would also navigate.
+                        TripCard(trip: trip)
+                            .contentShape(.rect(cornerRadius: 16))
+                            .onTapGesture { openedTripId = trip.id }
+                            .onLongPressGesture { editingTrip = trip }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { openedTripId = trip.id }
+                            .accessibilityAction(named: "Edit Trip") { editingTrip = trip }
                     }
                 }
                 .padding()
             }
             .refreshable { await store.load() }
+            .sensoryFeedback(.impact, trigger: editingTrip?.id) { _, new in new != nil }
         }
     }
 

@@ -18,6 +18,9 @@ extension Color {
 
     /// Translucent card surface that sits over the background.
     static let appCard = Color(red: 0.62, green: 0.36, blue: 0.23)
+
+    /// Very dark gray behind the trips grid, so the colored trip cards stand out.
+    static let tripsBackground = Color(red: 0.15, green: 0.15, blue: 0.16)
 }
 
 /// Applies the app's warm terracotta color theme: background, foreground, and tint.
