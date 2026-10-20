@@ -108,10 +108,9 @@ struct DaySelectorBar: View {
             }
             .foregroundStyle(isSelected ? Color(white: 0.15) : Color.appForeground.opacity(0.9))
             .frame(width: 56, height: 56)
+            // Not `.interactive()` glass: that swells the circle while it's held.
             .glassEffect(
-                isSelected
-                    ? .regular.tint(Color(white: 0.9)).interactive()
-                    : .clear.interactive(),
+                isSelected ? .regular.tint(Color(white: 0.9)) : .clear,
                 in: .circle
             )
             .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
