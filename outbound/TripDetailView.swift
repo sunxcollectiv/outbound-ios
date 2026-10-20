@@ -180,19 +180,27 @@ struct TripDetailView: View {
                     }
                 }
 
-                Button {
-                    addItemRequest = AddItemRequest(date: day.calendarDate)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus")
-                        Text("ADD ACTIVITY")
-                            .tracking(1.5)
+                // Centered between faint rules that run out to the content's edges.
+                HStack(spacing: 12) {
+                    addActivityRule
+                    Button {
+                        addItemRequest = AddItemRequest(date: day.calendarDate)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                            Text("ADD ACTIVITY")
+                                .tracking(1.5)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.appForeground.opacity(0.6))
                     }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.appForeground.opacity(0.6))
+                    .buttonStyle(.plain)
+                    // Keep the label on one line; the rules take whatever width is left.
+                    .fixedSize()
+                    addActivityRule
                 }
-                .buttonStyle(.plain)
-                .padding(.top, 4)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
 
                 // Clear the bottom day-picker bar.
                 Color.clear.frame(height: 120)
@@ -267,6 +275,14 @@ struct TripDetailView: View {
         .background(Color.appForeground.opacity(0.1), in: .rect(cornerRadius: 10))
         .contentShape(.rect)
         .onTapGesture { selectedItem = stay.item }
+    }
+
+    /// A faint hairline flanking the Add Activity button.
+    private var addActivityRule: some View {
+        Rectangle()
+            .fill(Color.appForeground.opacity(0.2))
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
     }
 
     // MARK: - Error
