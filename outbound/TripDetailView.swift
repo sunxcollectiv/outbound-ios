@@ -67,8 +67,6 @@ struct TripDetailView: View {
                     }
             } else if let errorMessage {
                 errorState(errorMessage)
-            } else {
-                loadingScaffold
             }
         }
         .coordinateSpace(.named(Self.detailSpace))
@@ -271,25 +269,7 @@ struct TripDetailView: View {
         .onTapGesture { selectedItem = stay.item }
     }
 
-    // MARK: - Loading / error
-
-    private var loadingScaffold: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                DashedPlaceholder(height: 28)
-                    .frame(width: 160)
-                ForEach(0..<3, id: \.self) { _ in
-                    HStack(alignment: .top, spacing: 12) {
-                        DashedPlaceholder(height: 44)
-                            .frame(width: 52)
-                        DashedPlaceholder("Itinerary item", height: 72)
-                    }
-                }
-            }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
+    // MARK: - Error
 
     private func errorState(_ message: String) -> some View {
         VStack(spacing: 12) {
