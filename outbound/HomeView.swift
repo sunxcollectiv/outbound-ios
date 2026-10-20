@@ -16,6 +16,7 @@ struct HomeView: View {
     @State private var openedTripId: String?
     /// The trip being edited from a long press.
     @State private var editingTrip: Trip?
+    @State private var isDrawerOpen = false
 
     private let columns = [
         GridItem(.flexible(), spacing: 16),
@@ -23,6 +24,14 @@ struct HomeView: View {
     ]
 
     var body: some View {
+        LeadingDrawer(isOpen: $isDrawerOpen, edgeSwipeEnabled: openedTripId == nil) {
+            tripsStack
+        } drawer: {
+            ProfileDrawer(onSignOut: { isDrawerOpen = false })
+        }
+    }
+
+    private var tripsStack: some View {
         NavigationStack {
             ZStack {
                 Color.tripsBackground.ignoresSafeArea()
@@ -33,10 +42,16 @@ struct HomeView: View {
             .toolbarBackground(Color.tripsBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                AppToolbarButton(placement: .topBarLeading) {
-                    auth.signOut()
-                } label: {
-                    Text("Sign Out")
+                if let user = auth.currentUser {
+                    AppToolbarButton(placement: .topBarLeading) {
+                        withAnimation(.snappy(duration: 0.3)) { isDrawerOpen = true }
+                    } label: {
+                        AvatarView(user: user, size: 32)
+                            // The bar insets its items past the screen's 16pt margin;
+                            // pull the avatar back so it lines up with the title and grid.
+                            .offset(x: -20)
+                            .accessibilityLabel("Profile")
+                    }
                 }
                 AppToolbarButton(placement: .topBarTrailing) {
                     showingAddTrip = true

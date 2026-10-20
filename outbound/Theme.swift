@@ -21,6 +21,10 @@ extension Color {
 
     /// Very dark gray behind the trips grid, so the colored trip cards stand out.
     static let tripsBackground = Color(red: 0.15, green: 0.15, blue: 0.16)
+
+    /// Slightly lifted dark gray for the profile drawer, so it reads as a layer above
+    /// the trips grid.
+    static let drawerBackground = Color(red: 0.20, green: 0.20, blue: 0.21)
 }
 
 /// Applies the app's warm terracotta color theme: background, foreground, and tint.
