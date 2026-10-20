@@ -87,57 +87,13 @@ struct TripDetailView: View {
         .containerBackground(Color(white: 0.12), for: .navigation)
         .foregroundStyle(Color.appForeground)
         .navigationTitle(trip.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
-        .toolbarBackground(Color.appBackground, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .toolbar {
-            // The trip's title with the day being viewed beside it, in place of a header
-            // on each page. The title truncates first so the day always shows.
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 6) {
-                    Text(trip.title)
-                        .foregroundStyle(.white)
-                    if let selectedDay {
-                        Text("Day \(selectedDay.dayNumber)")
-                            .foregroundStyle(.white.opacity(0.55))
-                            .contentTransition(.numericText(value: Double(selectedDay.dayNumber)))
-                            .animation(.snappy, value: selectedDay.dayNumber)
-                            .fixedSize()
-                    }
-                }
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isHeader)
-            }
-            AppToolbarButton(placement: .topBarLeading) {
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.backward")
-                    .accessibilityLabel("Back")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 4) {
-                    Button {
-                        addItemRequest = AddItemRequest(date: selectedDay?.calendarDate)
-                    } label: {
-                        Image(systemName: "plus")
-                            .accessibilityLabel("Add Item")
-                    }
-                    Menu {
-                        Button("Edit Trip", systemImage: "pencil") {
-                            showingEditTrip = true
-                        }
-                        Button("Share", systemImage: "square.and.arrow.up") {}
-                        Button("Delete Trip", systemImage: "trash", role: .destructive) {}
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .accessibilityLabel("More")
-                    }
-                }
-            }
-            .sharedBackgroundVisibility(.hidden)
+        // The system bar is replaced by the header chip pinned above the itinerary.
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            header
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+                .revealIn(hasRevealed || days == nil)
         }
         .sheet(item: $addItemRequest) { request in
             TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, onSaved: { saved in
@@ -160,6 +116,68 @@ struct TripDetailView: View {
         .onDisappear {
             if days != nil { LastVisitedDay.record(selection, for: trip.id) }
         }
+    }
+
+    // MARK: - Header
+
+    /// A solid chip in the lodging chips' shape standing in for the navigation bar: back
+    /// on the left, then the trip's title and the day being viewed (left aligned, taking
+    /// the free width, truncating the title first), then add and more on the right.
+    private var header: some View {
+        HStack(spacing: 4) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.backward")
+                    .frame(width: 32, height: 32)
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel("Back")
+
+            HStack(spacing: 6) {
+                Text(trip.title)
+                if let selectedDay {
+                    Text("Day \(selectedDay.dayNumber)")
+                        .foregroundStyle(.white.opacity(0.6))
+                        .contentTransition(.numericText(value: Double(selectedDay.dayNumber)))
+                        .animation(.snappy, value: selectedDay.dayNumber)
+                        .fixedSize()
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+
+            Button {
+                addItemRequest = AddItemRequest(date: selectedDay?.calendarDate)
+            } label: {
+                Image(systemName: "plus")
+                    .frame(width: 32, height: 32)
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel("Add Item")
+
+            Menu {
+                Button("Edit Trip", systemImage: "pencil") {
+                    showingEditTrip = true
+                }
+                Button("Share", systemImage: "square.and.arrow.up") {}
+                Button("Delete Trip", systemImage: "trash", role: .destructive) {}
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 32, height: 32)
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel("More")
+        }
+        .font(.body.weight(.semibold))
+        .foregroundStyle(.white)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(Color.tripHeader, in: .rect(cornerRadius: 10))
     }
 
     // MARK: - Background
