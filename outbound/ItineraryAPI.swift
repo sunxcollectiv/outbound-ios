@@ -70,12 +70,6 @@ struct ItineraryDay: Decodable, Identifiable {
     /// Used to seed a new item's default date to the day being viewed.
     var calendarDate: Date? { Self.isoDate.date(from: date) }
 
-    /// The day's date formatted as e.g. "Sat, Nov 1".
-    var displayDate: String {
-        guard let parsed = Self.isoDate.date(from: date) else { return date }
-        return Self.display.format(parsed)
-    }
-
     /// The abbreviated weekday in caps for the day picker, e.g. "THU".
     var weekdayShort: String {
         guard let parsed = Self.isoDate.date(from: date) else { return "" }
@@ -96,7 +90,6 @@ struct ItineraryDay: Decodable, Identifiable {
         return formatter
     }()
 
-    private static let display = Date.FormatStyle.dateTime.weekday(.abbreviated).month(.abbreviated).day()
     private static let weekday = Date.FormatStyle.dateTime.weekday(.abbreviated)
 }
 

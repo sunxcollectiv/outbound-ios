@@ -40,7 +40,7 @@ struct TripDetailView: View {
     @State private var pageDragProgress: CGFloat = 0
 
     /// Flips once when the itinerary first shows, playing the entrance animation: the
-    /// header and controls fade in, then each card slides in after the one before, then
+    /// lodging chips and day picker fade in, then each card slides in after the one before, then
     /// the Add Activity line. Never reset, so reloads and later pages don't replay it.
     @State private var hasRevealed = false
 
@@ -75,7 +75,7 @@ struct TripDetailView: View {
                     }
                     // A task rather than onAppear: the pager settles on the selected day in
                     // its own onAppear, and revealing in that same update would animate the
-                    // page swap (ghosting the header) and skip the incoming cards' entrance.
+                    // page swap (ghosting the old page) and skip the incoming cards' entrance.
                     .task { hasRevealed = true }
             } else if let errorMessage {
                 errorState(errorMessage)
@@ -92,6 +92,25 @@ struct TripDetailView: View {
         .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
+            // The trip's title with the day being viewed beside it, in place of a header
+            // on each page. The title truncates first so the day always shows.
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    Text(trip.title)
+                        .foregroundStyle(.white)
+                    if let selectedDay {
+                        Text("Day \(selectedDay.dayNumber)")
+                            .foregroundStyle(.white.opacity(0.55))
+                            .contentTransition(.numericText(value: Double(selectedDay.dayNumber)))
+                            .animation(.snappy, value: selectedDay.dayNumber)
+                            .fixedSize()
+                    }
+                }
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
+            }
             AppToolbarButton(placement: .topBarLeading) {
                 dismiss()
             } label: {
@@ -170,16 +189,6 @@ struct TripDetailView: View {
     private func dayPage(_ day: ItineraryDay, scrollLocked: Bool) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Day \(day.dayNumber)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.appForeground.opacity(0.6))
-                    Text(day.displayDate)
-                        .font(.title2.bold())
-                }
-                .padding(.bottom, 4)
-                .revealIn(hasRevealed)
-
                 ForEach(day.lodging, id: \.item.id) { stay in
                     lodgingRow(stay)
                         .revealIn(hasRevealed)
@@ -232,7 +241,7 @@ struct TripDetailView: View {
         .scrollDisabled(scrollLocked)
     }
 
-    /// When the card at `index` starts its entrance: just after the header, then each
+    /// When the card at `index` starts its entrance: just after the lodging chips and day picker, then each
     /// card a beat after the one before. Capped so a long day doesn't keep the cards
     /// further down waiting.
     private static func cardRevealDelay(_ index: Int) -> Double {
