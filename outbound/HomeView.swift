@@ -34,14 +34,22 @@ struct HomeView: View {
     private var tripsStack: some View {
         NavigationStack {
             ZStack {
-                Color.tripsBackground.ignoresSafeArea()
+                LinearGradient.tripsBackground.ignoresSafeArea()
                 content
             }
             .foregroundStyle(Color.appForeground)
             .navigationTitle("Trips")
-            .toolbarBackground(Color.tripsBackground, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
+                // A step larger than the system's inline title.
+                ToolbarItem(placement: .principal) {
+                    Text("Trips")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .accessibilityAddTraits(.isHeader)
+                }
                 if let user = auth.currentUser {
                     AppToolbarButton(placement: .topBarLeading) {
                         withAnimation(.snappy(duration: 0.3)) { isDrawerOpen = true }
@@ -49,7 +57,8 @@ struct HomeView: View {
                         AvatarView(user: user, size: 32)
                             // The bar insets its items past the screen's 16pt margin;
                             // pull the avatar back so it lines up with the title and grid.
-                            .offset(x: -20)
+                            .offset(x: -18)
+                            .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
                             .accessibilityLabel("Profile")
                     }
                 }

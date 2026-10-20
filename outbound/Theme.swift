@@ -19,12 +19,22 @@ extension Color {
     /// Translucent card surface that sits over the background.
     static let appCard = Color(red: 0.62, green: 0.36, blue: 0.23)
 
-    /// Very dark gray behind the trips grid, so the colored trip cards stand out.
-    static let tripsBackground = Color(red: 0.15, green: 0.15, blue: 0.16)
-
     /// Slightly lifted dark gray for the profile drawer, so it reads as a layer above
     /// the trips grid.
     static let drawerBackground = Color(red: 0.20, green: 0.20, blue: 0.21)
+}
+
+extension LinearGradient {
+    /// Very dark backdrop behind the trips grid, so the colored trip cards stand out: a
+    /// subtle fade from a warmer, lighter gray at the top to near-black at the bottom.
+    static let tripsBackground = LinearGradient(
+        colors: [
+            Color(red: 0.21, green: 0.19, blue: 0.18),
+            Color(red: 0.10, green: 0.10, blue: 0.11)
+        ],
+        startPoint: .top,
+        endPoint: .bottom
+    )
 }
 
 /// Applies the app's warm terracotta color theme: background, foreground, and tint.
