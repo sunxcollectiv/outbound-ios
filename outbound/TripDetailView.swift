@@ -40,8 +40,9 @@ struct TripDetailView: View {
     @State private var pageDragProgress: CGFloat = 0
 
     /// Flips once when the itinerary first shows, playing the entrance animation: the
-    /// lodging chips and day picker fade in, then each card slides in after the one before, then
-    /// the Add Activity line. Never reset, so reloads and later pages don't replay it.
+    /// pinned header and lodging and the day picker fade in, then each card slides in
+    /// after the one before, then the Add Activity line. Never reset, so reloads and
+    /// later pages don't replay it.
     @State private var hasRevealed = false
 
     @Environment(\.dismiss) private var dismiss
@@ -90,10 +91,18 @@ struct TripDetailView: View {
         // The system bar is replaced by the header chip pinned above the itinerary.
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
-            header
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-                .revealIn(hasRevealed || days == nil)
+            // The header and the day's lodging stay pinned while the cards scroll, joined
+            // into one block: square where they meet, rounded on the outside.
+            let lodging = selectedDay?.lodging ?? []
+            VStack(spacing: 0) {
+                header(joinsLodging: !lodging.isEmpty)
+                if !lodging.isEmpty {
+                    lodgingStrip(lodging)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+            .revealIn(hasRevealed || days == nil)
         }
         .sheet(item: $addItemRequest) { request in
             TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, onSaved: { saved in
@@ -120,10 +129,11 @@ struct TripDetailView: View {
 
     // MARK: - Header
 
-    /// A solid chip in the lodging chips' shape standing in for the navigation bar: back
-    /// on the left, then the trip's title and the day being viewed (left aligned, taking
-    /// the free width, truncating the title first), then add and more on the right.
-    private var header: some View {
+    /// A solid chip standing in for the navigation bar: back on the left, then the trip's
+    /// title and the day being viewed (left aligned, taking the free width, truncating the
+    /// title first), then add and more on the right. Squared off at the bottom when the
+    /// day's lodging strip hangs below it.
+    private func header(joinsLodging: Bool) -> some View {
         HStack(spacing: 4) {
             Button {
                 dismiss()
@@ -177,7 +187,15 @@ struct TripDetailView: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
-        .background(Color.tripHeader, in: .rect(cornerRadius: 10))
+        .background(
+            Color.tripHeader,
+            in: .rect(
+                topLeadingRadius: 10,
+                bottomLeadingRadius: joinsLodging ? 0 : 10,
+                bottomTrailingRadius: joinsLodging ? 0 : 10,
+                topTrailingRadius: 10
+            )
+        )
     }
 
     // MARK: - Background
@@ -207,17 +225,6 @@ struct TripDetailView: View {
     private func dayPage(_ day: ItineraryDay, scrollLocked: Bool) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // One line of equal-width chips, so a changeover day shows its check-out
-                // and check-in side by side.
-                if !day.lodging.isEmpty {
-                    HStack(spacing: 10) {
-                        ForEach(day.lodging, id: \.item.id) { stay in
-                            lodgingRow(stay)
-                        }
-                    }
-                    .revealIn(hasRevealed)
-                }
-
                 if day.entries.isEmpty && day.lodging.isEmpty {
                     Text("Nothing planned")
                         .font(.subheadline)
@@ -265,9 +272,9 @@ struct TripDetailView: View {
         .scrollDisabled(scrollLocked)
     }
 
-    /// When the card at `index` starts its entrance: just after the lodging chips and day picker, then each
-    /// card a beat after the one before. Capped so a long day doesn't keep the cards
-    /// further down waiting.
+    /// When the card at `index` starts its entrance: just after the pinned header and
+    /// day picker, then each card a beat after the one before. Capped so a long day
+    /// doesn't keep the cards further down waiting.
     private static func cardRevealDelay(_ index: Int) -> Double {
         0.12 + Double(min(index, 6)) * 0.07
     }
@@ -318,6 +325,26 @@ struct TripDetailView: View {
         return LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
     }
 
+    /// The day's lodging as one band of equal-width halves, so a changeover day shows its
+    /// check-out and check-in side by side, split by a faint line. Square on top, where it
+    /// meets the header.
+    private func lodgingStrip(_ lodging: [LodgingStay]) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(lodging.enumerated()), id: \.element.item.id) { index, stay in
+                if index > 0 {
+                    Rectangle()
+                        .fill(.white.opacity(0.15))
+                        .frame(width: 1)
+                        .padding(.vertical, 8)
+                }
+                lodgingRow(stay)
+            }
+        }
+        // Size the separators to the strip's height (they inset themselves from there).
+        .fixedSize(horizontal: false, vertical: true)
+        .background(Color.appForeground.opacity(0.1), in: .rect(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
+    }
+
     /// A lodging chip: bed icon and name, with an arrow marking the phase, on the left
     /// for a check-in (arriving) and on the right for a check-out (leaving). A stay in
     /// progress shows "Staying" instead.
@@ -345,7 +372,6 @@ struct TripDetailView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
-        .background(Color.appForeground.opacity(0.1), in: .rect(cornerRadius: 10))
         .contentShape(.rect)
         .onTapGesture { selectedItem = stay.item }
         .accessibilityElement(children: .ignore)
