@@ -39,6 +39,11 @@ struct TripDetailView: View {
     /// the drag and settle in sync with the page.
     @State private var pageDragProgress: CGFloat = 0
 
+    /// Flips once when the itinerary first shows, playing the entrance animation: the
+    /// header and controls fade in, then each card slides in after the one before, then
+    /// the Add Activity line. Never reset, so reloads and later pages don't replay it.
+    @State private var hasRevealed = false
+
     @Environment(\.dismiss) private var dismiss
 
     private let api = APIClient.shared
@@ -64,7 +69,12 @@ struct TripDetailView: View {
                     // width of the page content behind it.
                     .overlay(alignment: .bottom) {
                         DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress)
+                            .revealIn(hasRevealed)
                     }
+                    // A task rather than onAppear: the pager settles on the selected day in
+                    // its own onAppear, and revealing in that same update would animate the
+                    // page swap (ghosting the header) and skip the incoming cards' entrance.
+                    .task { hasRevealed = true }
             } else if let errorMessage {
                 errorState(errorMessage)
             }
@@ -130,10 +140,6 @@ struct TripDetailView: View {
 
     // MARK: - Background
 
-    /// Full-page trip backdrop: a destination photo laid over a very dark gray base,
-    /// dialed back to ~30% so it reads as a subtle ambient wash rather than competing
-    /// with the itinerary content. (Placeholder Melbourne shot until per-trip imagery
-    /// is wired up.)
     /// The trip's cover art (the same image as its tile in the grid), dimmed to a dark
     /// wash so the cards stay legible. Matching the tile lets the zoom transition read
     /// as the tile growing into this screen.
@@ -167,9 +173,11 @@ struct TripDetailView: View {
                         .font(.title2.bold())
                 }
                 .padding(.bottom, 4)
+                .revealIn(hasRevealed)
 
                 ForEach(day.lodging, id: \.item.id) { stay in
                     lodgingRow(stay)
+                        .revealIn(hasRevealed)
                 }
 
                 if day.entries.isEmpty && day.lodging.isEmpty {
@@ -178,9 +186,11 @@ struct TripDetailView: View {
                         .foregroundStyle(Color.appForeground.opacity(0.5))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
+                        .revealIn(hasRevealed, delay: Self.cardRevealDelay(0))
                 } else {
-                    ForEach(day.entries) { entry in
+                    ForEach(Array(day.entries.enumerated()), id: \.element.id) { index, entry in
                         itemRow(entry)
+                            .revealIn(hasRevealed, delay: Self.cardRevealDelay(index), slide: 16)
                     }
                 }
 
@@ -205,6 +215,7 @@ struct TripDetailView: View {
                 }
                 .padding(.top, 14)
                 .padding(.bottom, 10)
+                .revealIn(hasRevealed, delay: Self.cardRevealDelay(day.entries.count) + 0.05)
 
                 // Clear the bottom day-picker bar.
                 Color.clear.frame(height: 120)
@@ -214,6 +225,13 @@ struct TripDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollDisabled(scrollLocked)
+    }
+
+    /// When the card at `index` starts its entrance: just after the header, then each
+    /// card a beat after the one before. Capped so a long day doesn't keep the cards
+    /// further down waiting.
+    private static func cardRevealDelay(_ index: Int) -> Double {
+        0.12 + Double(min(index, 6)) * 0.07
     }
 
     // MARK: - Rows
@@ -435,7 +453,22 @@ private struct DayPager<Content: View>: View {
     @Binding var dragProgress: CGFloat
     @ViewBuilder let content: (ItineraryDay, Bool) -> Content
 
-    @State private var index = 0
+    /// Starts on the selected day rather than the first, so the pager never swaps
+    /// pages right after it appears (which would show through the entrance animation).
+    @State private var index: Int
+
+    init(
+        days: [ItineraryDay],
+        selection: Binding<Int>,
+        dragProgress: Binding<CGFloat>,
+        @ViewBuilder content: @escaping (ItineraryDay, Bool) -> Content
+    ) {
+        self.days = days
+        _selection = selection
+        _dragProgress = dragProgress
+        self.content = content
+        _index = State(initialValue: days.firstIndex { $0.dayNumber == selection.wrappedValue } ?? 0)
+    }
     @State private var dragOffset: CGFloat = 0
     @State private var pageWidth: CGFloat = 0
     @State private var isAnimating = false
@@ -577,4 +610,26 @@ private struct DayPager<Content: View>: View {
         TripDetailView(trip: .sample, days: ItineraryDay.sampleDays)
     }
     .appTheme()
+}
+
+/// Fades content in, optionally sliding it up, once `isRevealed` turns true.
+private struct RevealIn: ViewModifier {
+    let isRevealed: Bool
+    let delay: Double
+    let slide: CGFloat
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isRevealed ? 1 : 0)
+            .offset(y: isRevealed || reduceMotion ? 0 : slide)
+            .animation(.easeOut(duration: 0.35).delay(delay), value: isRevealed)
+    }
+}
+
+private extension View {
+    func revealIn(_ isRevealed: Bool, delay: Double = 0, slide: CGFloat = 0) -> some View {
+        modifier(RevealIn(isRevealed: isRevealed, delay: delay, slide: slide))
+    }
 }
