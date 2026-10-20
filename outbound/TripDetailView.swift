@@ -70,6 +70,9 @@ struct TripDetailView: View {
             }
         }
         .coordinateSpace(.named(Self.detailSpace))
+        // The navigation container's own backdrop, which the zoom transition shows
+        // around the screen while it scales; left alone it's the system's white.
+        .containerBackground(Color(white: 0.12), for: .navigation)
         .foregroundStyle(Color.appForeground)
         .navigationTitle(trip.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -131,14 +134,15 @@ struct TripDetailView: View {
     /// dialed back to ~30% so it reads as a subtle ambient wash rather than competing
     /// with the itinerary content. (Placeholder Melbourne shot until per-trip imagery
     /// is wired up.)
+    /// The trip's cover art (the same image as its tile in the grid), dimmed to a dark
+    /// wash so the cards stay legible. Matching the tile lets the zoom transition read
+    /// as the tile growing into this screen.
     private var background: some View {
         Color(white: 0.12)
             .ignoresSafeArea()
             .overlay {
-                Image("MelbourneBackground")
-                    .resizable()
-                    .scaledToFill()
-                    .opacity(0.2)
+                TripCover(trip: trip, showsAttribution: false)
+                    .overlay { Color(white: 0.12).opacity(0.8) }
                     .clipped()
                     .ignoresSafeArea()
             }

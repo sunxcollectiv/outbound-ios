@@ -17,14 +17,18 @@ import SwiftUI
 /// straight away with no placeholder or fade.
 struct AreaPhotoView<Placeholder: View>: View {
     let photo: AreaPhoto
+    /// Whether to show the credit chip. Off where the photo is only a dimmed backdrop
+    /// and the chip would sit under other UI.
+    var showsAttribution = true
     @ViewBuilder var placeholder: Placeholder
 
     @State private var image: UIImage?
     @State private var confirmingProfile = false
     @Environment(\.openURL) private var openURL
 
-    init(photo: AreaPhoto, @ViewBuilder placeholder: () -> Placeholder) {
+    init(photo: AreaPhoto, showsAttribution: Bool = true, @ViewBuilder placeholder: () -> Placeholder) {
         self.photo = photo
+        self.showsAttribution = showsAttribution
         self.placeholder = placeholder()
         _image = State(initialValue: PlaceImageCache.shared.cachedImage(for: photo.url))
     }
@@ -41,10 +45,12 @@ struct AreaPhotoView<Placeholder: View>: View {
                     .overlay(alignment: .topLeading) {
                         // Caps the chip at 75% of the photo's width; a shorter credit
                         // keeps its own size.
-                        GeometryReader { proxy in
-                            attribution
-                                .frame(width: proxy.size.width * 0.75, alignment: .leading)
-                                .padding(8)
+                        if showsAttribution {
+                            GeometryReader { proxy in
+                                attribution
+                                    .frame(width: proxy.size.width * 0.75, alignment: .leading)
+                                    .padding(8)
+                            }
                         }
                     }
                     .transition(.opacity)
