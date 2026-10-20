@@ -54,7 +54,9 @@ struct TripDetailView: View {
     init(trip: Trip, days: [ItineraryDay]? = nil) {
         _trip = State(initialValue: trip)
         _days = State(initialValue: days)
-        _selection = State(initialValue: days?.first?.dayNumber ?? 1)
+        // Back on the day last viewed when the trip was opened within the hour; a day
+        // that no longer exists falls back to the first once the itinerary loads.
+        _selection = State(initialValue: days?.first?.dayNumber ?? LastVisitedDay.dayNumber(for: trip.id) ?? 1)
     }
 
     var body: some View {
@@ -136,6 +138,9 @@ struct TripDetailView: View {
             }
         }
         .task { if days == nil { await load() } }
+        .onDisappear {
+            if days != nil { LastVisitedDay.record(selection, for: trip.id) }
+        }
     }
 
     // MARK: - Background
