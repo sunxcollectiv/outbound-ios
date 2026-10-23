@@ -35,6 +35,8 @@ struct TripDetailView: View {
     @State private var showingEditTrip = false
     /// Whether the dropdown under the header's more button is open.
     @State private var showingTripMenu = false
+    /// Showing the "Email address copied" toast, after copying the trips inbox address.
+    @State private var showingCopiedToast = false
     /// The header chip's frame on screen, to hang the trip menu just below its trailing edge.
     @State private var headerFrame: CGRect = .zero
     @State private var selectedItem: TripItem?
@@ -147,6 +149,7 @@ struct TripDetailView: View {
             .revealIn(hasRevealed || days == nil)
         }
         .overlay { tripMenu }
+        .overlay(alignment: .bottom) { copiedToast }
         .overlay { lodgingPopup }
         .overlay { addLodgingPopup }
         // TODO: process the picked booking screenshot into a trip item.
@@ -245,6 +248,35 @@ struct TripDetailView: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { headerFrame = $0 }
     }
 
+    /// Copies the trips inbox address and shows a toast confirming it for a moment.
+    private func copyTripsEmail() {
+        UIPasteboard.general.string = AddLodgingPopup.tripsEmail
+        AccessibilityNotification.Announcement("Email address copied").post()
+        withAnimation(.snappy(duration: 0.25)) { showingCopiedToast = true }
+        Task {
+            try? await Task.sleep(for: .seconds(1.8))
+            withAnimation(.snappy(duration: 0.25)) { showingCopiedToast = false }
+        }
+    }
+
+    /// A small pill above the day picker confirming the address was copied.
+    @ViewBuilder
+    private var copiedToast: some View {
+        if showingCopiedToast {
+            Label("Email address copied", systemImage: "checkmark.circle.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color(white: 0.15).opacity(0.95), in: .capsule)
+                .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+                .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+                // Clear of the day picker pinned to the bottom.
+                .padding(.bottom, 96)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
     private func closeTripMenu() {
         withAnimation(.snappy(duration: 0.2)) { showingTripMenu = false }
     }
@@ -269,6 +301,10 @@ struct TripDetailView: View {
                         onImportScreenshot: {
                             closeTripMenu()
                             showingBookingImagePicker = true
+                        },
+                        onCopyTripsEmail: {
+                            closeTripMenu()
+                            copyTripsEmail()
                         },
                         onEditTrip: {
                             closeTripMenu()

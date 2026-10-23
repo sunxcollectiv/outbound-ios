@@ -13,6 +13,7 @@ struct TripMenu: View {
     let trip: Trip
     let onAddItem: () -> Void
     let onImportScreenshot: () -> Void
+    let onCopyTripsEmail: () -> Void
     let onEditTrip: () -> Void
     let onShare: () -> Void
     let onDeleteTrip: () -> Void
@@ -34,6 +35,8 @@ struct TripMenu: View {
             sectionHeading("Itinerary")
             row("Add Item", systemImage: "plus", action: onAddItem)
             row("Import from Screenshot", systemImage: "photo", action: onImportScreenshot)
+            divider
+            forwardEmailRow
             divider
             row("Edit Trip", systemImage: "pencil", action: onEditTrip)
             row("Share", systemImage: "square.and.arrow.up", action: onShare)
@@ -66,6 +69,33 @@ struct TripMenu: View {
             .padding(.top, 10)
             .padding(.bottom, 2)
             .accessibilityAddTraits(.isHeader)
+    }
+
+    /// A reminder that booking emails can be forwarded to the trips inbox; tapping copies
+    /// the address.
+    private var forwardEmailRow: some View {
+        Button(action: onCopyTripsEmail) {
+            HStack(spacing: 12) {
+                Image(systemName: "envelope")
+                    .frame(width: 20)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Or forward emails to")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
+                    Text(verbatim: AddLodgingPopup.tripsEmail)
+                        .font(.subheadline.weight(.medium))
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "doc.on.doc")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .contentShape(.rect)
+        }
+        .buttonStyle(TripMenuRowStyle())
+        .accessibilityLabel("Copy \(AddLodgingPopup.tripsEmail)")
     }
 
     private var divider: some View {
@@ -103,7 +133,7 @@ private struct TripMenuRowStyle: ButtonStyle {
 #Preview {
     ZStack(alignment: .topTrailing) {
         Color.black.ignoresSafeArea()
-        TripMenu(trip: .sample, onAddItem: {}, onImportScreenshot: {}, onEditTrip: {}, onShare: {}, onDeleteTrip: {})
+        TripMenu(trip: .sample, onAddItem: {}, onImportScreenshot: {}, onCopyTripsEmail: {}, onEditTrip: {}, onShare: {}, onDeleteTrip: {})
             .padding()
     }
 }
