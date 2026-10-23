@@ -45,6 +45,17 @@ struct TripDetailView: View {
     /// later pages don't replay it.
     @State private var hasRevealed = false
 
+    /// Height of the pinned header block, so the cards can scroll up underneath it and
+    /// fade out at its top edge.
+    @State private var pinnedHeight: CGFloat = 0
+
+    /// How far each day's page has scrolled toward revealing the top fade, 0 at rest to
+    /// 1 once scrolled `topFadeReach`. Keyed by day number.
+    @State private var topFadeProgress: [Int: CGFloat] = [:]
+
+    /// How far below the pinned block cards start fading once a page is scrolled.
+    private static let topFadeReach: CGFloat = 60
+
     @Environment(\.dismiss) private var dismiss
 
     private let api = APIClient.shared
@@ -67,6 +78,17 @@ struct TripDetailView: View {
             if let days {
                 dayPager(days)
                     .ignoresSafeArea(edges: .bottom)
+                    // The pages draw past their top edge so cards slide up under the
+                    // pinned block; this cuts them off at the block's top, fading in over
+                    // the first stretch so they dissolve rather than end at a hard line.
+                    .mask(alignment: .top) {
+                        VStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
+                                .frame(height: 32)
+                            Rectangle()
+                        }
+                        .padding(.top, -max(pinnedHeight - 8, 0))
+                    }
                     // Pin the day picker on top of the itinerary as an overlay, so its
                     // (wide, scrollable) content can never grow the pager or change the
                     // width of the page content behind it.
@@ -102,6 +124,7 @@ struct TripDetailView: View {
             }
             .padding(.horizontal)
             .padding(.bottom, 8)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pinnedHeight = $0 }
             .revealIn(hasRevealed || days == nil)
         }
         .sheet(item: $addItemRequest) { request in
@@ -188,14 +211,25 @@ struct TripDetailView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
         .background(
-            Color.tripHeader,
-            in: .rect(
-                topLeadingRadius: 10,
-                bottomLeadingRadius: joinsLodging ? 0 : 10,
-                bottomTrailingRadius: joinsLodging ? 0 : 10,
-                topTrailingRadius: 10
+            frosted(
+                tint: Color.tripHeader.opacity(0.7),
+                in: .rect(
+                    topLeadingRadius: 10,
+                    bottomLeadingRadius: joinsLodging ? 0 : 10,
+                    bottomTrailingRadius: joinsLodging ? 0 : 10,
+                    topTrailingRadius: 10
+                )
             )
         )
+    }
+
+    /// A frosted fill for the pinned header: blurs the cards scrolling underneath, with
+    /// `tint` laid over the blur. Kept dark whatever the system appearance.
+    private func frosted(tint: Color, in shape: some Shape) -> some View {
+        shape
+            .fill(.ultraThinMaterial)
+            .overlay(shape.fill(tint))
+            .environment(\.colorScheme, .dark)
     }
 
     // MARK: - Background
@@ -234,7 +268,7 @@ struct TripDetailView: View {
                         .revealIn(hasRevealed, delay: Self.cardRevealDelay(0))
                 } else {
                     ForEach(Array(day.entries.enumerated()), id: \.element.id) { index, entry in
-                        itemRow(entry)
+                        itemRow(entry, topFade: topFadeProgress[day.dayNumber] ?? 0)
                             .revealIn(hasRevealed, delay: Self.cardRevealDelay(index), slide: 16)
                     }
                 }
@@ -270,6 +304,14 @@ struct TripDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollDisabled(scrollLocked)
+        // Let cards keep drawing as they scroll up past the top, under the pinned block.
+        .scrollClipDisabled()
+        // Clamped, so it stops updating once scrolled past the reach.
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            min(max((geometry.contentOffset.y + geometry.contentInsets.top) / Self.topFadeReach, 0), 1)
+        } action: { _, progress in
+            topFadeProgress[day.dayNumber] = progress
+        }
     }
 
     /// When the card at `index` starts its entrance: just after the pinned header and
@@ -281,7 +323,7 @@ struct TripDetailView: View {
 
     // MARK: - Rows
 
-    private func itemRow(_ entry: ItineraryEntry) -> some View {
+    private func itemRow(_ entry: ItineraryEntry, topFade: CGFloat) -> some View {
         ItineraryEntryCard(entry: entry, places: places, placeDetails: placeDetails)
             .contentShape(.rect)
             // Every entry of an item (each end, each layover) opens the same record.
@@ -289,38 +331,46 @@ struct TripDetailView: View {
             .mask {
                 GeometryReader { geo in
                     let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
-                    cardFadeGradient(cardFrame: geo.frame(in: .named(Self.detailSpace)), detailHeight: detailHeight)
+                    cardFadeGradient(cardFrame: geo.frame(in: .named(Self.detailSpace)), detailHeight: detailHeight, topFade: topFade)
                 }
             }
     }
 
-    /// A per-card vertical gradient that fades the card as it scrolls down into the
-    /// band where the day picker sits — top stays more opaque than the bottom, down
-    /// to a 30% floor. Driven purely by the card's own position, so only the cards
-    /// fade; the picker and its gradient are untouched.
-    private func cardFadeGradient(cardFrame: CGRect, detailHeight: CGFloat) -> LinearGradient {
-        // The band, measured up from the bottom of the detail view, roughly covering
-        // the day picker. Content below `fadeTop` fades down to `minOpacity`.
-        let fadeHeight: CGFloat = 120
+    /// A per-card vertical gradient that fades the card as it scrolls into either band
+    /// where chrome sits over the itinerary: down into the day picker at the bottom, or
+    /// up under the pinned header block at the top. Each fades to a 30% floor. Driven
+    /// purely by the card's own position, so only the cards fade, not the chrome.
+    private func cardFadeGradient(cardFrame: CGRect, detailHeight: CGFloat, topFade: CGFloat) -> LinearGradient {
         let minOpacity = 0.3
-        let fadeTop = detailHeight - fadeHeight
+
+        // The bottom band, measured up from the bottom of the detail view, roughly
+        // covering the day picker. Content below `bottomFadeStart` fades down.
+        let bottomFadeHeight: CGFloat = 120
+        let bottomFadeStart = detailHeight - bottomFadeHeight
+
+        // The top band runs from below the pinned block (whose bottom edge is y = 0 here)
+        // up to the block's top edge, where the pager's mask cuts the cards off. It
+        // reaches further below the block as the page scrolls (`topFade`, 0…1), so cards
+        // at rest stay crisp. Content above `topFadeStart` fades down.
+        let topFadeStart = Self.topFadeReach * topFade
+        let topFadeEnd = -pinnedHeight
+        let topFadeHeight = max(topFadeStart - topFadeEnd, 1)
 
         func opacity(atY y: CGFloat) -> Double {
-            let t = (y - fadeTop) / fadeHeight
-            return minOpacity + (1 - minOpacity) * Double(1 - min(max(t, 0), 1))
+            let bottom = min(max((y - bottomFadeStart) / bottomFadeHeight, 0), 1)
+            let top = min(max((topFadeStart - y) / topFadeHeight, 0), 1)
+            return minOpacity + (1 - minOpacity) * Double(1 - max(bottom, top))
         }
 
+        // Stops at the card's edges and at every point where the fade curve bends, so
+        // the parts of the card outside both bands stay fully opaque.
         let height = max(cardFrame.height, 1)
-        var stops: [Gradient.Stop] = [
-            .init(color: .white.opacity(opacity(atY: cardFrame.minY)), location: 0)
-        ]
-        // Pin a fully-opaque stop where the fade begins, so the part of the card
-        // sitting above the band never fades.
-        let fadeTopLocation = (fadeTop - cardFrame.minY) / height
-        if fadeTopLocation > 0 && fadeTopLocation < 1 {
-            stops.append(.init(color: .white.opacity(1), location: fadeTopLocation))
+        let bends = [topFadeEnd, topFadeStart, bottomFadeStart, detailHeight]
+            .filter { $0 > cardFrame.minY && $0 < cardFrame.maxY }
+        let ys = ([cardFrame.minY] + bends + [cardFrame.maxY]).sorted()
+        let stops = ys.map { y in
+            Gradient.Stop(color: .white.opacity(opacity(atY: y)), location: (y - cardFrame.minY) / height)
         }
-        stops.append(.init(color: .white.opacity(opacity(atY: cardFrame.maxY)), location: 1))
 
         return LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
     }
@@ -342,7 +392,9 @@ struct TripDetailView: View {
         }
         // Size the separators to the strip's height (they inset themselves from there).
         .fixedSize(horizontal: false, vertical: true)
-        .background(Color.appForeground.opacity(0.1), in: .rect(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
+        // Plain translucent fill, dark enough that cards scrolling underneath don't
+        // compete with the lodging names.
+        .background(Color(white: 0.12).opacity(0.8), in: .rect(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
     }
 
     /// A lodging chip: bed icon and name, with an arrow marking the phase, on the left
@@ -591,7 +643,9 @@ private struct DayPager<Content: View>: View {
             .frame(width: w * 3, alignment: .leading)
             .offset(x: -w + dragOffset)
             .frame(width: w, height: geo.size.height, alignment: .leading)
-            .clipped()
+            // Clip the neighboring pages off the sides only, so cards can still draw
+            // above the top edge as they scroll under the pinned header.
+            .clipShape(HorizontalClip())
             .contentShape(.rect)
             .simultaneousGesture(
                 DragGesture(minimumDistance: 8)
@@ -720,5 +774,12 @@ private struct RevealIn: ViewModifier {
 private extension View {
     func revealIn(_ isRevealed: Bool, delay: Double = 0, slide: CGFloat = 0) -> some View {
         modifier(RevealIn(isRevealed: isRevealed, delay: delay, slide: slide))
+    }
+}
+
+/// Clips to its frame's width but leaves it unbounded vertically.
+private struct HorizontalClip: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path(CGRect(x: rect.minX, y: rect.minY - 10_000, width: rect.width, height: rect.height + 20_000))
     }
 }
