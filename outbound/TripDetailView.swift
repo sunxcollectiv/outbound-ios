@@ -186,7 +186,7 @@ struct TripDetailView: View {
 
     /// A solid chip standing in for the navigation bar: back on the left, then the trip's
     /// title and the day being viewed (left aligned, taking the free width, truncating the
-    /// title first), then add and more on the right. Squared off at the bottom when the
+    /// title first), then more on the right, which opens the trip menu (adding items too). Squared off at the bottom when the
     /// day's lodging strip hangs below it.
     private func header(joinsLodging: Bool) -> some View {
         HStack(spacing: 4) {
@@ -214,15 +214,6 @@ struct TripDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
-
-            Button {
-                addItemRequest = AddItemRequest(date: selectedDay?.calendarDate)
-            } label: {
-                Image(systemName: "plus")
-                    .frame(width: 32, height: 32)
-                    .contentShape(.rect)
-            }
-            .accessibilityLabel("Add Item")
 
             Button {
                 withAnimation(.snappy(duration: 0.25)) { showingTripMenu.toggle() }
@@ -270,6 +261,10 @@ struct TripDetailView: View {
                         .accessibilityHidden(true)
                     TripMenu(
                         trip: trip,
+                        onAddItem: {
+                            closeTripMenu()
+                            addItemRequest = AddItemRequest(date: selectedDay?.calendarDate)
+                        },
                         onEditTrip: {
                             closeTripMenu()
                             showingEditTrip = true

@@ -6,10 +6,11 @@
 import SwiftUI
 
 /// The dropdown under the itinerary header's more button: the trip's dates up top, then
-/// its actions. Drawn by hand rather than as a system `Menu`, so it can match the
-/// header and grow richer rows than a menu allows.
+/// adding an item, then the trip's actions. Drawn by hand rather than as a system
+/// `Menu`, so it can match the header and grow richer rows than a menu allows.
 struct TripMenu: View {
     let trip: Trip
+    let onAddItem: () -> Void
     let onEditTrip: () -> Void
     let onShare: () -> Void
     let onDeleteTrip: () -> Void
@@ -27,6 +28,8 @@ struct TripMenu: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
 
+            divider
+            row("Add Item", systemImage: "plus", action: onAddItem)
             divider
             row("Edit Trip", systemImage: "pencil", action: onEditTrip)
             row("Share", systemImage: "square.and.arrow.up", action: onShare)
@@ -82,7 +85,7 @@ private struct TripMenuRowStyle: ButtonStyle {
 #Preview {
     ZStack(alignment: .topTrailing) {
         Color.black.ignoresSafeArea()
-        TripMenu(trip: .sample, onEditTrip: {}, onShare: {}, onDeleteTrip: {})
+        TripMenu(trip: .sample, onAddItem: {}, onEditTrip: {}, onShare: {}, onDeleteTrip: {})
             .padding()
     }
 }
