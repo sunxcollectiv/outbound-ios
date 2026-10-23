@@ -103,7 +103,8 @@ struct HomeView: View {
             let (upcoming, past) = Trip.upcomingAndPast(store.trips)
             ScrollView {
                 VStack(spacing: 0) {
-                    tripSection("Upcoming", trips: upcoming, emptyText: "No upcoming trips", featuresFirst: true)
+                    // Upcoming and current trips lead the screen unlabeled.
+                    tripSection(nil, trips: upcoming, emptyText: "No upcoming trips", featuresFirst: true)
                         .padding()
                         .padding(.bottom, 8)
                     tripSection("Past", trips: past, emptyText: "No past trips")
@@ -117,17 +118,19 @@ struct HomeView: View {
         }
     }
 
-    /// A titled grid of trips, or a placeholder line when there are none, so the section
-    /// keeps its place on the screen. With `featuresFirst`, the first trip spans the grid
+    /// A grid of trips under an optional title, or a placeholder line when there are none,
+    /// so the section keeps its place on the screen. With `featuresFirst`, the first trip spans the grid
     /// as a large square above the rest.
-    private func tripSection(_ title: String, trips: [Trip], emptyText: String, featuresFirst: Bool = false) -> some View {
+    private func tripSection(_ title: String?, trips: [Trip], emptyText: String, featuresFirst: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .textCase(.uppercase)
-                .tracking(1)
-                .foregroundStyle(Color.appForeground.opacity(0.6))
-                .accessibilityAddTraits(.isHeader)
+            if let title {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .textCase(.uppercase)
+                    .tracking(1)
+                    .foregroundStyle(Color.appForeground.opacity(0.6))
+                    .accessibilityAddTraits(.isHeader)
+            }
             if trips.isEmpty {
                 Text(emptyText)
                     .font(.subheadline)
