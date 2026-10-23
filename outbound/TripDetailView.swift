@@ -33,6 +33,10 @@ struct TripDetailView: View {
     /// `.sheet(isPresented:)` the content closure could capture a stale date.
     @State private var addItemRequest: AddItemRequest?
     @State private var showingEditTrip = false
+    /// Whether the dropdown under the header's more button is open.
+    @State private var showingTripMenu = false
+    /// The header chip's frame on screen, to hang the trip menu just below its trailing edge.
+    @State private var headerFrame: CGRect = .zero
     @State private var selectedItem: TripItem?
     /// The stay whose lodging popup is open, from tapping its lodging bar.
     @State private var popupLodging: TripItem?
@@ -141,6 +145,7 @@ struct TripDetailView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pinnedHeight = $0 }
             .revealIn(hasRevealed || days == nil)
         }
+        .overlay { tripMenu }
         .overlay { lodgingPopup }
         .overlay { addLodgingPopup }
         // TODO: process the picked booking image into a lodging item.
@@ -219,15 +224,12 @@ struct TripDetailView: View {
             }
             .accessibilityLabel("Add Item")
 
-            Menu {
-                Button("Edit Trip", systemImage: "pencil") {
-                    showingEditTrip = true
-                }
-                Button("Share", systemImage: "square.and.arrow.up") {}
-                Button("Delete Trip", systemImage: "trash", role: .destructive) {}
+            Button {
+                withAnimation(.snappy(duration: 0.25)) { showingTripMenu.toggle() }
             } label: {
                 Image(systemName: "ellipsis")
                     .frame(width: 32, height: 32)
+                    .background(.white.opacity(showingTripMenu ? 0.18 : 0), in: .circle)
                     .contentShape(.rect)
             }
             .accessibilityLabel("More")
@@ -248,6 +250,41 @@ struct TripDetailView: View {
                 )
             )
         )
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { headerFrame = $0 }
+    }
+
+    private func closeTripMenu() {
+        withAnimation(.snappy(duration: 0.2)) { showingTripMenu = false }
+    }
+
+    /// The open trip menu, hung below the header's trailing edge; tapping anywhere else
+    /// closes it.
+    @ViewBuilder
+    private var tripMenu: some View {
+        if showingTripMenu {
+            GeometryReader { proxy in
+                ZStack(alignment: .topTrailing) {
+                    Color.clear
+                        .contentShape(.rect)
+                        .onTapGesture { closeTripMenu() }
+                        .accessibilityHidden(true)
+                    TripMenu(
+                        trip: trip,
+                        onEditTrip: {
+                            closeTripMenu()
+                            showingEditTrip = true
+                        },
+                        // Not built yet.
+                        onShare: { closeTripMenu() },
+                        onDeleteTrip: { closeTripMenu() }
+                    )
+                    .padding(.top, headerFrame.maxY + 6)
+                    .padding(.trailing, max(proxy.size.width - headerFrame.maxX, 0))
+                    .transition(.scale(scale: 0.9, anchor: .topTrailing).combined(with: .opacity))
+                }
+            }
+            .ignoresSafeArea()
+        }
     }
 
     /// A frosted fill for the pinned header: blurs the cards scrolling underneath, with
