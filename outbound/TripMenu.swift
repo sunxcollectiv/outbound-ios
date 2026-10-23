@@ -35,7 +35,9 @@ struct TripMenu: View {
             sectionHeading("Itinerary")
             row("Add Item", systemImage: "plus", action: onAddItem)
             row("Import from Screenshot", systemImage: "photo", action: onImportScreenshot)
-            divider
+            // Dotted rather than solid: forwarding is another way into the itinerary, so
+            // it stays grouped with the rows above.
+            dottedDivider
             forwardEmailRow
             divider
             row("Edit Trip", systemImage: "pencil", action: onEditTrip)
@@ -104,6 +106,14 @@ struct TripMenu: View {
             .frame(height: 1)
     }
 
+    /// A lighter break within a section, inset to line up with the row text.
+    private var dottedDivider: some View {
+        Line()
+            .stroke(.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+            .frame(height: 1)
+            .padding(.horizontal, 14)
+    }
+
     private func row(_ title: String, systemImage: String, tint: Color = .white, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
@@ -119,6 +129,16 @@ struct TripMenu: View {
             .contentShape(.rect)
         }
         .buttonStyle(TripMenuRowStyle())
+    }
+}
+
+/// A horizontal line across the middle of its frame, for dashed strokes.
+private struct Line: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        }
     }
 }
 
