@@ -378,23 +378,51 @@ struct TripDetailView: View {
     /// The day's lodging as one band of equal-width halves, so a changeover day shows its
     /// check-out and check-in side by side, split by a faint line. Square on top, where it
     /// meets the header.
+    ///
+    /// A day with a lone check-in or check-out gives the stay 75% of the width and
+    /// hatches the rest, on the side with no lodging: before arriving, or after leaving.
     private func lodgingStrip(_ lodging: [LodgingStay]) -> some View {
-        HStack(spacing: 0) {
-            ForEach(Array(lodging.enumerated()), id: \.element.item.id) { index, stay in
-                if index > 0 {
-                    Rectangle()
-                        .fill(.white.opacity(0.15))
-                        .frame(width: 1)
-                        .padding(.vertical, 8)
+        Group {
+            if lodging.count == 1, let stay = lodging.first, stay.phase != .staying {
+                FractionSplit(leadingFraction: stay.phase == .checkIn ? 0.25 : 0.75) {
+                    // A solid line marks where the stay begins or ends.
+                    if stay.phase == .checkIn {
+                        DiagonalHatch()
+                            .overlay(alignment: .trailing) { hatchEdge }
+                        lodgingRow(stay)
+                    } else {
+                        lodgingRow(stay)
+                        DiagonalHatch()
+                            .overlay(alignment: .leading) { hatchEdge }
+                    }
                 }
-                lodgingRow(stay)
+            } else {
+                HStack(spacing: 0) {
+                    ForEach(Array(lodging.enumerated()), id: \.element.item.id) { index, stay in
+                        if index > 0 {
+                            Rectangle()
+                                .fill(.white.opacity(0.15))
+                                .frame(width: 1)
+                                .padding(.vertical, 8)
+                        }
+                        lodgingRow(stay)
+                    }
+                }
             }
         }
-        // Size the separators to the strip's height (they inset themselves from there).
+        // Size the separators and hatching to the strip's height.
         .fixedSize(horizontal: false, vertical: true)
         // Plain translucent fill, dark enough that cards scrolling underneath don't
         // compete with the lodging names.
-        .background(Color(white: 0.12).opacity(0.8), in: .rect(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
+        .background(Color(white: 0.12).opacity(0.8))
+        .clipShape(.rect(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
+    }
+
+    /// The solid line between a lone check-in or check-out and its hatched remainder.
+    private var hatchEdge: some View {
+        Rectangle()
+            .fill(Color(white: 0.5))
+            .frame(width: 1)
     }
 
     /// A lodging chip: bed icon and name, with an arrow marking the phase, on the left
@@ -781,5 +809,54 @@ private extension View {
 private struct HorizontalClip: Shape {
     func path(in rect: CGRect) -> Path {
         Path(CGRect(x: rect.minX, y: rect.minY - 10_000, width: rect.width, height: rect.height + 20_000))
+    }
+}
+
+/// Lays out two views side by side, the first taking `leadingFraction` of the width and
+/// the second the rest, both as tall as the taller of the two.
+private struct FractionSplit: Layout {
+    var leadingFraction: CGFloat
+
+    private func widths(for total: CGFloat) -> [CGFloat] {
+        [total * leadingFraction, total * (1 - leadingFraction)]
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? subviews.reduce(0) { $0 + $1.sizeThatFits(.unspecified).width }
+        let height = zip(subviews, widths(for: width))
+            .map { $0.sizeThatFits(ProposedViewSize(width: $1, height: proposal.height)).height }
+            .max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        for (subview, width) in zip(subviews, widths(for: bounds.width)) {
+            subview.place(
+                at: CGPoint(x: x, y: bounds.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: width, height: bounds.height)
+            )
+            x += width
+        }
+    }
+}
+
+/// Faint diagonal stripes filling the space they're given, marking part of the lodging
+/// strip with no stay.
+private struct DiagonalHatch: View {
+    var body: some View {
+        Canvas { context, size in
+            var path = Path()
+            let spacing: CGFloat = 7
+            var x = -size.height
+            while x < size.width {
+                path.move(to: CGPoint(x: x, y: size.height))
+                path.addLine(to: CGPoint(x: x + size.height, y: 0))
+                x += spacing
+            }
+            context.stroke(path, with: .color(.white.opacity(0.15)), lineWidth: 1)
+        }
+        .accessibilityHidden(true)
     }
 }
