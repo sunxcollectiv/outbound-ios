@@ -33,6 +33,8 @@ struct TripDetailView: View {
     @State private var addItemRequest: AddItemRequest?
     @State private var showingEditTrip = false
     @State private var selectedItem: TripItem?
+    /// The stay whose lodging popup is open, from tapping its lodging bar.
+    @State private var popupLodging: TripItem?
 
     /// Live horizontal progress of an in-flight page swipe, in day-units
     /// (-1…1, negative dragging toward a later day). Lets the day picker track
@@ -130,6 +132,7 @@ struct TripDetailView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pinnedHeight = $0 }
             .revealIn(hasRevealed || days == nil)
         }
+        .overlay { lodgingPopup }
         .sheet(item: $addItemRequest) { request in
             TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
@@ -453,8 +456,44 @@ struct TripDetailView: View {
     /// What to call a stay: its place's name, as the itinerary cards do, else its own
     /// title (which may be something generic like "Check-in").
     private func lodgingName(_ stay: LodgingStay) -> String {
-        let place = places.current(stay.item.place)
-        return place?.googlePlaceId.flatMap { placeDetails[$0] }?.name ?? place?.name ?? stay.item.title
+        lodgingName(stay.item)
+    }
+
+    private func lodgingName(_ item: TripItem) -> String {
+        let place = places.current(item.place)
+        return place?.googlePlaceId.flatMap { placeDetails[$0] }?.name ?? place?.name ?? item.title
+    }
+
+    private func showLodgingPopup(_ item: TripItem) {
+        withAnimation(.snappy(duration: 0.25)) { popupLodging = item }
+    }
+
+    private func closeLodgingPopup() {
+        withAnimation(.snappy(duration: 0.2)) { popupLodging = nil }
+    }
+
+    /// The open lodging popup over a dimmed screen; tapping outside closes it.
+    @ViewBuilder
+    private var lodgingPopup: some View {
+        if let item = popupLodging {
+            let place = places.current(item.place)
+            let name = lodgingName(item)
+            let address = place?.googlePlaceId.flatMap { placeDetails[$0] }?.address ?? place?.address
+            ZStack {
+                Color.black.opacity(0.8)
+                    .ignoresSafeArea()
+                    .onTapGesture { closeLodgingPopup() }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                LodgingPopup(
+                    name: name,
+                    address: address,
+                    googlePlaceId: place?.googlePlaceId,
+                    onClose: closeLodgingPopup
+                )
+                .transition(.scale(scale: 0.94).combined(with: .opacity))
+            }
+        }
     }
 
     /// The solid line between a lone check-in or check-out and its hatched remainder.
@@ -492,11 +531,11 @@ struct TripDetailView: View {
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
         .contentShape(.rect)
-        .onTapGesture { selectedItem = stay.item }
+        .onTapGesture { showLodgingPopup(stay.item) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(lodgingName(stay)), \(stay.phase.label)")
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { selectedItem = stay.item }
+        .accessibilityAction { showLodgingPopup(stay.item) }
     }
 
     private var lodgingArrow: some View {
