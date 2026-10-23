@@ -103,7 +103,7 @@ struct HomeView: View {
             let (upcoming, past) = Trip.upcomingAndPast(store.trips)
             ScrollView {
                 VStack(spacing: 0) {
-                    tripSection("Upcoming", trips: upcoming, emptyText: "No upcoming trips")
+                    tripSection("Upcoming", trips: upcoming, emptyText: "No upcoming trips", featuresFirst: true)
                         .padding()
                         .padding(.bottom, 8)
                     tripSection("Past", trips: past, emptyText: "No past trips")
@@ -118,8 +118,9 @@ struct HomeView: View {
     }
 
     /// A titled grid of trips, or a placeholder line when there are none, so the section
-    /// keeps its place on the screen.
-    private func tripSection(_ title: String, trips: [Trip], emptyText: String) -> some View {
+    /// keeps its place on the screen. With `featuresFirst`, the first trip spans the grid
+    /// as a large square above the rest.
+    private func tripSection(_ title: String, trips: [Trip], emptyText: String, featuresFirst: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.caption.weight(.semibold))
@@ -138,11 +139,16 @@ struct HomeView: View {
                             .foregroundStyle(Color.appForeground.opacity(0.3))
                     }
             } else {
+                let featured = featuresFirst ? trips.first : nil
+                if let featured {
+                    tripTile(featured, isFeatured: true)
+                }
                 LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(trips) { trip in
+                    ForEach(featured == nil ? trips : Array(trips.dropFirst())) { trip in
                         tripTile(trip)
                     }
                 }
+                .padding(.top, featured == nil ? 0 : 4)
             }
         }
     }
@@ -162,10 +168,10 @@ struct HomeView: View {
             .padding(.bottom, -2000)
     }
 
-    private func tripTile(_ trip: Trip) -> some View {
+    private func tripTile(_ trip: Trip, isFeatured: Bool = false) -> some View {
         // Gestures rather than a NavigationLink: a link fires on release
         // even after a long hold, so the long press would also navigate.
-        TripCard(trip: trip)
+        TripCard(trip: trip, isFeatured: isFeatured)
             .matchedTransitionSource(id: trip.id, in: tripZoom) { source in
                 source.clipShape(.rect(cornerRadius: 16))
             }
