@@ -60,6 +60,16 @@ struct ItineraryDay: Decodable, Identifiable {
         self.entries = entries
     }
 
+    /// This day without any entries or lodging for the given item, e.g. once it's deleted.
+    func removing(itemId: String) -> ItineraryDay {
+        ItineraryDay(
+            date: date,
+            dayNumber: dayNumber,
+            lodging: lodging.filter { $0.item.id != itemId },
+            entries: entries.filter { $0.item.id != itemId }
+        )
+    }
+
     /// The distinct items on this day (entries and lodging), one per record.
     var uniqueItems: [TripItem] {
         var seen = Set<String>()

@@ -19,6 +19,9 @@ struct TripItemDetailView: View {
     /// refresh its itinerary.
     var onSaved: (TripItem) -> Void
 
+    /// Called after the item is deleted from its edit form; this sheet closes with it.
+    var onDeleted: () -> Void
+
     @Environment(\.dismiss) private var dismiss
 
     @State private var showingEdit = false
@@ -33,9 +36,10 @@ struct TripItemDetailView: View {
     private let sheetBackground = Color(white: 0.9)
     private let sheetForeground = Color(white: 0.1)
 
-    init(item: TripItem, onSaved: @escaping (TripItem) -> Void = { _ in }) {
+    init(item: TripItem, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         _item = State(initialValue: item)
         self.onSaved = onSaved
+        self.onDeleted = onDeleted
     }
 
     var body: some View {
@@ -73,6 +77,9 @@ struct TripItemDetailView: View {
             TripItemFormView(tripId: item.tripId, item: item) { updated in
                 item = updated
                 onSaved(updated)
+            } onDeleted: {
+                onDeleted()
+                dismiss()
             }
         }
     }

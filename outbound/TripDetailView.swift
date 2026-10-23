@@ -153,6 +153,8 @@ struct TripDetailView: View {
         .sheet(item: $editingLodging) { item in
             TripItemFormView(tripId: item.tripId, item: item) { saved in
                 Task { await load(focusItemId: saved.id) }
+            } onDeleted: {
+                removeItem(item.id)
             }
         }
         .sheet(isPresented: $showingEditTrip) {
@@ -165,6 +167,8 @@ struct TripDetailView: View {
         .sheet(item: $selectedItem) { item in
             TripItemDetailView(item: places.resolving(item)) { saved in
                 Task { await load(focusItemId: saved.id) }
+            } onDeleted: {
+                removeItem(item.id)
             }
         }
         .task { if days == nil { await load() } }
@@ -665,6 +669,15 @@ struct TripDetailView: View {
             return selection
         }
         return days.first?.dayNumber ?? 1
+    }
+
+    /// Drops a deleted item from the itinerary straight away, then reloads to pick up
+    /// anything the server derived from it.
+    private func removeItem(_ id: String) {
+        withAnimation(.snappy) {
+            days = days?.map { $0.removing(itemId: id) }
+        }
+        Task { await load() }
     }
 
     /// Reloads the itinerary. Pass `focusItemId` after a save to land on the day that
