@@ -35,6 +35,8 @@ struct TripDetailView: View {
     @State private var selectedItem: TripItem?
     /// The stay whose lodging popup is open, from tapping its lodging bar.
     @State private var popupLodging: TripItem?
+    /// A stay opened straight into its edit form, from the lodging popup.
+    @State private var editingLodging: TripItem?
 
     /// Live horizontal progress of an in-flight page swipe, in day-units
     /// (-1…1, negative dragging toward a later day). Lets the day picker track
@@ -137,6 +139,11 @@ struct TripDetailView: View {
             TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
+        }
+        .sheet(item: $editingLodging) { item in
+            TripItemFormView(tripId: item.tripId, item: item) { saved in
+                Task { await load(focusItemId: saved.id) }
+            }
         }
         .sheet(isPresented: $showingEditTrip) {
             TripFormView(trip: trip) { updated in
@@ -489,6 +496,10 @@ struct TripDetailView: View {
                     name: name,
                     address: address,
                     googlePlaceId: place?.googlePlaceId,
+                    onEdit: {
+                        closeLodgingPopup()
+                        editingLodging = places.resolving(item)
+                    },
                     onClose: closeLodgingPopup
                 )
                 .transition(.scale(scale: 0.94).combined(with: .opacity))

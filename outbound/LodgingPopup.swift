@@ -12,18 +12,28 @@ struct LodgingPopup: View {
     let name: String
     let address: String?
     let googlePlaceId: String?
+    let onEdit: () -> Void
     let onClose: () -> Void
 
     @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
+            HStack(alignment: .center, spacing: 4) {
                 Label("Lodging", systemImage: "bed.double.fill")
                     .font(.caption.weight(.semibold))
                     .textCase(.uppercase)
                     .tracking(1)
                     .foregroundStyle(Color.appForeground.opacity(0.6))
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.appForeground.opacity(0.6))
+                        .frame(width: 28, height: 28)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit Lodging")
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -148,6 +158,7 @@ extension LodgingPopup {
             name: "W Melbourne",
             address: "408 Flinders Ln, Melbourne VIC 3000, Australia",
             googlePlaceId: nil,
+            onEdit: {},
             onClose: {}
         )
     }
