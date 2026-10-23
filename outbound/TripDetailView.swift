@@ -3,6 +3,7 @@
 //  outbound
 //
 
+import PhotosUI
 import SwiftUI
 
 /// The itinerary for a single trip, presented one day per page. You swipe
@@ -37,6 +38,12 @@ struct TripDetailView: View {
     @State private var popupLodging: TripItem?
     /// A stay opened straight into its edit form, from the lodging popup.
     @State private var editingLodging: TripItem?
+    /// The day whose add-lodging popup is open, from tapping its empty lodging strip.
+    @State private var addLodgingDay: ItineraryDay?
+    /// Showing the photo picker for an image of a booking, from the add-lodging popup.
+    @State private var showingLodgingImagePicker = false
+    /// The booking image picked from the add-lodging popup.
+    @State private var lodgingImageSelection: PhotosPickerItem?
 
     /// Live horizontal progress of an in-flight page swipe, in day-units
     /// (-1…1, negative dragging toward a later day). Lets the day picker track
@@ -135,6 +142,9 @@ struct TripDetailView: View {
             .revealIn(hasRevealed || days == nil)
         }
         .overlay { lodgingPopup }
+        .overlay { addLodgingPopup }
+        // TODO: process the picked booking image into a lodging item.
+        .photosPicker(isPresented: $showingLodgingImagePicker, selection: $lodgingImageSelection, matching: .images)
         .sheet(item: $addItemRequest) { request in
             TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
@@ -432,10 +442,10 @@ struct TripDetailView: View {
     }
 
     /// A fully hatched strip for a day with no lodging, inviting one to be added: opens
-    /// the add form set to lodging on that day.
+    /// the add-lodging popup for that day.
     private func addLodgingStrip(for day: ItineraryDay) -> some View {
         Button {
-            addItemRequest = AddItemRequest(date: day.calendarDate, kind: .lodging)
+            withAnimation(.snappy(duration: 0.25)) { addLodgingDay = day }
         } label: {
             // Sized by an invisible line in the lodging rows' font, so the block keeps
             // the same height when swiping between days with and without lodging.
@@ -501,6 +511,36 @@ struct TripDetailView: View {
                         editingLodging = places.resolving(item)
                     },
                     onClose: closeLodgingPopup
+                )
+                .transition(.scale(scale: 0.94).combined(with: .opacity))
+            }
+        }
+    }
+
+    private func closeAddLodgingPopup() {
+        withAnimation(.snappy(duration: 0.2)) { addLodgingDay = nil }
+    }
+
+    /// The open add-lodging popup over a dimmed screen; tapping outside closes it.
+    @ViewBuilder
+    private var addLodgingPopup: some View {
+        if let day = addLodgingDay {
+            ZStack {
+                Color.black.opacity(0.8)
+                    .ignoresSafeArea()
+                    .onTapGesture { closeAddLodgingPopup() }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                AddLodgingPopup(
+                    onUploadImage: {
+                        closeAddLodgingPopup()
+                        showingLodgingImagePicker = true
+                    },
+                    onAddManually: {
+                        closeAddLodgingPopup()
+                        addItemRequest = AddItemRequest(date: day.calendarDate, kind: .lodging)
+                    },
+                    onClose: closeAddLodgingPopup
                 )
                 .transition(.scale(scale: 0.94).combined(with: .opacity))
             }

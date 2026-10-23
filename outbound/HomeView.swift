@@ -100,28 +100,62 @@ struct HomeView: View {
         } else if store.trips.isEmpty {
             emptyState
         } else {
+            let (upcoming, past) = Trip.upcomingAndPast(store.trips)
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(store.trips) { trip in
-                        // Gestures rather than a NavigationLink: a link fires on release
-                        // even after a long hold, so the long press would also navigate.
-                        TripCard(trip: trip)
-                            .matchedTransitionSource(id: trip.id, in: tripZoom) { source in
-                                source.clipShape(.rect(cornerRadius: 16))
-                            }
-                            .contentShape(.rect(cornerRadius: 16))
-                            .onTapGesture { openedTripId = trip.id }
-                            .onLongPressGesture { editingTrip = trip }
-                            .accessibilityAddTraits(.isButton)
-                            .accessibilityAction { openedTripId = trip.id }
-                            .accessibilityAction(named: "Edit Trip") { editingTrip = trip }
-                    }
+                VStack(alignment: .leading, spacing: 24) {
+                    tripSection("Upcoming", trips: upcoming, emptyText: "No upcoming trips")
+                    tripSection("Past", trips: past, emptyText: "No past trips")
                 }
                 .padding()
             }
             .refreshable { await store.load() }
             .sensoryFeedback(.impact, trigger: editingTrip?.id) { _, new in new != nil }
         }
+    }
+
+    /// A titled grid of trips, or a placeholder line when there are none, so the section
+    /// keeps its place on the screen.
+    private func tripSection(_ title: String, trips: [Trip], emptyText: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .textCase(.uppercase)
+                .tracking(1)
+                .foregroundStyle(Color.appForeground.opacity(0.6))
+                .accessibilityAddTraits(.isHeader)
+            if trips.isEmpty {
+                Text(emptyText)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.appForeground.opacity(0.5))
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                            .foregroundStyle(Color.appForeground.opacity(0.3))
+                    }
+            } else {
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(trips) { trip in
+                        tripTile(trip)
+                    }
+                }
+            }
+        }
+    }
+
+    private func tripTile(_ trip: Trip) -> some View {
+        // Gestures rather than a NavigationLink: a link fires on release
+        // even after a long hold, so the long press would also navigate.
+        TripCard(trip: trip)
+            .matchedTransitionSource(id: trip.id, in: tripZoom) { source in
+                source.clipShape(.rect(cornerRadius: 16))
+            }
+            .contentShape(.rect(cornerRadius: 16))
+            .onTapGesture { openedTripId = trip.id }
+            .onLongPressGesture { editingTrip = trip }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { openedTripId = trip.id }
+            .accessibilityAction(named: "Edit Trip") { editingTrip = trip }
     }
 
     private var emptyState: some View {
