@@ -244,6 +244,16 @@ enum LodgingPhase: String, Decodable {
         case .checkOut: "Check-out"
         }
     }
+
+    /// Where the phase falls in a day, for ordering a changeover day's stays: leaving
+    /// one before arriving at the next.
+    var dayOrder: Int {
+        switch self {
+        case .checkOut: 0
+        case .staying: 1
+        case .checkIn: 2
+        }
+    }
 }
 
 extension TripsAPI {

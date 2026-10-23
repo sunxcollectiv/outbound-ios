@@ -121,7 +121,7 @@ struct TripDetailView: View {
                     if selectedDay.lodging.isEmpty {
                         addLodgingStrip(for: selectedDay)
                     } else {
-                        lodgingStrip(selectedDay.lodging)
+                        lodgingStrip(selectedDay.lodging.sorted { $0.phase.dayOrder < $1.phase.dayOrder })
                     }
                 }
             }
@@ -450,6 +450,13 @@ struct TripDetailView: View {
         .buttonStyle(.plain)
     }
 
+    /// What to call a stay: its place's name, as the itinerary cards do, else its own
+    /// title (which may be something generic like "Check-in").
+    private func lodgingName(_ stay: LodgingStay) -> String {
+        let place = places.current(stay.item.place)
+        return place?.googlePlaceId.flatMap { placeDetails[$0] }?.name ?? place?.name ?? stay.item.title
+    }
+
     /// The solid line between a lone check-in or check-out and its hatched remainder.
     private var hatchEdge: some View {
         Rectangle()
@@ -467,7 +474,7 @@ struct TripDetailView: View {
             }
             Image(systemName: "bed.double.fill")
                 .font(.caption)
-            Text(stay.item.title)
+            Text(lodgingName(stay))
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -487,7 +494,7 @@ struct TripDetailView: View {
         .contentShape(.rect)
         .onTapGesture { selectedItem = stay.item }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(stay.item.title), \(stay.phase.label)")
+        .accessibilityLabel("\(lodgingName(stay)), \(stay.phase.label)")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { selectedItem = stay.item }
     }
