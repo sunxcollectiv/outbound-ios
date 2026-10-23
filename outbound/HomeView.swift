@@ -102,11 +102,15 @@ struct HomeView: View {
         } else {
             let (upcoming, past) = Trip.upcomingAndPast(store.trips)
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(spacing: 0) {
                     tripSection("Upcoming", trips: upcoming, emptyText: "No upcoming trips")
+                        .padding()
+                        .padding(.bottom, 8)
                     tripSection("Past", trips: past, emptyText: "No past trips")
+                        .padding()
+                        .padding(.top, 4)
+                        .background(alignment: .top) { pastBackground }
                 }
-                .padding()
             }
             .refreshable { await store.load() }
             .sensoryFeedback(.impact, trigger: editingTrip?.id) { _, new in new != nil }
@@ -141,6 +145,21 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    /// A lighter panel behind the past trips, rounded on top and running far past their
+    /// bottom so it fills the rest of the screen however few there are, and stays put
+    /// when the list bounces.
+    private var pastBackground: some View {
+        UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24)
+            .fill(Color.white.opacity(0.06))
+            .overlay(alignment: .top) {
+                UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24)
+                    .strokeBorder(.white.opacity(0.08))
+                    .frame(height: 48)
+                    .mask(LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom))
+            }
+            .padding(.bottom, -2000)
     }
 
     private func tripTile(_ trip: Trip) -> some View {
