@@ -44,10 +44,11 @@ struct TripDetailView: View {
     @State private var editingLodging: TripItem?
     /// The day whose add-lodging popup is open, from tapping its empty lodging strip.
     @State private var addLodgingDay: ItineraryDay?
-    /// Showing the photo picker for an image of a booking, from the add-lodging popup.
-    @State private var showingLodgingImagePicker = false
-    /// The booking image picked from the add-lodging popup.
-    @State private var lodgingImageSelection: PhotosPickerItem?
+    /// Showing the photo picker for a screenshot of a booking, from the add-lodging popup
+    /// or the trip menu.
+    @State private var showingBookingImagePicker = false
+    /// The booking screenshot picked from the photo picker.
+    @State private var bookingImageSelection: PhotosPickerItem?
 
     /// Live horizontal progress of an in-flight page swipe, in day-units
     /// (-1…1, negative dragging toward a later day). Lets the day picker track
@@ -148,8 +149,8 @@ struct TripDetailView: View {
         .overlay { tripMenu }
         .overlay { lodgingPopup }
         .overlay { addLodgingPopup }
-        // TODO: process the picked booking image into a lodging item.
-        .photosPicker(isPresented: $showingLodgingImagePicker, selection: $lodgingImageSelection, matching: .images)
+        // TODO: process the picked booking screenshot into a trip item.
+        .photosPicker(isPresented: $showingBookingImagePicker, selection: $bookingImageSelection, matching: .images)
         .sheet(item: $addItemRequest) { request in
             TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
@@ -264,6 +265,10 @@ struct TripDetailView: View {
                         onAddItem: {
                             closeTripMenu()
                             addItemRequest = AddItemRequest(date: selectedDay?.calendarDate)
+                        },
+                        onImportScreenshot: {
+                            closeTripMenu()
+                            showingBookingImagePicker = true
                         },
                         onEditTrip: {
                             closeTripMenu()
@@ -570,7 +575,7 @@ struct TripDetailView: View {
                 AddLodgingPopup(
                     onUploadImage: {
                         closeAddLodgingPopup()
-                        showingLodgingImagePicker = true
+                        showingBookingImagePicker = true
                     },
                     onAddManually: {
                         closeAddLodgingPopup()

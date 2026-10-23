@@ -6,11 +6,13 @@
 import SwiftUI
 
 /// The dropdown under the itinerary header's more button: the trip's dates up top, then
-/// adding an item, then the trip's actions. Drawn by hand rather than as a system
-/// `Menu`, so it can match the header and grow richer rows than a menu allows.
+/// adding an item (by hand or from a screenshot), then the trip's actions. Drawn by hand
+/// rather than as a system `Menu`, so it can take the app's styling and grow richer rows
+/// than a menu allows.
 struct TripMenu: View {
     let trip: Trip
     let onAddItem: () -> Void
+    let onImportScreenshot: () -> Void
     let onEditTrip: () -> Void
     let onShare: () -> Void
     let onDeleteTrip: () -> Void
@@ -29,7 +31,9 @@ struct TripMenu: View {
             .padding(.vertical, 12)
 
             divider
+            sectionHeading("Itinerary")
             row("Add Item", systemImage: "plus", action: onAddItem)
+            row("Import from Screenshot", systemImage: "photo", action: onImportScreenshot)
             divider
             row("Edit Trip", systemImage: "pencil", action: onEditTrip)
             row("Share", systemImage: "square.and.arrow.up", action: onShare)
@@ -37,17 +41,31 @@ struct TripMenu: View {
             row("Delete Trip", systemImage: "trash", tint: Color(red: 1, green: 0.45, blue: 0.42), action: onDeleteTrip)
         }
         .foregroundStyle(.white)
-        .frame(width: 230)
+        .frame(width: 260)
         .background {
             let shape = RoundedRectangle(cornerRadius: 14)
             shape
                 .fill(.ultraThinMaterial)
-                .overlay(shape.fill(Color.tripHeader.opacity(0.85)))
+                // Dark gray, the lodging popup's card color, nearly opaque over the blur.
+                .overlay(shape.fill(Color(white: 0.15).opacity(0.92)))
                 .overlay(shape.strokeBorder(.white.opacity(0.12)))
                 .environment(\.colorScheme, .dark)
         }
         .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         .accessibilityElement(children: .contain)
+    }
+
+    /// A small caption naming the rows below it.
+    private func sectionHeading(_ title: String) -> some View {
+        Text(title)
+            .font(.caption2.weight(.semibold))
+            .textCase(.uppercase)
+            .tracking(1)
+            .foregroundStyle(.white.opacity(0.55))
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private var divider: some View {
@@ -85,7 +103,7 @@ private struct TripMenuRowStyle: ButtonStyle {
 #Preview {
     ZStack(alignment: .topTrailing) {
         Color.black.ignoresSafeArea()
-        TripMenu(trip: .sample, onAddItem: {}, onEditTrip: {}, onShare: {}, onDeleteTrip: {})
+        TripMenu(trip: .sample, onAddItem: {}, onImportScreenshot: {}, onEditTrip: {}, onShare: {}, onDeleteTrip: {})
             .padding()
     }
 }
