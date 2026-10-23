@@ -115,11 +115,14 @@ struct TripDetailView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             // The header and the day's lodging stay pinned while the cards scroll, joined
             // into one block: square where they meet, rounded on the outside.
-            let lodging = selectedDay?.lodging ?? []
             VStack(spacing: 0) {
-                header(joinsLodging: !lodging.isEmpty)
-                if !lodging.isEmpty {
-                    lodgingStrip(lodging)
+                header(joinsLodging: selectedDay != nil)
+                if let selectedDay {
+                    if selectedDay.lodging.isEmpty {
+                        addLodgingStrip(for: selectedDay)
+                    } else {
+                        lodgingStrip(selectedDay.lodging)
+                    }
                 }
             }
             .padding(.horizontal)
@@ -128,7 +131,7 @@ struct TripDetailView: View {
             .revealIn(hasRevealed || days == nil)
         }
         .sheet(item: $addItemRequest) { request in
-            TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, onSaved: { saved in
+            TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
         }
@@ -418,10 +421,39 @@ struct TripDetailView: View {
         .clipShape(.rect(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
     }
 
+    /// A fully hatched strip for a day with no lodging, inviting one to be added: opens
+    /// the add form set to lodging on that day.
+    private func addLodgingStrip(for day: ItineraryDay) -> some View {
+        Button {
+            addItemRequest = AddItemRequest(date: day.calendarDate, kind: .lodging)
+        } label: {
+            // Sized by an invisible line in the lodging rows' font, so the block keeps
+            // the same height when swiping between days with and without lodging.
+            ZStack {
+                Text(verbatim: " ")
+                    .font(.subheadline.weight(.semibold))
+                    .hidden()
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                    Text("add lodging")
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.appForeground.opacity(0.7))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(DiagonalHatch())
+            .background(Color(white: 0.12).opacity(0.8))
+            .clipShape(.rect(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
     /// The solid line between a lone check-in or check-out and its hatched remainder.
     private var hatchEdge: some View {
         Rectangle()
-            .fill(Color(white: 0.5))
+            .fill(Color(white: 0.35))
             .frame(width: 1)
     }
 
@@ -606,6 +638,7 @@ extension TripDetailView {
 private struct AddItemRequest: Identifiable {
     let id = UUID()
     let date: Date?
+    var kind: TripItemKind = .activity
 }
 
 /// A horizontally paged container that renders only the current day and its
@@ -855,7 +888,7 @@ private struct DiagonalHatch: View {
                 path.addLine(to: CGPoint(x: x + size.height, y: 0))
                 x += spacing
             }
-            context.stroke(path, with: .color(.white.opacity(0.15)), lineWidth: 1)
+            context.stroke(path, with: .color(.white.opacity(0.07)), lineWidth: 1)
         }
         .accessibilityHidden(true)
     }

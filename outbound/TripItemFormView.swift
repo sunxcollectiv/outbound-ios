@@ -79,13 +79,13 @@ struct TripItemFormView: View {
     /// The zone actually used for the end: an explicit choice, else the start zone.
     private var effectiveEndZone: TimeZone? { endZone ?? startZone }
 
-    init(tripId: String, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }) {
+    init(tripId: String, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }) {
         self.tripId = tripId
         self.item = item
         self.defaultZone = defaultZone
         self.defaultDate = defaultDate
         self.onSaved = onSaved
-        _kind = State(initialValue: item?.kind ?? .activity)
+        _kind = State(initialValue: item?.kind ?? defaultKind)
         _scope = State(initialValue: item?.scope ?? .group)
         _title = State(initialValue: item?.title ?? "")
         // Prefill the location fields with the existing place names (if the backend has
