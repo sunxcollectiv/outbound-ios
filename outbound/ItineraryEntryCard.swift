@@ -9,8 +9,9 @@ import SwiftUI
 ///
 /// - a derived moment of an item (arrival, check-out) is a light compact card headed
 ///   "Arrival at <place>" / "Check-out from <place>", naming the item for reference;
-/// - other transit entries (departure, layover) are a dark compact card under the
-///   booking's title;
+/// - a layover is a light compact card with no title, just its details and the stop;
+/// - other transit entries (departures) are a dark compact card under the booking's
+///   title;
 /// - everything else is a plain card — or, when its place has a photo, a cover card
 ///   topped by that photo.
 ///
@@ -32,6 +33,8 @@ struct ItineraryEntryCard: View {
         switch entry.phase {
         case .arrival, .checkOut:
             derivedCard
+        case .layover:
+            compactCard(badge: badge, title: nil, detail: transitDetail, place: place, style: .light)
         default:
             if item.kind == .transit {
                 compactCard(badge: badge, title: item.title, detail: transitDetail, place: place)
@@ -181,7 +184,7 @@ struct ItineraryEntryCard: View {
     }
 
     /// Colors for a compact card: the regular dark card, or a light one (90% white with
-    /// near-black text) for derived moments.
+    /// near-black text) for derived moments and layovers.
     private struct CompactCardStyle {
         let background: Color
         let foreground: Color
@@ -190,12 +193,12 @@ struct ItineraryEntryCard: View {
         static let light = CompactCardStyle(background: Color(white: 0.9), foreground: Color(white: 0.1))
     }
 
-    /// A cover-less card: time + badge across the top, the title and an optional detail
-    /// line, then a location row with the assignee avatar. `placeNameShown` is a place
-    /// name already in the title, so the location row doesn't repeat it (defaults to
-    /// the title itself).
+    /// A cover-less card: time + badge across the top, the title (if any) and an
+    /// optional detail line, then a location row with the assignee avatar.
+    /// `placeNameShown` is a place name already in the title, so the location row
+    /// doesn't repeat it (defaults to the title itself).
     private func compactCard(
-        badge: String, title: String, detail: String?, place: Place?,
+        badge: String, title: String?, detail: String?, place: Place?,
         placeNameShown: String? = nil, style: CompactCardStyle = .regular
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -212,14 +215,16 @@ struct ItineraryEntryCard: View {
 
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.title3.weight(.bold))
+                    if let title {
+                        Text(title)
+                            .font(.title3.weight(.bold))
+                    }
                     if let detail {
                         Text(detail)
                             .font(.caption.weight(.medium))
                             .foregroundStyle(style.foreground.opacity(0.75))
                     }
-                    locationLabel(place, hidingName: placeNameShown ?? title, foreground: style.foreground)
+                    locationLabel(place, hidingName: placeNameShown ?? title ?? "", foreground: style.foreground)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
