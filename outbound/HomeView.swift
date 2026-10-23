@@ -16,6 +16,9 @@ struct HomeView: View {
     @State private var openedTripId: String?
     /// The trip being edited from a long press.
     @State private var editingTrip: Trip?
+    @State private var isDrawerOpen = false
+    /// Pairs each trip's tile with its itinerary for the zoom transition.
+    @Namespace private var tripZoom
 
     private let columns = [
         GridItem(.flexible(), spacing: 16),
@@ -23,40 +26,68 @@ struct HomeView: View {
     ]
 
     var body: some View {
+        LeadingDrawer(isOpen: $isDrawerOpen, edgeSwipeEnabled: openedTripId == nil) {
+            tripsStack
+        } drawer: {
+            ProfileDrawer(onSignOut: { isDrawerOpen = false })
+        }
+        // Behind the whole stack, over the app's terracotta, so a trip zooming in or out
+        // shows this at its rounded corners.
+        .background(LinearGradient.tripsBackground.ignoresSafeArea())
+    }
+
+    private var tripsStack: some View {
         NavigationStack {
-            ZStack {
-                Color.tripsBackground.ignoresSafeArea()
-                content
-            }
-            .foregroundStyle(Color.appForeground)
-            .navigationTitle("Trips")
-            .toolbarBackground(Color.tripsBackground, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                AppToolbarButton(placement: .topBarLeading) {
-                    auth.signOut()
-                } label: {
-                    Text("Sign Out")
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // As the navigation container's backdrop rather than a view behind the
+                // grid, so the zoom transition to a trip never shows the system's white.
+                .containerBackground(LinearGradient.tripsBackground, for: .navigation)
+                .foregroundStyle(Color.appForeground)
+                .navigationTitle("Trips")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbar {
+                    // A step larger than the system's inline title.
+                    ToolbarItem(placement: .principal) {
+                        Text("Trips")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .accessibilityAddTraits(.isHeader)
+                    }
+                    if let user = auth.currentUser {
+                        AppToolbarButton(placement: .topBarLeading) {
+                            withAnimation(.snappy(duration: 0.3)) { isDrawerOpen = true }
+                        } label: {
+                            AvatarView(user: user, size: 32)
+                                // The bar insets its items past the screen's 16pt margin;
+                                // pull the avatar back so it lines up with the title and grid.
+                                .offset(x: -18)
+                                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                                .accessibilityLabel("Profile")
+                        }
+                    }
+                    AppToolbarButton(placement: .topBarTrailing) {
+                        showingAddTrip = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .accessibilityLabel("Add Trip")
+                    }
                 }
-                AppToolbarButton(placement: .topBarTrailing) {
-                    showingAddTrip = true
-                } label: {
-                    Image(systemName: "plus")
-                        .accessibilityLabel("Add Trip")
+                .sheet(isPresented: $showingAddTrip) {
+                    TripFormView(onSaved: { store.add($0) })
                 }
-            }
-            .sheet(isPresented: $showingAddTrip) {
-                TripFormView(onSaved: { store.add($0) })
-            }
-            .sheet(item: $editingTrip) { trip in
-                TripFormView(trip: trip, onSaved: { store.update($0) })
-            }
-            .navigationDestination(item: $openedTripId) { id in
-                if let trip = store.trips.first(where: { $0.id == id }) {
-                    TripDetailView(trip: trip)
+                .sheet(item: $editingTrip) { trip in
+                    TripFormView(trip: trip, onSaved: { store.update($0) })
                 }
-            }
-            .task { await store.load() }
+                .navigationDestination(item: $openedTripId) { id in
+                    if let trip = store.trips.first(where: { $0.id == id }) {
+                        TripDetailView(trip: trip)
+                            .navigationTransition(.zoom(sourceID: id, in: tripZoom))
+                    }
+                }
+                .task { await store.load() }
         }
     }
 
@@ -75,6 +106,9 @@ struct HomeView: View {
                         // Gestures rather than a NavigationLink: a link fires on release
                         // even after a long hold, so the long press would also navigate.
                         TripCard(trip: trip)
+                            .matchedTransitionSource(id: trip.id, in: tripZoom) { source in
+                                source.clipShape(.rect(cornerRadius: 16))
+                            }
                             .contentShape(.rect(cornerRadius: 16))
                             .onTapGesture { openedTripId = trip.id }
                             .onLongPressGesture { editingTrip = trip }

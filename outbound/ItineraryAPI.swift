@@ -70,12 +70,6 @@ struct ItineraryDay: Decodable, Identifiable {
     /// Used to seed a new item's default date to the day being viewed.
     var calendarDate: Date? { Self.isoDate.date(from: date) }
 
-    /// The day's date formatted as e.g. "Sat, Nov 1".
-    var displayDate: String {
-        guard let parsed = Self.isoDate.date(from: date) else { return date }
-        return Self.display.format(parsed)
-    }
-
     /// The abbreviated weekday in caps for the day picker, e.g. "THU".
     var weekdayShort: String {
         guard let parsed = Self.isoDate.date(from: date) else { return "" }
@@ -96,7 +90,6 @@ struct ItineraryDay: Decodable, Identifiable {
         return formatter
     }()
 
-    private static let display = Date.FormatStyle.dateTime.weekday(.abbreviated).month(.abbreviated).day()
     private static let weekday = Date.FormatStyle.dateTime.weekday(.abbreviated)
 }
 
@@ -249,6 +242,16 @@ enum LodgingPhase: String, Decodable {
         case .checkIn: "Check-in"
         case .staying: "Staying"
         case .checkOut: "Check-out"
+        }
+    }
+
+    /// Where the phase falls in a day, for ordering a changeover day's stays: leaving
+    /// one before arriving at the next.
+    var dayOrder: Int {
+        switch self {
+        case .checkOut: 0
+        case .staying: 1
+        case .checkIn: 2
         }
     }
 }
