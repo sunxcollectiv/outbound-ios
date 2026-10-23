@@ -274,10 +274,10 @@ struct TripDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if day.entries.isEmpty && day.lodging.isEmpty {
                     Text("Nothing planned")
-                        .font(.subheadline)
+                        .font(.subheadline.italic())
                         .foregroundStyle(Color.appForeground.opacity(0.5))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 8)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 100)
                         .revealIn(hasRevealed, delay: Self.cardRevealDelay(0))
                 } else {
                     ForEach(Array(day.entries.enumerated()), id: \.element.id) { index, entry in
