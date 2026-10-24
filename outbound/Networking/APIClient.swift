@@ -29,7 +29,32 @@ struct Endpoint {
     var method: HTTPMethod = .get
     var query: [URLQueryItem] = []
     var body: (any Encodable)?
+    /// A body sent as is with its content type (e.g. a multipart upload), instead of
+    /// `body` encoded as JSON.
+    var rawBody: (data: Data, contentType: String)?
+    /// How long to wait for the response; nil uses the session's default.
+    var timeout: TimeInterval?
     var requiresAuth = true
+}
+
+/// A `multipart/form-data` body carrying one file, as FastAPI's `UploadFile` expects.
+struct MultipartFile {
+    let field: String
+    let filename: String
+    let contentType: String
+    let data: Data
+
+    private let boundary = "Boundary-\(UUID().uuidString)"
+
+    var body: (data: Data, contentType: String) {
+        var data = Data()
+        data.append(Data("--\(boundary)\r\n".utf8))
+        data.append(Data("Content-Disposition: form-data; name=\"\(field)\"; filename=\"\(filename)\"\r\n".utf8))
+        data.append(Data("Content-Type: \(contentType)\r\n\r\n".utf8))
+        data.append(self.data)
+        data.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        return (data, "multipart/form-data; boundary=\(boundary)")
+    }
 }
 
 enum APIError: LocalizedError {
@@ -158,9 +183,15 @@ final class APIClient {
         request.httpMethod = endpoint.method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        if let body = endpoint.body {
+        if let raw = endpoint.rawBody {
+            request.setValue(raw.contentType, forHTTPHeaderField: "Content-Type")
+            request.httpBody = raw.data
+        } else if let body = endpoint.body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try encoder.encode(body)
+        }
+        if let timeout = endpoint.timeout {
+            request.timeoutInterval = timeout
         }
         if endpoint.requiresAuth, let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

@@ -5,6 +5,7 @@
 
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The itinerary for a single trip, presented one day per page. You swipe
 /// horizontally between days, and a day picker pinned to the bottom stays in
@@ -35,8 +36,10 @@ struct TripDetailView: View {
     @State private var showingEditTrip = false
     /// Whether the dropdown under the header's more button is open.
     @State private var showingTripMenu = false
-    /// Showing the "Email address copied" toast, after copying the trips inbox address.
-    @State private var showingCopiedToast = false
+    /// The status pill above the day picker (an address copied, a screenshot uploading).
+    @State private var toast: TripToast?
+    /// Hides the current toast after a moment; replaced whenever a new toast shows.
+    @State private var toastHideTask: Task<Void, Never>?
     /// The header chip's frame on screen, to hang the trip menu just below its trailing edge.
     @State private var headerFrame: CGRect = .zero
     @State private var selectedItem: TripItem?
@@ -149,11 +152,16 @@ struct TripDetailView: View {
             .revealIn(hasRevealed || days == nil)
         }
         .overlay { tripMenu }
-        .overlay(alignment: .bottom) { copiedToast }
+        .overlay(alignment: .bottom) { toastView }
         .overlay { lodgingPopup }
         .overlay { addLodgingPopup }
-        // TODO: process the picked booking screenshot into a trip item.
         .photosPicker(isPresented: $showingBookingImagePicker, selection: $bookingImageSelection, matching: .images)
+        .onChange(of: bookingImageSelection) { _, item in
+            guard let item else { return }
+            // Cleared so picking the same image again still triggers an upload.
+            bookingImageSelection = nil
+            Task { await importScreenshot(item) }
+        }
         .sheet(item: $addItemRequest) { request in
             TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
@@ -251,29 +259,87 @@ struct TripDetailView: View {
     /// Copies the trips inbox address and shows a toast confirming it for a moment.
     private func copyTripsEmail() {
         UIPasteboard.general.string = AddLodgingPopup.tripsEmail
-        AccessibilityNotification.Announcement("Email address copied").post()
-        withAnimation(.snappy(duration: 0.25)) { showingCopiedToast = true }
-        Task {
-            try? await Task.sleep(for: .seconds(1.8))
-            withAnimation(.snappy(duration: 0.25)) { showingCopiedToast = false }
+        showToast(TripToast(text: "Email address copied", systemImage: "checkmark.circle.fill"))
+    }
+
+    /// Uploads a picked booking screenshot, then reloads the itinerary to pick up
+    /// anything the server made of it. A toast shows progress, then the outcome.
+    private func importScreenshot(_ item: PhotosPickerItem) async {
+        showToast(TripToast(text: "Uploading screenshot…", systemImage: nil), hideAfter: nil)
+        do {
+            let file = try await Self.uploadFile(for: item)
+            _ = try await api.send(ReceivedImagesAPI.upload(file), as: ImageReceipt.self)
+            await load()
+            showToast(TripToast(text: "Screenshot uploaded", systemImage: "checkmark.circle.fill"))
+        } catch {
+            let message = if case APIError.network(let underlying) = error,
+                             (underlying as? URLError)?.code == .timedOut {
+                "The server took too long to respond. Please try again."
+            } else {
+                error.localizedDescription
+            }
+            showToast(TripToast(text: message, systemImage: "exclamationmark.triangle.fill"), hideAfter: .seconds(4))
         }
     }
 
-    /// A small pill above the day picker confirming the address was copied.
+    /// The picked image as an upload: PNGs and JPEGs as they are, anything else (e.g.
+    /// HEIC photos) re-encoded as JPEG so the server can read it.
+    private static func uploadFile(for item: PhotosPickerItem) async throws -> MultipartFile {
+        guard let data = try await item.loadTransferable(type: Data.self) else {
+            throw ScreenshotError.unreadable
+        }
+        if let type = item.supportedContentTypes.first,
+           type.conforms(to: .png) || type.conforms(to: .jpeg),
+           let mime = type.preferredMIMEType {
+            let ext = type.preferredFilenameExtension ?? "jpg"
+            return MultipartFile(field: "file", filename: "screenshot.\(ext)", contentType: mime, data: data)
+        }
+        guard let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.9) else {
+            throw ScreenshotError.unreadable
+        }
+        return MultipartFile(field: "file", filename: "screenshot.jpg", contentType: "image/jpeg", data: jpeg)
+    }
+
+    /// Shows a toast, hiding it after `hideAfter` (nil keeps it up until replaced).
+    private func showToast(_ newToast: TripToast, hideAfter: Duration? = .seconds(1.8)) {
+        toastHideTask?.cancel()
+        AccessibilityNotification.Announcement(newToast.text).post()
+        withAnimation(.snappy(duration: 0.25)) { toast = newToast }
+        guard let hideAfter else { return }
+        toastHideTask = Task {
+            try? await Task.sleep(for: hideAfter)
+            guard !Task.isCancelled else { return }
+            withAnimation(.snappy(duration: 0.25)) { toast = nil }
+        }
+    }
+
+    /// A small pill above the day picker: a spinner or icon, then the message.
     @ViewBuilder
-    private var copiedToast: some View {
-        if showingCopiedToast {
-            Label("Email address copied", systemImage: "checkmark.circle.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(Color(white: 0.15).opacity(0.95), in: .capsule)
-                .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
-                .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
-                // Clear of the day picker pinned to the bottom.
-                .padding(.bottom, 96)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+    private var toastView: some View {
+        if let toast {
+            HStack(spacing: 8) {
+                if let systemImage = toast.systemImage {
+                    Image(systemName: systemImage)
+                } else {
+                    ProgressView()
+                        .tint(.white)
+                        .controlSize(.small)
+                }
+                Text(toast.text)
+                    .multilineTextAlignment(.leading)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color(white: 0.15).opacity(0.95), in: .rect(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.12)))
+            .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+            .padding(.horizontal, 24)
+            // Clear of the day picker pinned to the bottom.
+            .padding(.bottom, 96)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .id(toast)
         }
     }
 
@@ -1075,4 +1141,17 @@ private struct DiagonalHatch: View {
         }
         .accessibilityHidden(true)
     }
+}
+
+/// A short status message for the itinerary's toast. A nil `systemImage` shows a
+/// spinner, for work still in progress.
+private struct TripToast: Hashable {
+    var text: String
+    var systemImage: String?
+}
+
+private enum ScreenshotError: LocalizedError {
+    case unreadable
+
+    var errorDescription: String? { "Couldn't read that image. Please try another." }
 }
