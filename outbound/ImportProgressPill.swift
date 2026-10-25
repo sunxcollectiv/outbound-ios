@@ -6,24 +6,45 @@
 import SwiftUI
 
 /// A pill above the day picker tracking a booking screenshot as the server turns it
-/// into itinerary items: one line saying what's happening, over a green fill that
+/// into itinerary items: one line saying which step it's on, over a green fill that
 /// grows from the left until the pill is fully green. It doesn't block the itinerary;
 /// you can keep scrolling and editing while it works.
+///
+/// Each step eases the fill on to its share of the pill over a few seconds, so it
+/// keeps moving while the server works, and the check lands once the last one fills.
 struct ImportProgressPill: View {
-    /// How far along the import is, 0 to 1.
-    let progress: Double
+    enum Step: CaseIterable {
+        case uploading, extracting, added
 
-    /// What's happening at this point of the import.
-    private var title: String {
-        switch progress {
-        case ..<0.25: "Uploading screenshot…"
-        case ..<0.7: "Reading booking…"
-        case ..<1: "Adding to itinerary…"
-        default: "Added to itinerary"
+        var title: String {
+            switch self {
+            case .uploading: "Uploading image"
+            case .extracting: "Extracting details"
+            case .added: "Added to itinerary"
+            }
+        }
+
+        /// How much of the pill is green by the end of this step.
+        var progress: Double {
+            switch self {
+            case .uploading: 1 / 3
+            case .extracting: 2 / 3
+            case .added: 1
+            }
         }
     }
 
-    private var isComplete: Bool { progress >= 1 }
+    let step: Step
+
+    /// How long each step takes to fill to its share.
+    static let stepDuration: Double = 3
+
+    /// The fill as drawn, animated toward `step.progress`.
+    @State private var shownProgress: Double = 0
+    /// Set once the last step's fill has finished, to show the check.
+    @State private var isComplete = false
+
+    private var title: String { step.title }
 
     /// The fill's green: deep enough that white text stays readable on it.
     static let fill = Color(red: 0.24, green: 0.55, blue: 0.36)
@@ -47,7 +68,7 @@ struct ImportProgressPill: View {
             .background(alignment: .leading) {
                 GeometryReader { proxy in
                     Self.fill
-                        .frame(width: proxy.size.width * min(max(progress, 0), 1))
+                        .frame(width: proxy.size.width * min(max(shownProgress, 0), 1))
                 }
             }
             .background {
@@ -63,7 +84,17 @@ struct ImportProgressPill: View {
             .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(title)
-            .accessibilityValue(Text(progress, format: .percent.precision(.fractionLength(0))))
+            .accessibilityValue(Text(step.progress, format: .percent.precision(.fractionLength(0))))
+            .onAppear { advance(to: step) }
+            .onChange(of: step) { _, step in advance(to: step) }
+    }
+
+    private func advance(to step: Step) {
+        withAnimation(.linear(duration: Self.stepDuration)) {
+            shownProgress = step.progress
+        } completion: {
+            isComplete = step == .added && shownProgress >= 1
+        }
     }
 
     /// An empty ring while the import runs, filled white with a green check once done.
@@ -90,8 +121,8 @@ struct ImportProgressPill: View {
     ZStack {
         Color(white: 0.1).ignoresSafeArea()
         VStack(spacing: 16) {
-            ForEach([0.1, 0.45, 0.85, 1], id: \.self) { progress in
-                ImportProgressPill(progress: progress)
+            ForEach(ImportProgressPill.Step.allCases, id: \.self) { step in
+                ImportProgressPill(step: step)
             }
         }
         .padding(24)

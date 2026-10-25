@@ -314,12 +314,17 @@ struct TripDetailView: View {
         }
     }
 
-    /// TEMP: always on screen while the design is worked out, filling over 12 seconds
-    /// and starting again. It'll show only while a screenshot import is in flight.
+    /// TEMP: always on screen while the design is worked out, stepping through the
+    /// import every 3 seconds, holding on done for 3, then starting again. It'll show
+    /// only while a screenshot import is in flight.
     private var importProgressPill: some View {
-        TimelineView(.animation) { context in
-            let elapsed = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 14)
-            ImportProgressPill(progress: min(elapsed / 12, 1))
+        TimelineView(.periodic(from: .now, by: 0.25)) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+            let phase = time.truncatingRemainder(dividingBy: 12)
+            let step: ImportProgressPill.Step = phase < 3 ? .uploading : phase < 6 ? .extracting : .added
+            ImportProgressPill(step: step)
+                // A fresh pill each run, so the fill starts from empty.
+                .id(Int(time / 12))
         }
         // 60% of the screen's width, centered.
         .containerRelativeFrame(.horizontal) { width, _ in width * 0.6 }
