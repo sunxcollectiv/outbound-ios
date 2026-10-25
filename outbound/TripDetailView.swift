@@ -423,7 +423,8 @@ struct TripDetailView: View {
     }
 
     private func dayPage(_ day: ItineraryDay, scrollLocked: Bool) -> some View {
-        ScrollView {
+        let zoneChanges = ItineraryZoneChanges.changes(in: days ?? [])
+        return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if day.entries.isEmpty && day.lodging.isEmpty {
                     Text("Nothing planned")
@@ -434,6 +435,10 @@ struct TripDetailView: View {
                         .revealIn(hasRevealed, delay: Self.cardRevealDelay(0))
                 } else {
                     ForEach(Array(day.entries.enumerated()), id: \.element.id) { index, entry in
+                        if let zone = zoneChanges[entry.id] {
+                            zoneChangeDivider(zone, at: entry.displayInstant)
+                                .revealIn(hasRevealed, delay: Self.cardRevealDelay(index))
+                        }
                         itemRow(entry, topFade: topFadeProgress[day.dayNumber] ?? 0)
                             .revealIn(hasRevealed, delay: Self.cardRevealDelay(index), slide: 16)
                     }
@@ -741,6 +746,32 @@ struct TripDetailView: View {
     }
 
     /// A faint hairline flanking the Add Activity button.
+    /// Where the clock changes, e.g. after landing in a new zone: the new zone between
+    /// dotted rules, over the first card in it. Times from here on are that zone's wall
+    /// clock, until the next divider.
+    private func zoneChangeDivider(_ zone: TimeZone, at instant: Date) -> some View {
+        HStack(spacing: 10) {
+            zoneChangeRule
+            Label(ItineraryZoneChanges.label(for: zone, at: instant), systemImage: "clock")
+                .font(.caption.weight(.semibold))
+                .textCase(.uppercase)
+                .tracking(1)
+                .foregroundStyle(Color.appForeground.opacity(0.6))
+                .fixedSize()
+            zoneChangeRule
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Times below are in \(ItineraryZoneChanges.label(for: zone, at: instant).replacingOccurrences(of: " · ", with: ", "))")
+    }
+
+    private var zoneChangeRule: some View {
+        DashedLine()
+            .stroke(Color.appForeground.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [2, 4]))
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
+    }
+
     private var addActivityRule: some View {
         Rectangle()
             .fill(Color.appForeground.opacity(0.2))

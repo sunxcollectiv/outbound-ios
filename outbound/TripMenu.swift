@@ -108,7 +108,7 @@ struct TripMenu: View {
 
     /// A lighter break within a section, inset to line up with the row text.
     private var dottedDivider: some View {
-        Line()
+        DashedLine()
             .stroke(.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
             .frame(height: 1)
             .padding(.horizontal, 14)
@@ -133,7 +133,7 @@ struct TripMenu: View {
 }
 
 /// A horizontal line across the middle of its frame, for dashed strokes.
-private struct Line: Shape {
+struct DashedLine: Shape {
     func path(in rect: CGRect) -> Path {
         Path { path in
             path.move(to: CGPoint(x: rect.minX, y: rect.midY))
