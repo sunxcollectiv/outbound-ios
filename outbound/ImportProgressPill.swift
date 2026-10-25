@@ -23,6 +23,8 @@ struct ImportProgressPill: View {
         }
     }
 
+    private var isComplete: Bool { progress >= 1 }
+
     /// The fill's green: deep enough that white text stays readable on it.
     static let fill = Color(red: 0.24, green: 0.55, blue: 0.36)
 
@@ -39,7 +41,9 @@ struct ImportProgressPill: View {
             .animation(.snappy, value: title)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 7)
-            .padding(.horizontal, 12)
+            // Room on both sides for the status circle, so the text stays centered.
+            .padding(.horizontal, 28)
+            .overlay(alignment: .trailing) { statusCircle.padding(.trailing, 7) }
             .background(alignment: .leading) {
                 GeometryReader { proxy in
                     Self.fill
@@ -60,6 +64,25 @@ struct ImportProgressPill: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(title)
             .accessibilityValue(Text(progress, format: .percent.precision(.fractionLength(0))))
+    }
+
+    /// An empty ring while the import runs, filled white with a green check once done.
+    private var statusCircle: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(.white.opacity(0.6), lineWidth: 1.5)
+            Circle()
+                .fill(.white)
+                .scaleEffect(isComplete ? 1 : 0.2)
+                .opacity(isComplete ? 1 : 0)
+            Image(systemName: "checkmark")
+                .font(.system(size: 8, weight: .heavy))
+                .foregroundStyle(Self.fill)
+                .scaleEffect(isComplete ? 1 : 0.5)
+                .opacity(isComplete ? 1 : 0)
+        }
+        .frame(width: 15, height: 15)
+        .animation(.spring(duration: 0.35, bounce: 0.4), value: isComplete)
     }
 }
 
