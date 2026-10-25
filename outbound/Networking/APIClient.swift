@@ -133,9 +133,13 @@ final class APIClient {
         self.session = session
     }
 
-    /// Sends a request and decodes the JSON response.
-    func send<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type = Response.self) async throws -> Response {
-        let data = try await perform(endpoint)
+    /// Sends a request and decodes the JSON response. `onBodySent` is called once the
+    /// whole request body has gone out, e.g. to tell an upload from the server's work
+    /// on it.
+    func send<Response: Decodable>(
+        _ endpoint: Endpoint, as type: Response.Type = Response.self, onBodySent: (@Sendable () -> Void)? = nil
+    ) async throws -> Response {
+        let data = try await perform(endpoint, onBodySent: onBodySent)
         do {
             return try decoder.decode(Response.self, from: data)
         } catch {
@@ -148,13 +152,13 @@ final class APIClient {
         _ = try await perform(endpoint)
     }
 
-    private func perform(_ endpoint: Endpoint) async throws -> Data {
+    private func perform(_ endpoint: Endpoint, onBodySent: (@Sendable () -> Void)? = nil) async throws -> Data {
         let request = try makeRequest(for: endpoint)
 
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await session.data(for: request, delegate: onBodySent.map(BodySentDelegate.init))
         } catch {
             throw APIError.network(error)
         }
@@ -213,5 +217,24 @@ final class APIClient {
             if !messages.isEmpty { return messages.joined(separator: "\n") }
         }
         return json["message"] as? String ?? json["error"] as? String
+    }
+}
+
+/// Reports when a task has sent its whole request body.
+private final class BodySentDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let onBodySent: @Sendable () -> Void
+    private var reported = false
+
+    init(_ onBodySent: @escaping @Sendable () -> Void) {
+        self.onBodySent = onBodySent
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64, totalBytesExpectedToSend: Int64
+    ) {
+        guard !reported, totalBytesSent >= totalBytesExpectedToSend else { return }
+        reported = true
+        onBodySent()
     }
 }

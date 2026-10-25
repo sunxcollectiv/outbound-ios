@@ -40,6 +40,11 @@ struct TripDetailView: View {
     @State private var toast: TripToast?
     /// Hides the current toast after a moment; replaced whenever a new toast shows.
     @State private var toastHideTask: Task<Void, Never>?
+    /// Where an in-flight screenshot import has got to, shown in the progress pill;
+    /// nil when none is running.
+    @State private var importStep: ImportProgressPill.Step?
+    /// A fresh id per import, so each one's pill starts from empty.
+    @State private var importID = UUID()
     /// The header chip's frame on screen, to hang the trip menu just below its trailing edge.
     @State private var headerFrame: CGRect = .zero
     @State private var selectedItem: TripItem?
@@ -263,16 +268,23 @@ struct TripDetailView: View {
         showToast(TripToast(text: "Email address copied", systemImage: "checkmark.circle.fill"))
     }
 
-    /// Uploads a picked booking screenshot, then reloads the itinerary to pick up
-    /// anything the server made of it. A toast shows progress, then the outcome.
+    /// Sends a picked booking screenshot to be processed into itinerary items, then
+    /// reloads the itinerary to pick up what the server made of it. The progress pill
+    /// shows the upload, then the server's work once the image is sent, then done once
+    /// the server answers (it responds only when processing has finished).
     private func importScreenshot(_ item: PhotosPickerItem) async {
-        showToast(TripToast(text: "Uploading screenshot…", systemImage: nil), hideAfter: nil)
+        importID = UUID()
+        withAnimation(.snappy) { importStep = .uploading }
         do {
             let file = try await Self.uploadFile(for: item)
-            _ = try await api.send(ReceivedImagesAPI.upload(file), as: ImageReceipt.self)
+            _ = try await api.send(ReceivedImagesAPI.process(file), as: ImageImportResult.self) {
+                // Only forward: on a quick response this can land after the step below.
+                Task { @MainActor in if importStep == .uploading { importStep = .extracting } }
+            }
+            importStep = .added
             await load()
-            showToast(TripToast(text: "Screenshot uploaded", systemImage: "checkmark.circle.fill"))
         } catch {
+            withAnimation(.snappy) { importStep = nil }
             let message = if case APIError.network(let underlying) = error,
                              (underlying as? URLError)?.code == .timedOut {
                 "The server took too long to respond. Please try again."
@@ -314,23 +326,20 @@ struct TripDetailView: View {
         }
     }
 
-    /// TEMP: always on screen while the design is worked out, stepping through the
-    /// import every 3 seconds, holding on done for 3, then starting again. It'll show
-    /// only while a screenshot import is in flight.
+    /// The in-flight screenshot import's progress, above the day picker. It doesn't
+    /// take taps, so the itinerary stays usable underneath.
+    @ViewBuilder
     private var importProgressPill: some View {
-        TimelineView(.periodic(from: .now, by: 0.25)) { context in
-            let time = context.date.timeIntervalSinceReferenceDate
-            let phase = time.truncatingRemainder(dividingBy: 12)
-            let step: ImportProgressPill.Step = phase < 3 ? .uploading : phase < 6 ? .extracting : .added
-            ImportProgressPill(step: step)
-                // A fresh pill each run, so the fill starts from empty.
-                .id(Int(time / 12))
+        if let importStep {
+            ImportProgressPill(step: importStep)
+                .id(importID)
+                // 60% of the screen's width, centered.
+                .containerRelativeFrame(.horizontal) { width, _ in width * 0.6 }
+                // Clear of the day picker pinned to the bottom.
+                .padding(.bottom, 96)
+                .allowsHitTesting(false)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
-        // 60% of the screen's width, centered.
-        .containerRelativeFrame(.horizontal) { width, _ in width * 0.6 }
-        // Clear of the day picker pinned to the bottom.
-        .padding(.bottom, 96)
-        .allowsHitTesting(false)
     }
 
     /// A small pill above the day picker: a spinner or icon, then the message.

@@ -10,8 +10,10 @@ import SwiftUI
 /// grows from the left until the pill is fully green. It doesn't block the itinerary;
 /// you can keep scrolling and editing while it works.
 ///
-/// Each step eases the fill on to its share of the pill over a few seconds, so it
-/// keeps moving while the server works, and the check lands once the last one fills.
+/// Each step fills on to its share of the pill over a few seconds, so it keeps moving
+/// while the server works, and the check lands once the last one fills. A step that
+/// arrives before the fill has finished the one before first catches the fill up to
+/// where the new step starts, quickly, then fills from there.
 struct ImportProgressPill: View {
     enum Step: CaseIterable {
         case uploading, extracting, added
@@ -32,17 +34,47 @@ struct ImportProgressPill: View {
             case .added: 1
             }
         }
+
+        /// How much is green as this step starts: where the step before it ends.
+        var startProgress: Double {
+            switch self {
+            case .uploading: 0
+            case .extracting: Step.uploading.progress
+            case .added: Step.extracting.progress
+            }
+        }
     }
 
     let step: Step
 
     /// How long each step takes to fill to its share.
     static let stepDuration: Double = 3
+    /// How long a lagging fill takes to catch up to the start of the next step.
+    static let catchUpDuration: Double = 0.5
 
-    /// The fill as drawn, animated toward `step.progress`.
+    /// The fill's animation target, which SwiftUI draws toward.
     @State private var shownProgress: Double = 0
+    /// The fill's current run, so we can tell how far along it is mid-animation:
+    /// SwiftUI only exposes where an animation is headed, not where it's got to.
+    @State private var run = FillRun(from: 0, to: 0, start: .now, duration: 0)
+    /// Bumped on each step, so a superseded run's completion doesn't carry on.
+    @State private var generation = 0
     /// Set once the last step's fill has finished, to show the check.
     @State private var isComplete = false
+
+    /// One linear stretch of the fill.
+    private struct FillRun {
+        let from: Double
+        let to: Double
+        let start: Date
+        let duration: Double
+
+        func progress(at date: Date) -> Double {
+            guard duration > 0 else { return to }
+            let elapsed = min(max(date.timeIntervalSince(start) / duration, 0), 1)
+            return from + (to - from) * elapsed
+        }
+    }
 
     private var title: String { step.title }
 
@@ -89,11 +121,38 @@ struct ImportProgressPill: View {
             .onChange(of: step) { _, step in advance(to: step) }
     }
 
+    /// Fills on to `step`'s share over `stepDuration`, first catching up to where the
+    /// step starts over `catchUpDuration` if the fill is still short of it.
     private func advance(to step: Step) {
+        generation += 1
+        let current = generation
+        let now = Date.now
+        let drawn = run.progress(at: now)
+        if drawn < step.startProgress - 0.001 {
+            // Pin the drawn value as the starting point, then rush to the step's start.
+            var pin = Transaction()
+            pin.disablesAnimations = true
+            withTransaction(pin) { shownProgress = drawn }
+            run = FillRun(from: drawn, to: step.startProgress, start: now, duration: Self.catchUpDuration)
+            withAnimation(.easeOut(duration: Self.catchUpDuration)) {
+                shownProgress = step.startProgress
+            } completion: {
+                guard generation == current else { return }
+                fill(step, from: step.startProgress)
+            }
+        } else {
+            fill(step, from: drawn)
+        }
+    }
+
+    private func fill(_ step: Step, from start: Double) {
+        let current = generation
+        run = FillRun(from: start, to: step.progress, start: .now, duration: Self.stepDuration)
         withAnimation(.linear(duration: Self.stepDuration)) {
             shownProgress = step.progress
         } completion: {
-            isComplete = step == .added && shownProgress >= 1
+            guard generation == current else { return }
+            isComplete = step == .added
         }
     }
 
