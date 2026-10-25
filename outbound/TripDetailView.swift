@@ -153,6 +153,7 @@ struct TripDetailView: View {
         }
         .overlay { tripMenu }
         .overlay(alignment: .bottom) { toastView }
+        .overlay(alignment: .bottom) { importProgressPill }
         .overlay { lodgingPopup }
         .overlay { addLodgingPopup }
         .photosPicker(isPresented: $showingBookingImagePicker, selection: $bookingImageSelection, matching: .images)
@@ -311,6 +312,20 @@ struct TripDetailView: View {
             guard !Task.isCancelled else { return }
             withAnimation(.snappy(duration: 0.25)) { toast = nil }
         }
+    }
+
+    /// TEMP: always on screen while the design is worked out, filling over 12 seconds
+    /// and starting again. It'll show only while a screenshot import is in flight.
+    private var importProgressPill: some View {
+        TimelineView(.animation) { context in
+            let elapsed = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 14)
+            ImportProgressPill(progress: min(elapsed / 12, 1))
+        }
+        // 60% of the screen's width, centered.
+        .containerRelativeFrame(.horizontal) { width, _ in width * 0.6 }
+        // Clear of the day picker pinned to the bottom.
+        .padding(.bottom, 96)
+        .allowsHitTesting(false)
     }
 
     /// A small pill above the day picker: a spinner or icon, then the message.
