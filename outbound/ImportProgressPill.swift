@@ -14,31 +14,36 @@ import SwiftUI
 /// while the server works, and the check lands once the last one fills. A step that
 /// arrives before the fill has finished the one before first catches the fill up to
 /// where the new step starts, quickly, then fills from there.
+///
+/// If the import fails at any point, the fill carries on to the full width while
+/// gradually turning red, and the circle shows an x.
 struct ImportProgressPill: View {
     enum Step: CaseIterable {
-        case uploading, extracting, added
+        case uploading, extracting, added, failed
 
         var title: String {
             switch self {
             case .uploading: "Uploading image"
             case .extracting: "Extracting details"
             case .added: "Added to itinerary"
+            case .failed: "Image process failed"
             }
         }
 
-        /// How much of the pill is green by the end of this step.
+        /// How much of the pill is filled by the end of this step.
         var progress: Double {
             switch self {
             case .uploading: 1 / 3
             case .extracting: 2 / 3
-            case .added: 1
+            case .added, .failed: 1
             }
         }
 
-        /// How much is green as this step starts: where the step before it ends.
+        /// How much is filled as this step starts: where the step before it ends. A
+        /// failure fills straight from wherever the fill had got to.
         var startProgress: Double {
             switch self {
-            case .uploading: 0
+            case .uploading, .failed: 0
             case .extracting: Step.uploading.progress
             case .added: Step.extracting.progress
             }
@@ -51,16 +56,21 @@ struct ImportProgressPill: View {
     static let stepDuration: Double = 3
     /// How long a lagging fill takes to catch up to the start of the next step.
     static let catchUpDuration: Double = 0.5
+    /// How long a failure takes to fill the pill and turn it red.
+    static let failDuration: Double = 1
 
     /// The fill's animation target, which SwiftUI draws toward.
     @State private var shownProgress: Double = 0
-    /// The fill's current run, so we can tell how far along it is mid-animation:
-    /// SwiftUI only exposes where an animation is headed, not where it's got to.
+    /// The fill's current run, so we can tell roughly how far along it is mid-animation
+    /// (SwiftUI only exposes where an animation is headed), to decide whether a new
+    /// step needs a catch-up first.
     @State private var run = FillRun(from: 0, to: 0, start: .now, duration: 0)
     /// Bumped on each step, so a superseded run's completion doesn't carry on.
     @State private var generation = 0
-    /// Set once the last step's fill has finished, to show the check.
+    /// Set once the last step's fill has finished, to show the check (or the x).
     @State private var isComplete = false
+    /// How far the fill has turned from green to red, 0 to 1, once the import fails.
+    @State private var failedTint: Double = 0
 
     /// One linear stretch of the fill.
     private struct FillRun {
@@ -80,6 +90,10 @@ struct ImportProgressPill: View {
 
     /// The fill's green: deep enough that white text stays readable on it.
     static let fill = Color(red: 0.24, green: 0.55, blue: 0.36)
+    /// The failed fill: a red with a touch of pink, deep enough for white text too.
+    static let failedFill = Color(red: 0.84, green: 0.27, blue: 0.33)
+
+    private var fillColor: Color { step == .failed ? Self.failedFill : Self.fill }
 
     var body: some View {
         Text(title)
@@ -99,7 +113,10 @@ struct ImportProgressPill: View {
             .overlay(alignment: .trailing) { statusCircle.padding(.trailing, 7) }
             .background(alignment: .leading) {
                 GeometryReader { proxy in
+                    // Red blended over the green, so a failure changes the color in
+                    // place rather than painting a new bar in from the left.
                     Self.fill
+                        .overlay(Self.failedFill.opacity(failedTint))
                         .frame(width: proxy.size.width * min(max(shownProgress, 0), 1))
                 }
             }
@@ -128,11 +145,20 @@ struct ImportProgressPill: View {
         let current = generation
         let now = Date.now
         let drawn = run.progress(at: now)
-        if drawn < step.startProgress - 0.001 {
-            // Pin the drawn value as the starting point, then rush to the step's start.
-            var pin = Transaction()
-            pin.disablesAnimations = true
-            withTransaction(pin) { shownProgress = drawn }
+        if step == .failed {
+            // On to full from wherever the fill is, turning red as it goes: nothing
+            // more is coming.
+            isComplete = false
+            run = FillRun(from: drawn, to: 1, start: now, duration: Self.failDuration)
+            withAnimation(.easeInOut(duration: Self.failDuration)) {
+                shownProgress = 1
+                failedTint = 1
+            } completion: {
+                guard generation == current else { return }
+                isComplete = true
+            }
+        } else if drawn < step.startProgress - 0.001 {
+            // Rush to the step's start; SwiftUI carries on from wherever the fill is.
             run = FillRun(from: drawn, to: step.startProgress, start: now, duration: Self.catchUpDuration)
             withAnimation(.easeOut(duration: Self.catchUpDuration)) {
                 shownProgress = step.startProgress
@@ -156,7 +182,8 @@ struct ImportProgressPill: View {
         }
     }
 
-    /// An empty ring while the import runs, filled white with a green check once done.
+    /// An empty ring while the import runs, then filled white with a check in the
+    /// fill's color once done, or an x once failed.
     private var statusCircle: some View {
         ZStack {
             Circle()
@@ -165,9 +192,9 @@ struct ImportProgressPill: View {
                 .fill(.white)
                 .scaleEffect(isComplete ? 1 : 0.2)
                 .opacity(isComplete ? 1 : 0)
-            Image(systemName: "checkmark")
+            Image(systemName: step == .failed ? "xmark" : "checkmark")
                 .font(.system(size: 8, weight: .heavy))
-                .foregroundStyle(Self.fill)
+                .foregroundStyle(fillColor)
                 .scaleEffect(isComplete ? 1 : 0.5)
                 .opacity(isComplete ? 1 : 0)
         }

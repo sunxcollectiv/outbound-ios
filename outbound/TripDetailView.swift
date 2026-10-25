@@ -277,21 +277,41 @@ struct TripDetailView: View {
         withAnimation(.snappy) { importStep = .uploading }
         do {
             let file = try await Self.uploadFile(for: item)
-            _ = try await api.send(ReceivedImagesAPI.process(file), as: ImageImportResult.self) {
-                // Only forward: on a quick response this can land after the step below.
-                Task { @MainActor in if importStep == .uploading { importStep = .extracting } }
+            let api = api
+            // A request's own timeout only limits gaps between data, so cap the whole
+            // call here.
+            let result = try await Self.withTimeout(ReceivedImagesAPI.processTimeout) {
+                try await api.send(ReceivedImagesAPI.process(file), as: ImageImportResult.self) {
+                    // Only forward: on a quick response this can land after the steps below.
+                    Task { @MainActor in if importStep == .uploading { importStep = .extracting } }
+                }
+            }
+            // Anything but placing the booking in a trip (not a booking, no matching
+            // trip, or several) counts as a failed import.
+            guard result.outcome == "placed" else {
+                importStep = .failed
+                return
             }
             importStep = .added
             await load()
         } catch {
-            withAnimation(.snappy) { importStep = nil }
-            let message = if case APIError.network(let underlying) = error,
-                             (underlying as? URLError)?.code == .timedOut {
-                "The server took too long to respond. Please try again."
-            } else {
-                error.localizedDescription
+            importStep = .failed
+        }
+    }
+
+    /// Runs `work`, throwing `ScreenshotError.timedOut` if it takes longer than
+    /// `seconds`; the work is cancelled either way once one side finishes.
+    private static func withTimeout<T: Sendable>(
+        _ seconds: TimeInterval, _ work: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await work() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw ScreenshotError.timedOut
             }
-            showToast(TripToast(text: message, systemImage: "exclamationmark.triangle.fill"), hideAfter: .seconds(4))
+            defer { group.cancelAll() }
+            return try await group.next()!
         }
     }
 
@@ -1212,6 +1232,12 @@ private struct TripToast: Hashable {
 
 private enum ScreenshotError: LocalizedError {
     case unreadable
+    case timedOut
 
-    var errorDescription: String? { "Couldn't read that image. Please try another." }
+    var errorDescription: String? {
+        switch self {
+        case .unreadable: "Couldn't read that image. Please try another."
+        case .timedOut: "The server took too long to respond. Please try again."
+        }
+    }
 }

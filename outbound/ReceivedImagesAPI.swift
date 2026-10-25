@@ -34,9 +34,11 @@ enum ReceivedImagesAPI {
     }
 
     /// Uploads one image and runs the whole pipeline on it in the same call: store,
-    /// read the booking out of it, and import it into the matching trip. Given two
-    /// minutes, since reading the booking can take a while.
+    /// read the booking out of it, and import it into the matching trip.
     static func process(_ file: MultipartFile) -> Endpoint {
-        Endpoint(path: "/received/images/process", method: .post, rawBody: file.body, timeout: 120)
+        Endpoint(path: "/received/images/process", method: .post, rawBody: file.body, timeout: processTimeout)
     }
+
+    /// How long a processed upload gets, start to finish, before it counts as failed.
+    static let processTimeout: TimeInterval = 30
 }
