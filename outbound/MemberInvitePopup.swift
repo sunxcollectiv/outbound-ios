@@ -142,8 +142,7 @@ struct MemberInvitePopup: View {
     }
 }
 
-/// Rows of invited emails, each with an avatar initial and a remove button. Shared by
-/// the invite popup and the trip form.
+/// Rows of invited emails, each with an avatar initial and a remove button.
 struct MemberEmailList: View {
     @Binding var emails: [String]
 

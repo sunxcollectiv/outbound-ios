@@ -197,30 +197,31 @@ struct TripFormView: View {
         }
     }
 
-    /// The people invited so far, then a dashed button that opens the invite popup.
-    private var membersSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Members")
-                .font(.subheadline.weight(.semibold))
-            if !memberEmails.isEmpty {
-                MemberEmailList(emails: $memberEmails)
-            }
-            Button {
-                withAnimation(.snappy(duration: 0.25)) { showingMemberInvite = true }
-            } label: {
-                Label("Add members", systemImage: "person.badge.plus")
-                    .font(.subheadline.weight(.medium))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
-                            .foregroundStyle(Color.appForeground.opacity(0.7))
-                    }
-            }
-            .buttonStyle(.plain)
+    /// "Traveling Solo" until someone is invited, then a count of the others.
+    private var membersSummary: String {
+        switch memberEmails.count {
+        case 0: "Traveling Solo"
+        case 1: "You and 1 other"
+        case let count: "You and \(count) others"
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A one-line row summarizing who's on the trip; tapping it opens the invite popup.
+    private var membersSection: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.25)) { showingMemberInvite = true }
+        } label: {
+            HStack {
+                Text("Members")
+                Spacer()
+                Text(membersSummary)
+                    .foregroundStyle(Color.appForeground.opacity(0.75))
+            }
+            .padding(14)
+            .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func closeMemberInvite() {
