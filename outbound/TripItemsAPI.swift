@@ -25,7 +25,7 @@ enum TripItemScope: String, Codable, CaseIterable, Identifiable {
 }
 
 /// `TripItemRead` from the backend. `place`/`endPlace` are the associated places
-/// (end place is used by transit for the destination); traveler objects are omitted.
+/// (end place is used by transit for the destination).
 ///
 /// Times are local wall time + an optional IANA zone, one zone per end of the item;
 /// see `WallClockSpan` for how to display and order them.
@@ -51,6 +51,20 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     /// The legs of a transit booking, in travel order (one for a direct trip). Empty
     /// for other kinds.
     var segments: [TransitSegment] = []
+    /// Who added the item; nil once they've left the trip. A personal item belongs to them.
+    var createdBy: User? = nil
+    /// RSVPs on a group item; who's in on a personal one (its creator always is).
+    var participants: [TripItemParticipant] = []
+}
+
+enum RsvpStatus: String, Codable {
+    case going, maybe, declined
+}
+
+/// `ParticipantRead` — one trip member's answer on an item.
+struct TripItemParticipant: Decodable, Equatable {
+    var member: TripMember
+    var status: RsvpStatus
 }
 
 /// `TransitSegmentRead` — one leg of a transit booking, e.g. JFK → LAX on a two-leg
@@ -103,7 +117,7 @@ extension TripItem: Decodable {
         case id, tripId, kind, scope, title, notes, tags
         case startTimezone, endTimezone
         case startsAt, endsAt, startsAtUtc, endsAtUtc
-        case imageUrl, place, endPlace, createdAt, updatedAt, segments
+        case imageUrl, place, endPlace, createdAt, updatedAt, segments, createdBy, participants
     }
 
     init(from decoder: Decoder) throws {
@@ -128,6 +142,8 @@ extension TripItem: Decodable {
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         segments = (try c.decodeIfPresent([TransitSegment].self, forKey: .segments) ?? [])
             .sorted { $0.position < $1.position }
+        createdBy = try c.decodeIfPresent(User.self, forKey: .createdBy)
+        participants = try c.decodeIfPresent([TripItemParticipant].self, forKey: .participants) ?? []
     }
 }
 
@@ -152,13 +168,22 @@ enum TripItemsAPI {
         let endTimezone: String?
         let placeId: String?
         let endPlaceId: String?
+        /// Who's in on a personal item (the creator is added by the server), or RSVPs to
+        /// record on a group one. Omitted when nil.
+        var participants: [ParticipantRequest]? = nil
+    }
+
+    /// `ParticipantSet` — one member's answer, by their trip-member id.
+    struct ParticipantRequest: Encodable, Equatable {
+        let memberId: String
+        let status: RsvpStatus
     }
 
     /// `TripItemUpdate` — body for `PATCH /trips/{id}/items/{itemId}`. Every field is
-    /// optional server-side. It has **no `scope`** (the backend rejects extra fields),
-    /// so scope isn't editable here. Nil place ids are omitted, leaving existing places
+    /// optional server-side. Nil place ids are omitted, leaving existing places
     /// untouched. A nil `endsAt` is sent as an explicit `null` to clear the end time;
-    /// the server drops the end zone with it.
+    /// the server drops the end zone with it. `scope` and `participants` are omitted
+    /// when nil; `participants` replaces every answer on the item when sent.
     struct UpdateRequest: Encodable {
         let kind: TripItemKind
         let title: String
@@ -169,9 +194,12 @@ enum TripItemsAPI {
         let endTimezone: String?
         let placeId: String?
         let endPlaceId: String?
+        var scope: TripItemScope? = nil
+        var participants: [ParticipantRequest]? = nil
 
         private enum CodingKeys: String, CodingKey {
             case kind, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
+            case scope, participants
         }
 
         func encode(to encoder: Encoder) throws {
@@ -190,6 +218,8 @@ enum TripItemsAPI {
             }
             try c.encodeIfPresent(placeId, forKey: .placeId)
             try c.encodeIfPresent(endPlaceId, forKey: .endPlaceId)
+            try c.encodeIfPresent(scope, forKey: .scope)
+            try c.encodeIfPresent(participants, forKey: .participants)
         }
     }
 

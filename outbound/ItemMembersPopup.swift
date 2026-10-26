@@ -6,11 +6,14 @@
 import SwiftUI
 
 /// A centered card for choosing which of the trip's members an item is for, shown
-/// over the item form. Tapping a member toggles them in `selectedIds`.
+/// over the item form. Tapping a member toggles them in `selectedIds`, except the
+/// `lockedId` member, who is always in.
 struct ItemMembersPopup: View {
     let members: [TripMember]
     /// The signed-in user's id, so their row reads "You".
     let currentUserId: String?
+    /// The item's owner, who can't be left out.
+    var lockedId: String? = nil
     @Binding var selectedIds: Set<String>
     let onClose: () -> Void
 
@@ -85,7 +88,8 @@ struct ItemMembersPopup: View {
     }
 
     private func memberRow(_ member: TripMember) -> some View {
-        let isSelected = selectedIds.contains(member.id)
+        let isLocked = member.id == lockedId
+        let isSelected = isLocked || selectedIds.contains(member.id)
         let isYou = member.user?.id != nil && member.user?.id == currentUserId
         let name = member.user?.displayName ?? member.email
         return Button {
@@ -119,12 +123,14 @@ struct ItemMembersPopup: View {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
                     .foregroundStyle(isSelected ? Color.appForeground : Color.appForeground.opacity(0.35))
+                    .opacity(isLocked ? 0.5 : 1)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(isLocked)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

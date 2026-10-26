@@ -42,12 +42,12 @@ struct TripItemFormView: View {
     var onDeleted: () -> Void
 
     @State private var kind: TripItemKind
-    /// No longer picked in the form; kept so a new item is still created with a scope
-    /// until the member selection is sent to the API.
-    @State private var scope: TripItemScope
-    /// Ids of the trip members this item is for, toggled in the popup. Local only for
-    /// now; nil until seeded on appear, once the signed-in user is known.
+    /// Ids of the trip members this item is for, toggled in the popup. Nil until
+    /// seeded on appear, once the signed-in user is known.
     @State private var selectedMemberIds: Set<String>?
+    /// The selection the item was opened with, so an edit only re-sends who's in when
+    /// it changed.
+    @State private var originalMemberIds: Set<String>?
     @State private var showingMemberPicker = false
     @State private var title: String
     @State private var startsAt: Date
@@ -104,7 +104,6 @@ struct TripItemFormView: View {
         self.onSaved = onSaved
         self.onDeleted = onDeleted
         _kind = State(initialValue: item?.kind ?? defaultKind)
-        _scope = State(initialValue: item?.scope ?? .group)
         _title = State(initialValue: item?.title ?? "")
         // Prefill the location fields with the existing place names (if the backend has
         // enriched them), leaving `startPlace`/`endPlace` nil so an untouched edit keeps
@@ -287,15 +286,44 @@ struct TripItemFormView: View {
         members.first { $0.user?.id != nil && $0.user?.id == auth.currentUser?.id }
     }
 
-    /// Starts a group item with everyone selected and a personal one with just the
-    /// signed-in user, matching what the scope meant before members could be picked.
+    /// The member a personal item belongs to: its creator, or the signed-in user for a
+    /// new item. The server always keeps them in, so their row can't be unchecked.
+    private var ownerMember: TripMember? {
+        guard let ownerId = item.map({ $0.createdBy?.id }) ?? auth.currentUser?.id else { return nil }
+        return members.first { $0.user?.id == ownerId }
+    }
+
+    /// A new or group item starts with everyone; a personal one with whoever's in.
     private func seedSelectedMembers() {
         guard selectedMemberIds == nil else { return }
-        if scope == .personal, let currentMember {
-            selectedMemberIds = [currentMember.id]
+        let seeded: Set<String>
+        if let item, item.scope == .personal {
+            let joined = item.participants.filter { $0.status != .declined }.map(\.member.id)
+            seeded = Set(joined + [ownerMember?.id].compactMap { $0 })
         } else {
-            selectedMemberIds = Set(members.map(\.id))
+            seeded = Set(members.map(\.id))
         }
+        selectedMemberIds = seeded
+        originalMemberIds = seeded
+    }
+
+    /// How the selection is saved. Everyone, picked by an organizer, is a group item
+    /// (only organizers may post those); any other pick is a personal item for the
+    /// chosen members. On an edit, nil when the selection is unchanged, so the item's
+    /// scope and RSVPs are left alone.
+    private var membersToSave: (scope: TripItemScope, participants: [TripItemsAPI.ParticipantRequest]?)? {
+        // Without a roster (a backend that doesn't send members) keep the old default.
+        guard !members.isEmpty, let selected = selectedMemberIds else {
+            return item == nil ? (.group, nil) : nil
+        }
+        if item != nil, selected == originalMemberIds { return nil }
+        if selected.count == members.count, currentMember?.role == .organizer {
+            return (.group, nil)
+        }
+        // Roster order, so the request is stable.
+        let going = members.filter { selected.contains($0.id) }
+            .map { TripItemsAPI.ParticipantRequest(memberId: $0.id, status: .going) }
+        return (.personal, going)
     }
 
     /// "Everyone", "Just you", "You and 2 others", or a head count without you.
@@ -351,6 +379,7 @@ struct TripItemFormView: View {
                 ItemMembersPopup(
                     members: members,
                     currentUserId: auth.currentUser?.id,
+                    lockedId: ownerMember?.id,
                     selectedIds: Binding { selectedMemberIds ?? [] } set: { selectedMemberIds = $0 },
                     onClose: closeMemberPicker
                 )
@@ -481,9 +510,10 @@ struct TripItemFormView: View {
 
                 let endpoint: Endpoint
                 if let item {
-                    // The update endpoint has no `scope` field, so it isn't sent here.
                     // Place ids are omitted when nil, so an edit that doesn't touch the
-                    // place search leaves the existing places unchanged.
+                    // place search leaves the existing places unchanged; same for scope
+                    // and participants when the member selection didn't change.
+                    let members = membersToSave
                     let body = TripItemsAPI.UpdateRequest(
                         kind: kind,
                         title: trimmedTitle,
@@ -493,13 +523,16 @@ struct TripItemFormView: View {
                         endsAt: endWall,
                         endTimezone: endZoneId,
                         placeId: startPlace?.id,
-                        endPlaceId: endPlaceId
+                        endPlaceId: endPlaceId,
+                        scope: members?.scope,
+                        participants: members?.participants
                     )
                     endpoint = TripItemsAPI.update(tripId: tripId, itemId: item.id, body)
                 } else {
+                    let members = membersToSave
                     let body = TripItemsAPI.CreateRequest(
                         kind: kind,
-                        scope: scope,
+                        scope: members?.scope ?? .group,
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startWall,
@@ -507,7 +540,8 @@ struct TripItemFormView: View {
                         endsAt: endWall,
                         endTimezone: endZoneId,
                         placeId: startPlace?.id,
-                        endPlaceId: endPlaceId
+                        endPlaceId: endPlaceId,
+                        participants: members?.participants
                     )
                     endpoint = TripItemsAPI.create(tripId: tripId, body)
                 }
