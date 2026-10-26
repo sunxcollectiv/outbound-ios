@@ -27,6 +27,9 @@ struct TripFormView: View {
     /// saved without them, so a mistaken tap can be undone.
     @State private var areaIdsToRemove: Set<String> = []
     @State private var showingAreaPicker = false
+    /// Emails of people to invite. Local only for now; not sent with the trip yet.
+    @State private var memberEmails: [String] = []
+    @State private var showingMemberInvite = false
     @State private var activeField: DateField?
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -58,6 +61,8 @@ struct TripFormView: View {
                             .appField()
 
                         areaChips
+
+                        membersSection
 
                         VStack(alignment: .leading, spacing: 6) {
                             VStack(spacing: 8) {
@@ -123,6 +128,7 @@ struct TripFormView: View {
                 }
             }
         }
+        .overlay { memberInvitePopup }
         .appTheme()
     }
 
@@ -188,6 +194,52 @@ struct TripFormView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .sheet(isPresented: $showingAreaPicker) {
             AreaPickerSheet(excludedIds: Set(areas.map(\.id))) { areas.append($0) }
+        }
+    }
+
+    /// The people invited so far, then a dashed button that opens the invite popup.
+    private var membersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Members")
+                .font(.subheadline.weight(.semibold))
+            if !memberEmails.isEmpty {
+                MemberEmailList(emails: $memberEmails)
+            }
+            Button {
+                withAnimation(.snappy(duration: 0.25)) { showingMemberInvite = true }
+            } label: {
+                Label("Add members", systemImage: "person.badge.plus")
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                            .foregroundStyle(Color.appForeground.opacity(0.7))
+                    }
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func closeMemberInvite() {
+        withAnimation(.snappy(duration: 0.2)) { showingMemberInvite = false }
+    }
+
+    /// The open invite popup over a dimmed form; tapping outside closes it.
+    @ViewBuilder
+    private var memberInvitePopup: some View {
+        if showingMemberInvite {
+            ZStack {
+                Color.black.opacity(0.8)
+                    .ignoresSafeArea()
+                    .onTapGesture { closeMemberInvite() }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                MemberInvitePopup(emails: $memberEmails, onClose: closeMemberInvite)
+                    .transition(.scale(scale: 0.94).combined(with: .opacity))
+            }
         }
     }
 
