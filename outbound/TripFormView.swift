@@ -27,8 +27,11 @@ struct TripFormView: View {
     /// saved without them, so a mistaken tap can be undone.
     @State private var areaIdsToRemove: Set<String> = []
     @State private var showingAreaPicker = false
-    /// Emails of people to invite. Local only for now; not sent with the trip yet.
-    @State private var memberEmails: [String] = []
+    /// Emails of everyone on the trip besides the owner, as edited in the invite popup.
+    @State private var memberEmails: [String]
+    /// `memberEmails` as the trip had it when the form opened, so an edit only sends
+    /// the roster when it changed.
+    private let originalMemberEmails: [String]
     @State private var showingMemberInvite = false
     @State private var activeField: DateField?
     @State private var isSaving = false
@@ -48,6 +51,10 @@ struct TripFormView: View {
         _startDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.startDate) } ?? Date())
         _endDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.endDate) } ?? Date())
         _areas = State(initialValue: trip?.areas ?? [])
+        // The owner is always kept by the server, so they aren't listed or sent.
+        let others = (trip?.members ?? []).filter { $0.user?.id != trip?.ownerId }.map(\.email)
+        originalMemberEmails = others
+        _memberEmails = State(initialValue: others)
     }
 
     var body: some View {
@@ -136,6 +143,15 @@ struct TripFormView: View {
     /// removal. The server replaces the trip's areas with exactly this list.
     private var areaIdsToSave: [String] {
         areas.map(\.id).filter { !areaIdsToRemove.contains($0) }
+    }
+
+    /// The `members` to send, or nil to leave the roster alone when nothing changed.
+    /// The server replaces the roster with this list, so people already on the trip
+    /// keep their current role; new ones get the default.
+    private var membersToSave: [TripsAPI.MemberRequest]? {
+        guard memberEmails != originalMemberEmails else { return nil }
+        let roles = Dictionary((trip?.members ?? []).map { ($0.email, $0.role) }, uniquingKeysWith: { first, _ in first })
+        return memberEmails.map { TripsAPI.MemberRequest(email: $0, role: roles[$0]) }
     }
 
     /// An area's chip, with a button that toggles marking it for removal.
@@ -280,7 +296,8 @@ struct TripFormView: View {
                     endDate: Self.apiDateFormatter.string(from: endDate),
                     // Seed the trip's days with the device's zone on create; PATCH doesn't take it.
                     timezone: isEditing ? nil : TimeZone.current.identifier,
-                    areaIds: areaIdsToSave
+                    areaIds: areaIdsToSave,
+                    members: membersToSave
                 )
                 let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
                 let saved = try await api.send(endpoint, as: Trip.self)
