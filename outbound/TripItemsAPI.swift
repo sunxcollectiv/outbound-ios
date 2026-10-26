@@ -204,6 +204,10 @@ enum TripItemsAPI {
     static func update(tripId: String, itemId: String, _ body: UpdateRequest) -> Endpoint {
         Endpoint(path: "/trips/\(tripId)/items/\(itemId)", method: .patch, body: body)
     }
+
+    static func delete(tripId: String, itemId: String) -> Endpoint {
+        Endpoint(path: "/trips/\(tripId)/items/\(itemId)", method: .delete)
+    }
 }
 
 #if DEBUG

@@ -3,7 +3,9 @@
 //  outbound
 //
 
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The itinerary for a single trip, presented one day per page. You swipe
 /// horizontally between days, and a day picker pinned to the bottom stays in
@@ -32,11 +34,31 @@ struct TripDetailView: View {
     /// `.sheet(isPresented:)` the content closure could capture a stale date.
     @State private var addItemRequest: AddItemRequest?
     @State private var showingEditTrip = false
+    /// Whether the dropdown under the header's more button is open.
+    @State private var showingTripMenu = false
+    /// The status pill above the day picker (an address copied, a screenshot uploading).
+    @State private var toast: TripToast?
+    /// Hides the current toast after a moment; replaced whenever a new toast shows.
+    @State private var toastHideTask: Task<Void, Never>?
+    /// Where an in-flight screenshot import has got to, shown in the progress pill;
+    /// nil when none is running.
+    @State private var importStep: ImportProgressPill.Step?
+    /// A fresh id per import, so each one's pill starts from empty.
+    @State private var importID = UUID()
+    /// The header chip's frame on screen, to hang the trip menu just below its trailing edge.
+    @State private var headerFrame: CGRect = .zero
     @State private var selectedItem: TripItem?
     /// The stay whose lodging popup is open, from tapping its lodging bar.
     @State private var popupLodging: TripItem?
     /// A stay opened straight into its edit form, from the lodging popup.
     @State private var editingLodging: TripItem?
+    /// The day whose add-lodging popup is open, from tapping its empty lodging strip.
+    @State private var addLodgingDay: ItineraryDay?
+    /// Showing the photo picker for a screenshot of a booking, from the add-lodging popup
+    /// or the trip menu.
+    @State private var showingBookingImagePicker = false
+    /// The booking screenshot picked from the photo picker.
+    @State private var bookingImageSelection: PhotosPickerItem?
 
     /// Live horizontal progress of an in-flight page swipe, in day-units
     /// (-1…1, negative dragging toward a later day). Lets the day picker track
@@ -134,7 +156,18 @@ struct TripDetailView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pinnedHeight = $0 }
             .revealIn(hasRevealed || days == nil)
         }
+        .overlay { tripMenu }
+        .overlay(alignment: .bottom) { toastView }
+        .overlay(alignment: .bottom) { importProgressPill }
         .overlay { lodgingPopup }
+        .overlay { addLodgingPopup }
+        .photosPicker(isPresented: $showingBookingImagePicker, selection: $bookingImageSelection, matching: .images)
+        .onChange(of: bookingImageSelection) { _, item in
+            guard let item else { return }
+            // Cleared so picking the same image again still triggers an upload.
+            bookingImageSelection = nil
+            Task { await importScreenshot(item) }
+        }
         .sheet(item: $addItemRequest) { request in
             TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
@@ -143,6 +176,8 @@ struct TripDetailView: View {
         .sheet(item: $editingLodging) { item in
             TripItemFormView(tripId: item.tripId, item: item) { saved in
                 Task { await load(focusItemId: saved.id) }
+            } onDeleted: {
+                removeItem(item.id)
             }
         }
         .sheet(isPresented: $showingEditTrip) {
@@ -155,6 +190,8 @@ struct TripDetailView: View {
         .sheet(item: $selectedItem) { item in
             TripItemDetailView(item: places.resolving(item)) { saved in
                 Task { await load(focusItemId: saved.id) }
+            } onDeleted: {
+                removeItem(item.id)
             }
         }
         .task { if days == nil { await load() } }
@@ -167,7 +204,7 @@ struct TripDetailView: View {
 
     /// A solid chip standing in for the navigation bar: back on the left, then the trip's
     /// title and the day being viewed (left aligned, taking the free width, truncating the
-    /// title first), then add and more on the right. Squared off at the bottom when the
+    /// title first), then more on the right, which opens the trip menu (adding items too). Squared off at the bottom when the
     /// day's lodging strip hangs below it.
     private func header(joinsLodging: Bool) -> some View {
         HStack(spacing: 4) {
@@ -197,23 +234,11 @@ struct TripDetailView: View {
             .accessibilityAddTraits(.isHeader)
 
             Button {
-                addItemRequest = AddItemRequest(date: selectedDay?.calendarDate)
-            } label: {
-                Image(systemName: "plus")
-                    .frame(width: 32, height: 32)
-                    .contentShape(.rect)
-            }
-            .accessibilityLabel("Add Item")
-
-            Menu {
-                Button("Edit Trip", systemImage: "pencil") {
-                    showingEditTrip = true
-                }
-                Button("Share", systemImage: "square.and.arrow.up") {}
-                Button("Delete Trip", systemImage: "trash", role: .destructive) {}
+                withAnimation(.snappy(duration: 0.25)) { showingTripMenu.toggle() }
             } label: {
                 Image(systemName: "ellipsis")
                     .frame(width: 32, height: 32)
+                    .background(.white.opacity(showingTripMenu ? 0.18 : 0), in: .circle)
                     .contentShape(.rect)
             }
             .accessibilityLabel("More")
@@ -234,6 +259,204 @@ struct TripDetailView: View {
                 )
             )
         )
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { headerFrame = $0 }
+    }
+
+    /// Copies the trips inbox address and shows a toast confirming it for a moment.
+    private func copyTripsEmail() {
+        UIPasteboard.general.string = AddLodgingPopup.tripsEmail
+        showToast(TripToast(text: "Email address copied", systemImage: "checkmark.circle.fill"))
+    }
+
+    /// Sends a picked booking screenshot to be processed into itinerary items, then
+    /// reloads the itinerary to pick up what the server made of it. The progress pill
+    /// shows the upload, then the server's work once the image is sent, then done once
+    /// the server answers (it responds only when processing has finished).
+    private func importScreenshot(_ item: PhotosPickerItem) async {
+        let id = UUID()
+        importID = id
+        withAnimation(.snappy) { importStep = .uploading }
+        // Moves this import's pill on, unless it's been dismissed or replaced since.
+        func show(_ step: ImportProgressPill.Step) {
+            guard importID == id, importStep != nil else { return }
+            importStep = step
+            if step == .added || step == .failed { hideImportPill(id, after: .seconds(60)) }
+        }
+        do {
+            let file = try await Self.uploadFile(for: item)
+            let api = api
+            // A request's own timeout only limits gaps between data, so cap the whole
+            // call here.
+            let result = try await Self.withTimeout(ReceivedImagesAPI.processTimeout) {
+                try await api.send(ReceivedImagesAPI.process(file), as: ImageImportResult.self) {
+                    // Only forward: on a quick response this can land after the steps below.
+                    Task { @MainActor in if importStep == .uploading { show(.extracting) } }
+                }
+            }
+            // Anything but placing the booking in a trip (not a booking, no matching
+            // trip, or several) counts as a failed import.
+            guard result.outcome == "placed" else {
+                show(.failed)
+                return
+            }
+            show(.added)
+            await load()
+        } catch {
+            show(.failed)
+        }
+    }
+
+    /// Hides import `id`'s pill, after `delay` if given; a newer import's pill is left
+    /// alone.
+    private func hideImportPill(_ id: UUID, after delay: Duration? = nil) {
+        Task {
+            if let delay { try? await Task.sleep(for: delay) }
+            guard importID == id else { return }
+            withAnimation(.snappy) { importStep = nil }
+        }
+    }
+
+    /// Runs `work`, throwing `ScreenshotError.timedOut` if it takes longer than
+    /// `seconds`; the work is cancelled either way once one side finishes.
+    private static func withTimeout<T: Sendable>(
+        _ seconds: TimeInterval, _ work: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await work() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw ScreenshotError.timedOut
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
+    }
+
+    /// The picked image as an upload: PNGs and JPEGs as they are, anything else (e.g.
+    /// HEIC photos) re-encoded as JPEG so the server can read it.
+    private static func uploadFile(for item: PhotosPickerItem) async throws -> MultipartFile {
+        guard let data = try await item.loadTransferable(type: Data.self) else {
+            throw ScreenshotError.unreadable
+        }
+        if let type = item.supportedContentTypes.first,
+           type.conforms(to: .png) || type.conforms(to: .jpeg),
+           let mime = type.preferredMIMEType {
+            let ext = type.preferredFilenameExtension ?? "jpg"
+            return MultipartFile(field: "file", filename: "screenshot.\(ext)", contentType: mime, data: data)
+        }
+        guard let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.9) else {
+            throw ScreenshotError.unreadable
+        }
+        return MultipartFile(field: "file", filename: "screenshot.jpg", contentType: "image/jpeg", data: jpeg)
+    }
+
+    /// Shows a toast, hiding it after `hideAfter` (nil keeps it up until replaced).
+    private func showToast(_ newToast: TripToast, hideAfter: Duration? = .seconds(1.8)) {
+        toastHideTask?.cancel()
+        AccessibilityNotification.Announcement(newToast.text).post()
+        withAnimation(.snappy(duration: 0.25)) { toast = newToast }
+        guard let hideAfter else { return }
+        toastHideTask = Task {
+            try? await Task.sleep(for: hideAfter)
+            guard !Task.isCancelled else { return }
+            withAnimation(.snappy(duration: 0.25)) { toast = nil }
+        }
+    }
+
+    /// The screenshot import's progress, above the day picker. Tapping it dismisses it
+    /// (the import carries on); it also goes by itself a minute after finishing.
+    @ViewBuilder
+    private var importProgressPill: some View {
+        if let importStep {
+            ImportProgressPill(step: importStep)
+                .id(importID)
+                // 60% of the screen's width, centered.
+                .containerRelativeFrame(.horizontal) { width, _ in width * 0.6 }
+                // Just above the day picker pinned to the bottom.
+                .padding(.bottom, 72)
+                .onTapGesture { hideImportPill(importID) }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Dismisses")
+                // Drops a short way while fading out (and rises the same way in), rather
+                // than sliding off the screen.
+                .transition(.offset(y: 50).combined(with: .opacity))
+        }
+    }
+
+    /// A small pill above the day picker: a spinner or icon, then the message.
+    @ViewBuilder
+    private var toastView: some View {
+        if let toast {
+            HStack(spacing: 8) {
+                if let systemImage = toast.systemImage {
+                    Image(systemName: systemImage)
+                } else {
+                    ProgressView()
+                        .tint(.white)
+                        .controlSize(.small)
+                }
+                Text(toast.text)
+                    .multilineTextAlignment(.leading)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color(white: 0.15).opacity(0.95), in: .rect(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.12)))
+            .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+            .padding(.horizontal, 24)
+            // Clear of the day picker pinned to the bottom.
+            .padding(.bottom, 96)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .id(toast)
+        }
+    }
+
+    private func closeTripMenu() {
+        withAnimation(.snappy(duration: 0.2)) { showingTripMenu = false }
+    }
+
+    /// The open trip menu, hung below the header's trailing edge; tapping anywhere else
+    /// closes it.
+    @ViewBuilder
+    private var tripMenu: some View {
+        if showingTripMenu {
+            GeometryReader { proxy in
+                ZStack(alignment: .topTrailing) {
+                    Color.clear
+                        .contentShape(.rect)
+                        .onTapGesture { closeTripMenu() }
+                        .accessibilityHidden(true)
+                    TripMenu(
+                        trip: trip,
+                        onAddItem: {
+                            closeTripMenu()
+                            addItemRequest = AddItemRequest(date: selectedDay?.calendarDate)
+                        },
+                        onImportScreenshot: {
+                            closeTripMenu()
+                            showingBookingImagePicker = true
+                        },
+                        onCopyTripsEmail: {
+                            closeTripMenu()
+                            copyTripsEmail()
+                        },
+                        onEditTrip: {
+                            closeTripMenu()
+                            showingEditTrip = true
+                        },
+                        // Not built yet.
+                        onShare: { closeTripMenu() },
+                        onDeleteTrip: { closeTripMenu() }
+                    )
+                    .padding(.top, headerFrame.maxY + 6)
+                    .padding(.trailing, max(proxy.size.width - headerFrame.maxX, 0))
+                    .transition(.scale(scale: 0.9, anchor: .topTrailing).combined(with: .opacity))
+                }
+            }
+            .ignoresSafeArea()
+        }
     }
 
     /// A frosted fill for the pinned header: blurs the cards scrolling underneath, with
@@ -270,7 +493,8 @@ struct TripDetailView: View {
     }
 
     private func dayPage(_ day: ItineraryDay, scrollLocked: Bool) -> some View {
-        ScrollView {
+        let zoneChanges = ItineraryZoneChanges.changes(in: days ?? [])
+        return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if day.entries.isEmpty && day.lodging.isEmpty {
                     Text("Nothing planned")
@@ -281,6 +505,10 @@ struct TripDetailView: View {
                         .revealIn(hasRevealed, delay: Self.cardRevealDelay(0))
                 } else {
                     ForEach(Array(day.entries.enumerated()), id: \.element.id) { index, entry in
+                        if let zone = zoneChanges[entry.id] {
+                            zoneChangeDivider(zone, at: entry.displayInstant)
+                                .revealIn(hasRevealed, delay: Self.cardRevealDelay(index))
+                        }
                         itemRow(entry, topFade: topFadeProgress[day.dayNumber] ?? 0)
                             .revealIn(hasRevealed, delay: Self.cardRevealDelay(index), slide: 16)
                     }
@@ -432,10 +660,10 @@ struct TripDetailView: View {
     }
 
     /// A fully hatched strip for a day with no lodging, inviting one to be added: opens
-    /// the add form set to lodging on that day.
+    /// the add-lodging popup for that day.
     private func addLodgingStrip(for day: ItineraryDay) -> some View {
         Button {
-            addItemRequest = AddItemRequest(date: day.calendarDate, kind: .lodging)
+            withAnimation(.snappy(duration: 0.25)) { addLodgingDay = day }
         } label: {
             // Sized by an invisible line in the lodging rows' font, so the block keeps
             // the same height when swiping between days with and without lodging.
@@ -507,6 +735,36 @@ struct TripDetailView: View {
         }
     }
 
+    private func closeAddLodgingPopup() {
+        withAnimation(.snappy(duration: 0.2)) { addLodgingDay = nil }
+    }
+
+    /// The open add-lodging popup over a dimmed screen; tapping outside closes it.
+    @ViewBuilder
+    private var addLodgingPopup: some View {
+        if let day = addLodgingDay {
+            ZStack {
+                Color.black.opacity(0.8)
+                    .ignoresSafeArea()
+                    .onTapGesture { closeAddLodgingPopup() }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                AddLodgingPopup(
+                    onUploadImage: {
+                        closeAddLodgingPopup()
+                        showingBookingImagePicker = true
+                    },
+                    onAddManually: {
+                        closeAddLodgingPopup()
+                        addItemRequest = AddItemRequest(date: day.calendarDate, kind: .lodging)
+                    },
+                    onClose: closeAddLodgingPopup
+                )
+                .transition(.scale(scale: 0.94).combined(with: .opacity))
+            }
+        }
+    }
+
     /// The solid line between a lone check-in or check-out and its hatched remainder.
     private var hatchEdge: some View {
         Rectangle()
@@ -558,6 +816,32 @@ struct TripDetailView: View {
     }
 
     /// A faint hairline flanking the Add Activity button.
+    /// Where the clock changes, e.g. after landing in a new zone: the new zone between
+    /// dotted rules, over the first card in it. Times from here on are that zone's wall
+    /// clock, until the next divider.
+    private func zoneChangeDivider(_ zone: TimeZone, at instant: Date) -> some View {
+        HStack(spacing: 10) {
+            zoneChangeRule
+            Label(ItineraryZoneChanges.label(for: zone, at: instant), systemImage: "clock")
+                .font(.caption.weight(.semibold))
+                .textCase(.uppercase)
+                .tracking(1)
+                .foregroundStyle(Color.appForeground.opacity(0.6))
+                .fixedSize()
+            zoneChangeRule
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Times below are in \(ItineraryZoneChanges.label(for: zone, at: instant).replacingOccurrences(of: " · ", with: ", "))")
+    }
+
+    private var zoneChangeRule: some View {
+        DashedLine()
+            .stroke(Color.appForeground.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [2, 4]))
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
+    }
+
     private var addActivityRule: some View {
         Rectangle()
             .fill(Color.appForeground.opacity(0.2))
@@ -625,6 +909,15 @@ struct TripDetailView: View {
             return selection
         }
         return days.first?.dayNumber ?? 1
+    }
+
+    /// Drops a deleted item from the itinerary straight away, then reloads to pick up
+    /// anything the server derived from it.
+    private func removeItem(_ id: String) {
+        withAnimation(.snappy) {
+            days = days?.map { $0.removing(itemId: id) }
+        }
+        Task { await load() }
     }
 
     /// Reloads the itinerary. Pass `focusItemId` after a save to land on the day that
@@ -948,5 +1241,24 @@ private struct DiagonalHatch: View {
             context.stroke(path, with: .color(.white.opacity(0.07)), lineWidth: 1)
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// A short status message for the itinerary's toast. A nil `systemImage` shows a
+/// spinner, for work still in progress.
+private struct TripToast: Hashable {
+    var text: String
+    var systemImage: String?
+}
+
+private enum ScreenshotError: LocalizedError {
+    case unreadable
+    case timedOut
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadable: "Couldn't read that image. Please try another."
+        case .timedOut: "The server took too long to respond. Please try again."
+        }
     }
 }

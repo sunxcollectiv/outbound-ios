@@ -48,6 +48,24 @@ extension Trip {
         let startText = (sameYear ? Self.monthDay : Self.monthDayYear).format(start)
         return "\(startText) – \(Self.monthDayYear.format(end))"
     }
+
+    /// Today as a "yyyy-MM-dd" date in the device's time zone, for comparing with trip
+    /// dates (which sort correctly as strings).
+    static func isoDateString(for date: Date = .now) -> String {
+        isoDate.string(from: date)
+    }
+
+    /// Splits trips into upcoming (including any in progress), soonest first, and past
+    /// (ended before `today`), most recent first.
+    static func upcomingAndPast(_ trips: [Trip], today: String = isoDateString()) -> (upcoming: [Trip], past: [Trip]) {
+        let upcoming = trips
+            .filter { $0.endDate >= today }
+            .sorted { ($0.startDate, $0.endDate) < ($1.startDate, $1.endDate) }
+        let past = trips
+            .filter { $0.endDate < today }
+            .sorted { ($0.startDate, $0.endDate) > ($1.startDate, $1.endDate) }
+        return (upcoming, past)
+    }
 }
 
 #if DEBUG

@@ -34,6 +34,9 @@ struct TripItemFormView: View {
     /// Called with the created or updated item after a successful save.
     var onSaved: (TripItem) -> Void
 
+    /// Called after the item being edited is deleted.
+    var onDeleted: () -> Void
+
     @State private var kind: TripItemKind
     @State private var scope: TripItemScope
     @State private var title: String
@@ -49,6 +52,9 @@ struct TripItemFormView: View {
     @State private var activeField: TimeField?
     @State private var isSaving = false
     @State private var errorMessage: String?
+    /// Showing the confirmation before an existing item is deleted.
+    @State private var confirmingDelete = false
+    @State private var isDeleting = false
     /// Bumped on every failed save so the error scrolls into view even when unchanged.
     @State private var errorScrollTrigger = 0
 
@@ -79,12 +85,13 @@ struct TripItemFormView: View {
     /// The zone actually used for the end: an explicit choice, else the start zone.
     private var effectiveEndZone: TimeZone? { endZone ?? startZone }
 
-    init(tripId: String, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }) {
+    init(tripId: String, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         self.tripId = tripId
         self.item = item
         self.defaultZone = defaultZone
         self.defaultDate = defaultDate
         self.onSaved = onSaved
+        self.onDeleted = onDeleted
         _kind = State(initialValue: item?.kind ?? defaultKind)
         _scope = State(initialValue: item?.scope ?? .group)
         _title = State(initialValue: item?.title ?? "")
@@ -230,6 +237,10 @@ struct TripItemFormView: View {
                         TextField("Notes (optional)", text: $notes, axis: .vertical)
                             .lineLimit(3...6)
                             .appField()
+
+                        if isEditing {
+                            deleteButton
+                        }
                     }
                     .padding(24)
                 }
@@ -252,7 +263,7 @@ struct TripItemFormView: View {
                         ProgressView()
                     } else {
                         Button(isEditing ? "Save" : "Add", action: save)
-                            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || isDeleting)
                     }
                 }
             }
@@ -266,6 +277,52 @@ struct TripItemFormView: View {
             .task { await prefillPlaceNames() }
         }
         .appTheme()
+    }
+
+    /// Deletes an existing item, after a confirmation since it can't be undone.
+    private var deleteButton: some View {
+        Button(role: .destructive) {
+            confirmingDelete = true
+        } label: {
+            Group {
+                if isDeleting {
+                    ProgressView().tint(.white)
+                } else {
+                    Label("Delete Item", systemImage: "trash")
+                }
+            }
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(14)
+                // The error banner's red: plain red text is hard to read on terracotta.
+                .background(Color.red.opacity(0.75), in: .rect(cornerRadius: appFieldCornerRadius))
+        }
+        .buttonStyle(.plain)
+        .disabled(isSaving || isDeleting)
+        .padding(.top, 12)
+        .confirmationDialog("Delete this item?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive, action: delete)
+        } message: {
+            Text("This can't be undone.")
+        }
+    }
+
+    private func delete() {
+        guard let item else { return }
+        errorMessage = nil
+        isDeleting = true
+        Task {
+            defer { isDeleting = false }
+            do {
+                try await api.send(TripItemsAPI.delete(tripId: tripId, itemId: item.id))
+                onDeleted()
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+                errorScrollTrigger += 1
+            }
+        }
     }
 
     /// Fills the location fields with the place names from Google when editing. The

@@ -5,9 +5,11 @@
 
 import SwiftUI
 
-/// A tall, "story"-style tile summarizing a trip in the grid.
+/// A tall, "story"-style tile summarizing a trip in the grid. A featured card (the next
+/// trip) is a full-width square with larger text instead.
 struct TripCard: View {
     let trip: Trip
+    var isFeatured = false
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -15,7 +17,7 @@ struct TripCard: View {
             scrim
             info
         }
-        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+        .aspectRatio(isFeatured ? 1 : 3.0 / 4.0, contentMode: .fit)
         .clipShape(.rect(cornerRadius: 16))
         .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
     }
@@ -37,19 +39,19 @@ struct TripCard: View {
     }
 
     private var info: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: isFeatured ? 6 : 4) {
             Text(trip.title)
-                .font(.headline)
+                .font(isFeatured ? .title.bold() : .headline)
                 .lineLimit(2)
             areaTags
             Text(trip.dateRangeText)
-                .font(.caption)
+                .font(isFeatured ? .subheadline : .caption)
                 .foregroundStyle(Color.appForeground.opacity(0.85))
                 .lineLimit(1)
         }
         .foregroundStyle(Color.appForeground)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
+        .padding(isFeatured ? 20 : 12)
     }
 
     /// The trip's areas as small tags. Shows every tag when they fit on one line,
@@ -72,10 +74,10 @@ struct TripCard: View {
 
     private func areaTag(_ text: String) -> some View {
         Text(text)
-            .font(.caption2.weight(.semibold))
+            .font((isFeatured ? Font.footnote : .caption2).weight(.semibold))
             .lineLimit(1)
             .foregroundStyle(Color.black.opacity(0.85))
-            .padding(.horizontal, 6)
+            .padding(.horizontal, isFeatured ? 8 : 6)
             .padding(.vertical, 2)
             .background(Color.white, in: .rect(cornerRadius: 4))
     }

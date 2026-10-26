@@ -40,16 +40,34 @@ struct ItineraryDay: Decodable, Identifiable {
         case entries = "items"
     }
 
-    /// Re-sorts `entries` by the wall clock shown on each card. The server orders by UTC
-    /// instant, which zoneless items don't have, so they'd otherwise land after zoned
-    /// ones regardless of time. Ties fall back to the instant (UTC for zoneless).
+    /// Re-sorts `entries` for display; see `ordered(_:)`.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         date = try c.decode(String.self, forKey: .date)
         dayNumber = try c.decode(Int.self, forKey: .dayNumber)
         lodging = try c.decode([LodgingStay].self, forKey: .lodging)
-        entries = try c.decode([ItineraryEntry].self, forKey: .entries).sorted {
+        entries = Self.ordered(try c.decode([ItineraryEntry].self, forKey: .entries))
+    }
+
+    /// A day's entries in display order: by the wall clock shown on each card, ties
+    /// broken by the instant (UTC for zoneless). The server orders by UTC instant,
+    /// which zoneless items don't have, so they'd otherwise land after zoned ones
+    /// regardless of time.
+    ///
+    /// A transit's entries (departure, layovers, arrival) then stay together in travel
+    /// order, at the spot of its first entry on the day. Wall clocks in different zones
+    /// don't compare, so sorted alone a layover could land before its own departure,
+    /// and nothing else happens between legs anyway.
+    static func ordered(_ entries: [ItineraryEntry]) -> [ItineraryEntry] {
+        let sorted = entries.sorted {
             ($0.displayLocal, $0.displayInstant) < ($1.displayLocal, $1.displayInstant)
+        }
+        let transit = Dictionary(grouping: sorted.filter { $0.item.kind == .transit }, by: \.item.id)
+            .mapValues { $0.sorted { $0.travelOrder < $1.travelOrder } }
+        var placed = Set<String>()
+        return sorted.flatMap { entry -> [ItineraryEntry] in
+            guard let group = transit[entry.item.id] else { return [entry] }
+            return placed.insert(entry.item.id).inserted ? group : []
         }
     }
 
@@ -58,6 +76,16 @@ struct ItineraryDay: Decodable, Identifiable {
         self.dayNumber = dayNumber
         self.lodging = lodging
         self.entries = entries
+    }
+
+    /// This day without any entries or lodging for the given item, e.g. once it's deleted.
+    func removing(itemId: String) -> ItineraryDay {
+        ItineraryDay(
+            date: date,
+            dayNumber: dayNumber,
+            lodging: lodging.filter { $0.item.id != itemId },
+            entries: entries.filter { $0.item.id != itemId }
+        )
     }
 
     /// The distinct items on this day (entries and lodging), one per record.
@@ -125,6 +153,8 @@ struct ItineraryEntry: Decodable, Identifiable {
     let layoverPlace: Place?
     /// How long the layover lasts, in minutes, for a `layover` entry.
     let layoverMinutes: Int?
+    /// The stop's zone, for a `layover` entry.
+    let layoverTimezone: TimeZone?
 
     /// Unique per entry: an item's entries share `item.id`, and a transit can have
     /// several layovers.
@@ -157,6 +187,28 @@ struct ItineraryEntry: Decodable, Identifiable {
               let index = item.segments.firstIndex(of: inbound),
               item.segments.indices.contains(index + 1) else { return nil }
         return item.segments[index + 1]
+    }
+
+    /// The zone this entry's wall clock is read in: the stop's for a layover, the end's
+    /// for an end phase (a check-out falling back to the stay's start zone), else the
+    /// start's. Nil for a zoneless item.
+    var timeZone: TimeZone? {
+        switch phase {
+        case .layover: layoverTimezone ?? layoverInbound?.endTimezone
+        case .arrival: item.endTimezone
+        case .checkOut: item.endTimezone ?? item.startTimezone
+        default: item.startTimezone
+        }
+    }
+
+    /// Where this entry falls along its item: the departure, then each layover by the
+    /// leg landing there, then the arrival.
+    var travelOrder: Int {
+        switch phase {
+        case .departure, .checkIn, nil: 0
+        case .layover: 1 + (layoverInbound.flatMap { item.segments.firstIndex(of: $0) } ?? 0)
+        case .arrival, .checkOut: Int.max
+        }
     }
 
     /// The leg this entry is about, for its carrier/flight label: the first leg at a
@@ -197,15 +249,16 @@ struct ItineraryEntry: Decodable, Identifiable {
         layoverOutbound?.startText(style)
     }
 
-    init(item: TripItem, phase: ItineraryPhase? = nil, layoverPlace: Place? = nil, layoverMinutes: Int? = nil) {
+    init(item: TripItem, phase: ItineraryPhase? = nil, layoverPlace: Place? = nil, layoverMinutes: Int? = nil, layoverTimezone: TimeZone? = nil) {
         self.item = item
         self.phase = phase
         self.layoverPlace = layoverPlace
         self.layoverMinutes = layoverMinutes
+        self.layoverTimezone = layoverTimezone
     }
 
     private enum CodingKeys: String, CodingKey {
-        case item, phase, layoverPlace, layoverMinutes
+        case item, phase, layoverPlace, layoverMinutes, layoverTimezone
     }
 
     /// Also accepts the older flat shape (a bare `TripItemRead`), so the app keeps
@@ -217,11 +270,13 @@ struct ItineraryEntry: Decodable, Identifiable {
             phase = try c.decodeIfPresent(ItineraryPhase.self, forKey: .phase)
             layoverPlace = try c.decodeIfPresent(Place.self, forKey: .layoverPlace)
             layoverMinutes = try c.decodeIfPresent(Int.self, forKey: .layoverMinutes)
+            layoverTimezone = try c.decodeTimeZoneIfPresent(forKey: .layoverTimezone)
         } else {
             item = try TripItem(from: decoder)
             phase = nil
             layoverPlace = nil
             layoverMinutes = nil
+            layoverTimezone = nil
         }
     }
 }
