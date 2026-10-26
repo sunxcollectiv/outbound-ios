@@ -273,8 +273,15 @@ struct TripDetailView: View {
     /// shows the upload, then the server's work once the image is sent, then done once
     /// the server answers (it responds only when processing has finished).
     private func importScreenshot(_ item: PhotosPickerItem) async {
-        importID = UUID()
+        let id = UUID()
+        importID = id
         withAnimation(.snappy) { importStep = .uploading }
+        // Moves this import's pill on, unless it's been dismissed or replaced since.
+        func show(_ step: ImportProgressPill.Step) {
+            guard importID == id, importStep != nil else { return }
+            importStep = step
+            if step == .added || step == .failed { hideImportPill(id, after: .seconds(60)) }
+        }
         do {
             let file = try await Self.uploadFile(for: item)
             let api = api
@@ -283,19 +290,29 @@ struct TripDetailView: View {
             let result = try await Self.withTimeout(ReceivedImagesAPI.processTimeout) {
                 try await api.send(ReceivedImagesAPI.process(file), as: ImageImportResult.self) {
                     // Only forward: on a quick response this can land after the steps below.
-                    Task { @MainActor in if importStep == .uploading { importStep = .extracting } }
+                    Task { @MainActor in if importStep == .uploading { show(.extracting) } }
                 }
             }
             // Anything but placing the booking in a trip (not a booking, no matching
             // trip, or several) counts as a failed import.
             guard result.outcome == "placed" else {
-                importStep = .failed
+                show(.failed)
                 return
             }
-            importStep = .added
+            show(.added)
             await load()
         } catch {
-            importStep = .failed
+            show(.failed)
+        }
+    }
+
+    /// Hides import `id`'s pill, after `delay` if given; a newer import's pill is left
+    /// alone.
+    private func hideImportPill(_ id: UUID, after delay: Duration? = nil) {
+        Task {
+            if let delay { try? await Task.sleep(for: delay) }
+            guard importID == id else { return }
+            withAnimation(.snappy) { importStep = nil }
         }
     }
 
@@ -346,8 +363,8 @@ struct TripDetailView: View {
         }
     }
 
-    /// The in-flight screenshot import's progress, above the day picker. It doesn't
-    /// take taps, so the itinerary stays usable underneath.
+    /// The screenshot import's progress, above the day picker. Tapping it dismisses it
+    /// (the import carries on); it also goes by itself a minute after finishing.
     @ViewBuilder
     private var importProgressPill: some View {
         if let importStep {
@@ -355,10 +372,14 @@ struct TripDetailView: View {
                 .id(importID)
                 // 60% of the screen's width, centered.
                 .containerRelativeFrame(.horizontal) { width, _ in width * 0.6 }
-                // Clear of the day picker pinned to the bottom.
-                .padding(.bottom, 96)
-                .allowsHitTesting(false)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                // Just above the day picker pinned to the bottom.
+                .padding(.bottom, 72)
+                .onTapGesture { hideImportPill(importID) }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Dismisses")
+                // Drops a short way while fading out (and rises the same way in), rather
+                // than sliding off the screen.
+                .transition(.offset(y: 50).combined(with: .opacity))
         }
     }
 
