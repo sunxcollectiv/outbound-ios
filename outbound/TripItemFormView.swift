@@ -19,7 +19,11 @@ import SwiftUI
 struct TripItemFormView: View {
     let tripId: String
 
+    /// Everyone on the trip, offered in the "who's going" popup.
+    private let members: [TripMember]
+
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var auth
 
     /// The item being edited, or `nil` when creating a new one.
     private let item: TripItem?
@@ -38,7 +42,13 @@ struct TripItemFormView: View {
     var onDeleted: () -> Void
 
     @State private var kind: TripItemKind
+    /// No longer picked in the form; kept so a new item is still created with a scope
+    /// until the member selection is sent to the API.
     @State private var scope: TripItemScope
+    /// Ids of the trip members this item is for, toggled in the popup. Local only for
+    /// now; nil until seeded on appear, once the signed-in user is known.
+    @State private var selectedMemberIds: Set<String>?
+    @State private var showingMemberPicker = false
     @State private var title: String
     @State private var startsAt: Date
     @State private var hasEndTime: Bool
@@ -85,8 +95,9 @@ struct TripItemFormView: View {
     /// The zone actually used for the end: an explicit choice, else the start zone.
     private var effectiveEndZone: TimeZone? { endZone ?? startZone }
 
-    init(tripId: String, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+    init(tripId: String, members: [TripMember] = [], item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         self.tripId = tripId
+        self.members = members
         self.item = item
         self.defaultZone = defaultZone
         self.defaultDate = defaultDate
@@ -138,17 +149,7 @@ struct TripItemFormView: View {
                             .pickerStyle(.segmented)
                         }
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Scope")
-                                .font(.subheadline)
-                                .foregroundStyle(Color.appForeground.opacity(0.8))
-                            Picker("Scope", selection: $scope) {
-                                ForEach(TripItemScope.allCases) { scope in
-                                    Text(scope.label).tag(scope)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        }
+                        membersRow
 
                         TextField("Title", text: $title)
                             .textInputAutocapitalization(.words)
@@ -276,7 +277,86 @@ struct TripItemFormView: View {
             }
             .task { await prefillPlaceNames() }
         }
+        .overlay { memberPickerPopup }
         .appTheme()
+        .onAppear(perform: seedSelectedMembers)
+    }
+
+    /// The signed-in user's row on this trip, if they're on it.
+    private var currentMember: TripMember? {
+        members.first { $0.user?.id != nil && $0.user?.id == auth.currentUser?.id }
+    }
+
+    /// Starts a group item with everyone selected and a personal one with just the
+    /// signed-in user, matching what the scope meant before members could be picked.
+    private func seedSelectedMembers() {
+        guard selectedMemberIds == nil else { return }
+        if scope == .personal, let currentMember {
+            selectedMemberIds = [currentMember.id]
+        } else {
+            selectedMemberIds = Set(members.map(\.id))
+        }
+    }
+
+    /// "Everyone", "Just you", "You and 2 others", or a head count without you.
+    private var membersSummary: String {
+        let selected = selectedMemberIds ?? []
+        let includesYou = currentMember.map { selected.contains($0.id) } ?? false
+        let others = selected.count - (includesYou ? 1 : 0)
+        // A trip without a loaded roster only has the user creating the item.
+        if members.isEmpty { return "Just you" }
+        if selected.isEmpty { return "No one" }
+        if selected.count == members.count && members.count > 1 { return "Everyone" }
+        switch (includesYou, others) {
+        case (true, 0): return "Just you"
+        case (true, 1): return "You and 1 other"
+        case (true, _): return "You and \(others) others"
+        case (false, 1): return "1 person"
+        case (false, _): return "\(others) people"
+        }
+    }
+
+    /// A one-line row summarizing who the item is for; tapping it opens the picker.
+    private var membersRow: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.25)) { showingMemberPicker = true }
+        } label: {
+            HStack {
+                Text("Members")
+                Spacer()
+                Text(membersSummary)
+                    .foregroundStyle(Color.appForeground.opacity(0.75))
+            }
+            .padding(14)
+            .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func closeMemberPicker() {
+        withAnimation(.snappy(duration: 0.2)) { showingMemberPicker = false }
+    }
+
+    /// The open member picker over a dimmed form; tapping outside closes it.
+    @ViewBuilder
+    private var memberPickerPopup: some View {
+        if showingMemberPicker {
+            ZStack {
+                Color.black.opacity(0.8)
+                    .ignoresSafeArea()
+                    .onTapGesture { closeMemberPicker() }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                ItemMembersPopup(
+                    members: members,
+                    currentUserId: auth.currentUser?.id,
+                    selectedIds: Binding { selectedMemberIds ?? [] } set: { selectedMemberIds = $0 },
+                    onClose: closeMemberPicker
+                )
+                .transition(.scale(scale: 0.94).combined(with: .opacity))
+            }
+        }
     }
 
     /// Deletes an existing item, after a confirmation since it can't be undone.
@@ -511,4 +591,5 @@ struct TripItemFormView: View {
 
 #Preview {
     TripItemFormView(tripId: "sample")
+        .environment(AuthStore())
 }

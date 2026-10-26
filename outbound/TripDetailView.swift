@@ -169,12 +169,12 @@ struct TripDetailView: View {
             Task { await importScreenshot(item) }
         }
         .sheet(item: $addItemRequest) { request in
-            TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
+            TripItemFormView(tripId: trip.id, members: trip.members ?? [], defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
         }
         .sheet(item: $editingLodging) { item in
-            TripItemFormView(tripId: item.tripId, item: item) { saved in
+            TripItemFormView(tripId: item.tripId, members: trip.members ?? [], item: item) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -188,7 +188,7 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: places.resolving(item)) { saved in
+            TripItemDetailView(item: places.resolving(item), members: trip.members ?? []) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -1164,6 +1164,7 @@ private struct DayPager<Content: View>: View {
         TripDetailView(trip: .sample, days: ItineraryDay.sampleDays)
     }
     .appTheme()
+    .environment(AuthStore())
 }
 
 /// Fades content in, optionally sliding it up, once `isRevealed` turns true.
