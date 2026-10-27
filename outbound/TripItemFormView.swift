@@ -245,15 +245,9 @@ struct TripItemFormView: View {
                             }
                         }
 
-                        VStack(spacing: 8) {
-                            VStack(spacing: 6) {
-                                timeRow(title: startLabel, placeholder: "Add start", date: $startsAt, field: .start)
-                                if startsAt != nil, let startZone { zoneNote(startZone) }
-                            }
-                            VStack(spacing: 6) {
-                                timeRow(title: endLabel, placeholder: "Add end", date: $endsAt, field: .end)
-                                if endsAt != nil, let effectiveEndZone { zoneNote(effectiveEndZone) }
-                            }
+                        HStack(spacing: 8) {
+                            timeBlock(title: startLabel, placeholder: "Add start", date: $startsAt, zone: startZone, field: .start)
+                            timeBlock(title: endLabel, placeholder: "Add end", date: $endsAt, zone: effectiveEndZone, field: .end)
                         }
 
                         // Sits right under the times (the usual cause) rather than at the
@@ -459,53 +453,85 @@ struct TripItemFormView: View {
         }
     }
 
-    /// A boxed row like the members row: the label on the left, the date/time (or a
-    /// placeholder) on the right, and a clear button once there's a value. Tapping the
-    /// row opens its date popup.
-    private func timeRow(title: String, placeholder: String, date: Binding<Date?>, field: TimeField) -> some View {
-        HStack(spacing: 10) {
-            Text(title)
-            Spacer()
-            if let value = date.wrappedValue {
-                Text(value, format: .dateTime.month().day().hour().minute())
-                    .foregroundStyle(Color.appForeground.opacity(0.75))
-                Button {
-                    withAnimation { date.wrappedValue = nil }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(Color.appForeground.opacity(0.5))
+    /// One of the side-by-side start/end blocks: the label on top with a clear button
+    /// once there's a value, then the date (or a placeholder) and the time with its
+    /// zone's short code. The time line always keeps its space, so
+    /// both blocks stay the same height whether or not they're set. Tapping the block
+    /// opens its date popup.
+    private func timeBlock(title: String, placeholder: String, date: Binding<Date?>, zone: TimeZone?, field: TimeField) -> some View {
+        let value = date.wrappedValue
+        return VStack(alignment: .leading, spacing: 0) {
+            // The label and clear button sit in their own header above a thin rule,
+            // a little tighter than the date and time below.
+            HStack {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .textCase(.uppercase)
+                    .tracking(1)
+                    .foregroundStyle(Color.appForeground.opacity(0.7))
+                Spacer(minLength: 4)
+                if value != nil {
+                    Button {
+                        withAnimation { date.wrappedValue = nil }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Color.appForeground.opacity(0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear \(title)")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear \(title)")
-            } else {
-                Text(placeholder)
-                    .foregroundStyle(Color.appForeground.opacity(0.45))
             }
+            // Fixed to the clear button's height, so the header (and the block) is the
+            // same height with or without it.
+            .frame(height: 22)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
+
+            Rectangle()
+                .fill(Color.appForeground.opacity(0.12))
+                .frame(height: 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Group {
+                    if let value {
+                        Text(value, format: .dateTime.month(.abbreviated).day())
+                    } else {
+                        Text(placeholder)
+                            .foregroundStyle(Color.appForeground.opacity(0.45))
+                    }
+                }
+                .font(.body.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+                // The time with its zone's short code beside it (e.g. "12:00 PM EST"); a
+                // blank line holds its place when there's no time yet.
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if let value {
+                        Text(value, format: .dateTime.hour().minute())
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Color.appForeground.opacity(0.85))
+                        if let zone {
+                            Text(WallClock.zoneAbbreviation(zone, at: value))
+                                .font(.caption2)
+                                .foregroundStyle(Color.appForeground.opacity(0.6))
+                        }
+                    } else {
+                        Text(" ")
+                            .font(.subheadline.weight(.medium))
+                    }
+                }
+                .lineLimit(1)
+            }
+            .padding(14)
         }
-        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
         // A tap gesture rather than a Button, so the clear button inside stays its own
         // target instead of nesting a button in a button.
         .contentShape(Rectangle())
         .onTapGesture { openTimePicker(field) }
         .accessibilityAddTraits(.isButton)
-    }
-
-    /// A read-only caption noting the time zone a time is in, sitting under its row.
-    /// The zone comes from a picked place or the date popup's time zone search.
-    private func zoneNote(_ zone: TimeZone) -> some View {
-        HStack {
-            Spacer()
-            Text(zoneLabel(zone))
-                .font(.caption)
-                .foregroundStyle(Color.appForeground.opacity(0.6))
-        }
-        .padding(.horizontal, 4)
-    }
-
-    /// A friendly label for a zone, e.g. "Tokyo (JST)".
-    private func zoneLabel(_ zone: TimeZone) -> String {
-        TimeZoneSearch.label(zone, at: startsAt ?? Date())
     }
 
     private func save() {

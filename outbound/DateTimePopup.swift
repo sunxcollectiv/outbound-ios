@@ -74,7 +74,7 @@ struct DateTimePopup: View {
         _zone = zone
         self.onClose = onClose
         let date = date.wrappedValue
-        _zoneQuery = State(initialValue: zone.wrappedValue.map { TimeZoneSearch.label($0, at: date ?? .now) } ?? "")
+        _zoneQuery = State(initialValue: zone.wrappedValue.map { TimeZoneSearch.label($0, at: date ?? tripDates?.lowerBound ?? .now) } ?? "")
         _selectedDay = State(initialValue: date.map { Calendar.sundayFirst.startOfDay(for: $0) })
         let parts = date.map { Calendar.current.dateComponents([.hour, .minute], from: $0) }
         // Snap to the nearest quarter so an off-grid time still highlights a choice.
@@ -148,14 +148,21 @@ struct DateTimePopup: View {
         }
     }
 
+    /// The moment zone abbreviations are read at (EST vs EDT): the chosen time, else the
+    /// highlighted day, else the trip's first day — so an unset row in November still
+    /// shows EST rather than whatever today's offset is.
+    private var zoneReferenceDate: Date {
+        date ?? selectedDay ?? tripDates?.lowerBound ?? .now
+    }
+
     /// Zones matching what's typed, hidden once the text is the chosen zone's label.
     private var zoneResults: [TimeZone] {
         guard isZoneFieldFocused, zoneQuery != zone.map(zoneLabel) else { return [] }
-        return TimeZoneSearch.matches(zoneQuery, at: date ?? .now)
+        return TimeZoneSearch.matches(zoneQuery, at: zoneReferenceDate)
     }
 
     private func zoneLabel(_ zone: TimeZone) -> String {
-        TimeZoneSearch.label(zone, at: date ?? .now)
+        TimeZoneSearch.label(zone, at: zoneReferenceDate)
     }
 
     /// A search field for the time zone, kept dark with a light outline. Matches float
@@ -229,7 +236,7 @@ struct DateTimePopup: View {
                         Spacer(minLength: 12)
                         // Long ids (America/North_Dakota/New_Salem) shorten in the middle,
                         // keeping the abbreviation at the end readable.
-                        Text("\(match.identifier) · \(WallClock.zoneAbbreviation(match, at: date ?? .now))")
+                        Text("\(match.identifier) · \(WallClock.zoneAbbreviation(match, at: zoneReferenceDate))")
                             .font(.caption)
                             .foregroundStyle(Color.appForeground.opacity(0.5))
                             .lineLimit(1)

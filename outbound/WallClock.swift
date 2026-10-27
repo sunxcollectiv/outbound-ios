@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import os
 
 /// Helpers for "floating" wall clocks: local times as written (e.g. "4:00 PM" in
 /// Tokyo), held as dates whose UTC components are the wall clock. They must only be
@@ -28,12 +29,43 @@ enum WallClock {
 
     /// A short code for a zone at a given moment (handles DST), e.g. "EST"/"EDT".
     ///
-    /// Uses `TimeZone.abbreviation(for:)` so we get three-letter codes rather than the
-    /// "GMT+11"-style text `.specificName(.short)` falls back to for some zones. Zones
-    /// that have no code of their own still surface as a GMT offset here; that's the one
-    /// remaining case to tidy up as we extend coverage.
+    /// iOS only knows letter codes for the zones a locale commonly uses, so US English
+    /// alone gives "GMT+11" for Melbourne. This tries a few English locales in turn
+    /// (AEDT from Australia, IST from India, CET from the UK…) and takes the first
+    /// letter code, falling back to the GMT offset ("GMT+9") where none has one.
     static func zoneAbbreviation(_ zone: TimeZone, at date: Date) -> String {
-        zone.abbreviation(for: date) ?? zone.identifier
+        let fallback = zone.abbreviation(for: date) ?? zone.identifier
+        let key = "\(zone.identifier)|\(zone.secondsFromGMT(for: date))|\(zone.isDaylightSavingTime(for: date))"
+        return abbreviationCache.withLock { cache in
+            if let cached = cache[key] { return cached }
+            let code = abbreviationLocales.lazy
+                .compactMap { locale -> String? in
+                    let formatter = DateFormatter()
+                    formatter.locale = Locale(identifier: locale)
+                    formatter.timeZone = zone
+                    formatter.dateFormat = "zzz"
+                    let code = formatter.string(from: date)
+                    return isLetterCode(code, for: zone) ? code : nil
+                }
+                .first ?? fallback
+            cache[key] = code
+            return code
+        }
+    }
+
+    /// English locales whose zone codes we accept, most familiar first.
+    private static let abbreviationLocales = ["en_US", "en_GB", "en_AU", "en_IN", "en_NZ", "en_CA", "en_ZA", "en_SG", "en_IE"]
+
+    /// Codes per zone and offset, since formatting through several locales isn't free.
+    private static let abbreviationCache = OSAllocatedUnfairLock(initialState: [String: String]())
+
+    /// Whether `code` is a plain letter code (not "GMT+9" or a spelled-out name like
+    /// "Gulf ST"), skipping ones that would read as another zone: India's "BST" for
+    /// Bangladesh collides with British Summer Time.
+    private static func isLetterCode(_ code: String, for zone: TimeZone) -> Bool {
+        guard (2...5).contains(code.count), code.allSatisfy({ $0.isUppercase && $0.isLetter }) else { return false }
+        if code == "BST" && zone.identifier != "Europe/London" { return false }
+        return true
     }
 
     /// Parses a naive wall clock like "2026-11-01T11:00:00" (fractional seconds ignored).
