@@ -119,12 +119,6 @@ struct TripItemFormView: View {
         }
     }
 
-    /// What the date popup's header reads for an unset start or end. An activity's
-    /// end is optional, so it says so.
-    private var endPlaceholder: String {
-        kind == .activity ? "Optional end time" : endLabel
-    }
-
     init(tripId: String, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         self.tripId = tripId
         self.members = members
@@ -368,7 +362,9 @@ struct TripItemFormView: View {
                 DateTimePopup(
                     field: editingTimeField == .start ? .start : .end,
                     startPlaceholder: startLabel,
-                    endPlaceholder: endPlaceholder,
+                    endPlaceholder: endLabel,
+                    // An activity's end is optional; lodging and transit expect one.
+                    endIsOptional: kind == .activity,
                     tripDates: tripDates,
                     start: $startsAt,
                     end: $endsAt,

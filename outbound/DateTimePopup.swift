@@ -13,9 +13,12 @@ import SwiftUI
 struct DateTimePopup: View {
     enum Field { case start, end }
 
-    /// What each side of the header reads while unset, e.g. "Check-in" / "Check-out".
+    /// What each side of the header reads on its date line while unset, e.g.
+    /// "Check-in" / "Check-out".
     let startPlaceholder: String
     let endPlaceholder: String
+    /// Whether the end may be left out, noted as "(optional)" under its placeholder.
+    let endIsOptional: Bool
     /// The trip's first through last day; nil when the trip's dates aren't known.
     let tripDates: ClosedRange<Date>?
     /// The start and end, as wall clocks on the device-zone canvas the form uses.
@@ -60,6 +63,12 @@ struct DateTimePopup: View {
 
     /// Matches the popup card's inner padding, so sliding panes reach its edges.
     private static let cardPadding: CGFloat = 20
+    /// Space between each side of the header and the arrow.
+    private static let headerArrowSpacing: CGFloat = 8
+    /// How far short of the arrow the active side's bar stops.
+    private static let activeBarArrowGap: CGFloat = 14
+    /// How far in from where the card's rounded corner ends the bar starts.
+    private static let activeBarOuterInset: CGFloat = 7
     /// How far a sideways swipe on the pane must travel to switch sides.
     private static let swipeThreshold: CGFloat = 50
     private static let cellSpacing: CGFloat = 3
@@ -89,6 +98,7 @@ struct DateTimePopup: View {
         field: Field,
         startPlaceholder: String,
         endPlaceholder: String,
+        endIsOptional: Bool = false,
         tripDates: ClosedRange<Date>?,
         start: Binding<Date?>,
         end: Binding<Date?>,
@@ -99,6 +109,7 @@ struct DateTimePopup: View {
     ) {
         self.startPlaceholder = startPlaceholder
         self.endPlaceholder = endPlaceholder
+        self.endIsOptional = endIsOptional
         self.tripDates = tripDates
         _start = start
         _end = end
@@ -211,7 +222,8 @@ struct DateTimePopup: View {
         // Black with a light gray edge so the card stands out against the dimmed form.
         .popupCard(background: .black, border: .white.opacity(0.3), onClose: onClose)
         .onChange(of: selectedDate) { _, newDate in
-            if let newDate { date = newDate }
+            // Animated so the header's date and time roll to the new value.
+            if let newDate { withAnimation(.snappy(duration: 0.25)) { date = newDate } }
         }
     }
 
@@ -250,18 +262,20 @@ struct DateTimePopup: View {
     /// arrow centered between two equal halves. The side being edited is lit; tapping
     /// the other switches to it.
     private var rangeHeader: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Self.headerArrowSpacing) {
             endpoint(.start, date: start, zone: startZone, placeholder: startPlaceholder)
-            Image(systemName: "arrow.right")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.appForeground.opacity(0.5))
+            Image(systemName: "arrow.right.circle.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(Color.white.opacity(0.7))
                 .accessibilityHidden(true)
-            endpoint(.end, date: end, zone: endZone, placeholder: endPlaceholder)
+            endpoint(.end, date: end, zone: endZone, placeholder: endPlaceholder, isOptional: endIsOptional)
         }
     }
 
-    /// One side of the header: the date over the time and zone code, or a placeholder.
-    private func endpoint(_ field: Field, date: Date?, zone: TimeZone?, placeholder: String) -> some View {
+    /// One side of the header: the date over the time and zone code. Unset, its label
+    /// takes the date line and "(optional)", if it applies, the time line, so both sides
+    /// keep the same two-line shape.
+    private func endpoint(_ field: Field, date: Date?, zone: TimeZone?, placeholder: String, isOptional: Bool = false) -> some View {
         let isActive = activeField == field
         return Button {
             activate(field)
@@ -281,24 +295,32 @@ struct DateTimePopup: View {
                     }
                 } else {
                     Text(placeholder)
-                        .font(.subheadline.weight(.medium))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.appForeground.opacity(0.45))
-                        .multilineTextAlignment(.center)
+                    Text(isOptional ? "(optional)" : " ")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color.appForeground.opacity(0.35))
                 }
             }
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .contentTransition(.numericText())
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .padding(.vertical, 6)
-            .background(
-                Color.appForeground.opacity(isActive ? 0.14 : 0.04),
-                in: .rect(cornerRadius: Self.gridCornerRadius)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Self.gridCornerRadius)
-                    .strokeBorder(Color.appForeground.opacity(isActive ? 0.35 : 0))
-            )
+            .frame(maxWidth: .infinity, minHeight: 40)
+            .padding(.vertical, 5)
+            .background(Color.appForeground.opacity(0.04), in: .rect(cornerRadius: Self.gridCornerRadius))
+            // The side being edited gets a white bar on the card's top edge: a little in
+            // from where the card's rounded corner ends to short of the arrow.
+            .overlay(alignment: .top) {
+                if isActive {
+                    Rectangle()
+                        .fill(Color.white)
+                        .frame(height: 3)
+                        .padding(.leading, field == .start ? Self.activeBarOuterInset : Self.activeBarArrowGap - Self.headerArrowSpacing)
+                        .padding(.trailing, field == .end ? Self.activeBarOuterInset : Self.activeBarArrowGap - Self.headerArrowSpacing)
+                        .offset(y: -Self.cardPadding)
+                        .transition(.opacity)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -632,7 +654,8 @@ struct DateTimePopup: View {
         DateTimePopup(
             field: .start,
             startPlaceholder: "Starts",
-            endPlaceholder: "Optional end time",
+            endPlaceholder: "Ends",
+            endIsOptional: true,
             tripDates: .now ... .now.addingTimeInterval(9 * 86_400),
             start: .constant(.now),
             end: .constant(nil),
