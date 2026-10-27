@@ -292,15 +292,13 @@ struct TripItemFormView: View {
         originalMemberIds = seeded
     }
 
-    /// The `scope` + `participants` to send. On an edit, nil when the selection is
-    /// unchanged, so the item's scope and RSVPs are left alone.
-    private var membersToSave: (scope: TripItemScope, participants: [TripItemsAPI.ParticipantRequest]?)? {
-        // Without a roster (a backend that doesn't send members) keep the old default.
-        guard !members.isEmpty, let selected = selectedMemberIds else {
-            return item == nil ? (.group, nil) : nil
-        }
+    /// The `participants` to send: exactly who's selected. Nil leaves them to the
+    /// server — on an edit when the selection is unchanged, and when there's no roster
+    /// to pick from (a new item is then just for its creator).
+    private var participantsToSave: [TripItemsAPI.ParticipantRequest]? {
+        guard !members.isEmpty, let selected = selectedMemberIds else { return nil }
         if item != nil, selected == originalMemberIds { return nil }
-        return memberSelection.saved(selected)
+        return memberSelection.participants(for: selected)
     }
 
     /// A one-line row summarizing who the item is for; tapping it opens the picker.
@@ -338,7 +336,6 @@ struct TripItemFormView: View {
                 ItemMembersPopup(
                     members: members,
                     currentUserId: auth.currentUser?.id,
-                    lockedId: memberSelection.ownerMember(of: item)?.id,
                     selectedIds: Binding { selectedMemberIds ?? [] } set: { selectedMemberIds = $0 },
                     onClose: closeMemberPicker
                 )
@@ -470,9 +467,8 @@ struct TripItemFormView: View {
                 let endpoint: Endpoint
                 if let item {
                     // Place ids are omitted when nil, so an edit that doesn't touch the
-                    // place search leaves the existing places unchanged; same for scope
-                    // and participants when the member selection didn't change.
-                    let members = membersToSave
+                    // place search leaves the existing places unchanged; same for
+                    // participants when the member selection didn't change.
                     let body = TripItemsAPI.UpdateRequest(
                         kind: kind,
                         title: trimmedTitle,
@@ -483,15 +479,12 @@ struct TripItemFormView: View {
                         endTimezone: endZoneId,
                         placeId: startPlace?.id,
                         endPlaceId: endPlaceId,
-                        scope: members?.scope,
-                        participants: members?.participants
+                        participants: participantsToSave
                     )
                     endpoint = TripItemsAPI.update(tripId: tripId, itemId: item.id, body)
                 } else {
-                    let members = membersToSave
                     let body = TripItemsAPI.CreateRequest(
                         kind: kind,
-                        scope: members?.scope ?? .group,
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startWall,
@@ -500,7 +493,7 @@ struct TripItemFormView: View {
                         endTimezone: endZoneId,
                         placeId: startPlace?.id,
                         endPlaceId: endPlaceId,
-                        participants: members?.participants
+                        participants: participantsToSave
                     )
                     endpoint = TripItemsAPI.create(tripId: tripId, body)
                 }

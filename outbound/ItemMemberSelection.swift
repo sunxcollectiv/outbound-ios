@@ -7,7 +7,7 @@ import Foundation
 
 /// Who a trip item is for, in terms of the trip's members: how a selection is seeded
 /// from an item, summarized on a row or card, and turned into the backend's
-/// `scope` + `participants`. Shared by the item form and the itinerary cards.
+/// `participants`. Shared by the item form and the itinerary cards.
 struct ItemMemberSelection {
     /// Everyone on the trip.
     let members: [TripMember]
@@ -19,18 +19,10 @@ struct ItemMemberSelection {
         members.first { $0.user?.id != nil && $0.user?.id == currentUserId }
     }
 
-    /// The member a personal item belongs to: its creator, or the signed-in user for a
-    /// new item. The server always keeps them in, so their row can't be unchecked.
-    func ownerMember(of item: TripItem?) -> TripMember? {
-        guard let ownerId = item.map({ $0.createdBy?.id }) ?? currentUserId else { return nil }
-        return members.first { $0.user?.id == ownerId }
-    }
-
-    /// A new or group item starts with everyone; a personal one with whoever's in.
+    /// A new item starts with everyone; an existing one with exactly its participants.
     func initialSelection(for item: TripItem?) -> Set<String> {
-        guard let item, item.scope == .personal else { return Set(members.map(\.id)) }
-        let joined = item.participants.filter { $0.status != .declined }.map(\.member.id)
-        return Set(joined + [ownerMember(of: item)?.id].compactMap { $0 })
+        guard let item else { return Set(members.map(\.id)) }
+        return Set(item.participants.map(\.member.id))
     }
 
     /// "Everyone", "Just you", "You and 2 others", or a head count without you.
@@ -56,16 +48,10 @@ struct ItemMemberSelection {
         count <= 1 ? "person.fill" : "person.2.fill"
     }
 
-    /// How a selection is saved. Everyone, picked by an organizer, is a group item
-    /// (only organizers may post those); any other pick is a personal item for the
-    /// chosen members, all going. Members are listed in roster order so the request
-    /// is stable.
-    func saved(_ selected: Set<String>) -> (scope: TripItemScope, participants: [TripItemsAPI.ParticipantRequest]?) {
-        if selected.count == members.count, currentMember?.role == .organizer {
-            return (.group, nil)
-        }
-        let going = members.filter { selected.contains($0.id) }
-            .map { TripItemsAPI.ParticipantRequest(memberId: $0.id, status: .going) }
-        return (.personal, going)
+    /// The `participants` to send: exactly the selected members, in roster order so the
+    /// request is stable. No status is sent, so anyone already on the item keeps their
+    /// answer.
+    func participants(for selected: Set<String>) -> [TripItemsAPI.ParticipantRequest] {
+        members.filter { selected.contains($0.id) }.map { TripItemsAPI.ParticipantRequest(memberId: $0.id) }
     }
 }

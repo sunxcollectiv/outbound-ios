@@ -571,7 +571,8 @@ struct TripDetailView: View {
             entry: entry,
             places: places,
             placeDetails: placeDetails,
-            membersSummary: memberSelection.summary(of: going),
+            // A redacted item's participants are blanked, so there's no one to count.
+            membersSummary: entry.item.redacted ? nil : memberSelection.summary(of: going),
             membersCount: going.count
         )
         .contentShape(.rect)

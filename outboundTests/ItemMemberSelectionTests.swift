@@ -17,26 +17,26 @@ struct ItemMemberSelectionTests {
         ]
     }
 
-    private func item(scope: TripItemScope, participants: [(String, RsvpStatus)] = []) -> TripItem {
+    private func item(participants: [(String, RsvpStatus?)]) -> TripItem {
         var item = TripItem.sample
-        item.scope = scope
-        item.createdBy = me
         item.participants = participants.map { id, status in
             TripItemParticipant(member: members.first { $0.id == id }!, status: status)
         }
         return item
     }
 
-    @Test func groupAndNewItemsStartWithEveryone() {
+    @Test func newItemStartsWithEveryone() {
         let selection = ItemMemberSelection(members: members, currentUserId: "u1")
         #expect(selection.initialSelection(for: nil) == ["m1", "m2", "m3"])
-        #expect(selection.initialSelection(for: item(scope: .group)) == ["m1", "m2", "m3"])
     }
 
-    @Test func personalItemStartsWithWhoIsInPlusItsOwner() {
+    @Test func existingItemStartsWithExactlyItsParticipants() {
         let selection = ItemMemberSelection(members: members, currentUserId: "u1")
-        let personal = item(scope: .personal, participants: [("m2", .going), ("m3", .declined)])
-        #expect(selection.initialSelection(for: personal) == ["m1", "m2"])
+        // Answers don't matter: a declined or unanswered participant is still on the item.
+        let existing = item(participants: [("m2", .going), ("m3", .declined)])
+        #expect(selection.initialSelection(for: existing) == ["m2", "m3"])
+        #expect(selection.initialSelection(for: item(participants: [("m1", nil)])) == ["m1"])
+        #expect(selection.initialSelection(for: item(participants: [])).isEmpty)
     }
 
     @Test func summaries() {
@@ -55,23 +55,9 @@ struct ItemMemberSelectionTests {
         #expect(ItemMemberSelection.symbol(forCount: 5) == "person.2.fill")
     }
 
-    @Test func everyoneFromAnOrganizerIsAGroupItem() {
-        let saved = ItemMemberSelection(members: members, currentUserId: "u1").saved(["m1", "m2", "m3"])
-        #expect(saved.scope == .group)
-        #expect(saved.participants == nil)
-    }
-
-    @Test func everyoneFromAMemberIsPersonal() {
-        var roster = members
-        roster[0].role = .member
-        let saved = ItemMemberSelection(members: roster, currentUserId: "u1").saved(["m1", "m2", "m3"])
-        #expect(saved.scope == .personal)
-        #expect(saved.participants?.map(\.memberId) == ["m1", "m2", "m3"])
-    }
-
-    @Test func aSubsetIsPersonalWithEveryoneGoingInRosterOrder() {
-        let saved = ItemMemberSelection(members: members, currentUserId: "u1").saved(["m3", "m1"])
-        #expect(saved.scope == .personal)
-        #expect(saved.participants == [.init(memberId: "m1", status: .going), .init(memberId: "m3", status: .going)])
+    @Test func participantsAreExactlyTheSelectionInRosterOrderWithoutStatus() {
+        let selection = ItemMemberSelection(members: members, currentUserId: "u1")
+        #expect(selection.participants(for: ["m3", "m1"]) == [.init(memberId: "m1"), .init(memberId: "m3")])
+        #expect(selection.participants(for: []).isEmpty)
     }
 }

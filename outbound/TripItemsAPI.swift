@@ -15,10 +15,15 @@ enum TripItemKind: String, Codable, CaseIterable, Identifiable {
     var label: String { rawValue.capitalized }
 }
 
-/// Whether an item is for the whole group or a single traveler, matching `TripItemScope`.
-enum TripItemScope: String, Codable, CaseIterable, Identifiable {
-    case group
-    case personal
+/// What people on the trip who aren't participants see of an item, matching
+/// `TripItemVisibility`. Participants always see all of it.
+enum TripItemVisibility: String, Codable, CaseIterable, Identifiable {
+    /// Nothing: the item doesn't exist for them.
+    case `private`
+    /// Everything.
+    case open
+    /// That something is on, and when: its kind, title and times.
+    case closed
 
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
@@ -33,7 +38,10 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     let id: String
     let tripId: String
     var kind: TripItemKind
-    var scope: TripItemScope
+    var visibility: TripItemVisibility = .open
+    /// True when the caller isn't a participant on a closed item: only its kind, title
+    /// and times come through, and the other details are blanked.
+    var redacted = false
     var title: String
     var notes: String?
     var tags: [String]
@@ -51,9 +59,9 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     /// The legs of a transit booking, in travel order (one for a direct trip). Empty
     /// for other kinds.
     var segments: [TransitSegment] = []
-    /// Who added the item; nil once they've left the trip. A personal item belongs to them.
+    /// Who added the item; nil once they've left the trip.
     var createdBy: User? = nil
-    /// RSVPs on a group item; who's in on a personal one (its creator always is).
+    /// Who the item is for, each with an optional RSVP-style answer.
     var participants: [TripItemParticipant] = []
 }
 
@@ -61,10 +69,10 @@ enum RsvpStatus: String, Codable {
     case going, maybe, declined
 }
 
-/// `ParticipantRead` — one trip member's answer on an item.
+/// `ParticipantRead` — one trip member an item is for, and their answer if any.
 struct TripItemParticipant: Decodable, Equatable {
     var member: TripMember
-    var status: RsvpStatus
+    var status: RsvpStatus?
 }
 
 /// `TransitSegmentRead` — one leg of a transit booking, e.g. JFK → LAX on a two-leg
@@ -114,7 +122,7 @@ struct TransitSegment: Identifiable, Equatable, Decodable, WallClockSpan {
 
 extension TripItem: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case id, tripId, kind, scope, title, notes, tags
+        case id, tripId, kind, visibility, redacted, title, notes, tags
         case startTimezone, endTimezone
         case startsAt, endsAt, startsAtUtc, endsAtUtc
         case imageUrl, place, endPlace, createdAt, updatedAt, segments, createdBy, participants
@@ -125,7 +133,8 @@ extension TripItem: Decodable {
         id = try c.decode(String.self, forKey: .id)
         tripId = try c.decode(String.self, forKey: .tripId)
         kind = try c.decode(TripItemKind.self, forKey: .kind)
-        scope = try c.decode(TripItemScope.self, forKey: .scope)
+        visibility = try c.decodeIfPresent(TripItemVisibility.self, forKey: .visibility) ?? .open
+        redacted = try c.decodeIfPresent(Bool.self, forKey: .redacted) ?? false
         title = try c.decode(String.self, forKey: .title)
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
@@ -159,7 +168,6 @@ enum TripItemsAPI {
     /// `POST /places`); nil values are omitted from the JSON.
     struct CreateRequest: Encodable {
         let kind: TripItemKind
-        let scope: TripItemScope
         let title: String
         let notes: String?
         let startsAt: String
@@ -168,22 +176,23 @@ enum TripItemsAPI {
         let endTimezone: String?
         let placeId: String?
         let endPlaceId: String?
-        /// Who's in on a personal item (the creator is added by the server), or RSVPs to
-        /// record on a group one. Omitted when nil.
+        /// Exactly who the item is for; nobody is implied. Omitted when nil, which makes
+        /// the item just for its creator.
         var participants: [ParticipantRequest]? = nil
     }
 
-    /// `ParticipantSet` — one member's answer, by their trip-member id.
+    /// `ParticipantSet` — one member an item is for, by their trip-member id. A nil
+    /// `status` is omitted, keeping whatever answer they already had.
     struct ParticipantRequest: Encodable, Equatable {
         let memberId: String
-        let status: RsvpStatus
+        var status: RsvpStatus? = nil
     }
 
     /// `TripItemUpdate` — body for `PATCH /trips/{id}/items/{itemId}`. Every field is
     /// optional server-side. Nil place ids are omitted, leaving existing places
     /// untouched. A nil `endsAt` is sent as an explicit `null` to clear the end time;
-    /// the server drops the end zone with it. `scope` and `participants` are omitted
-    /// when nil; `participants` replaces every answer on the item when sent.
+    /// the server drops the end zone with it. `participants` is omitted when nil; when
+    /// sent it replaces who the item is for (listed members keep their answers).
     struct UpdateRequest: Encodable {
         let kind: TripItemKind
         let title: String
@@ -194,12 +203,11 @@ enum TripItemsAPI {
         let endTimezone: String?
         let placeId: String?
         let endPlaceId: String?
-        var scope: TripItemScope? = nil
         var participants: [ParticipantRequest]? = nil
 
         private enum CodingKeys: String, CodingKey {
             case kind, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
-            case scope, participants
+            case participants
         }
 
         func encode(to encoder: Encoder) throws {
@@ -218,7 +226,6 @@ enum TripItemsAPI {
             }
             try c.encodeIfPresent(placeId, forKey: .placeId)
             try c.encodeIfPresent(endPlaceId, forKey: .endPlaceId)
-            try c.encodeIfPresent(scope, forKey: .scope)
             try c.encodeIfPresent(participants, forKey: .participants)
         }
     }
@@ -246,7 +253,6 @@ extension TripItem {
         id: "sample-item",
         tripId: "sample",
         kind: .activity,
-        scope: .group,
         title: "Land at HND",
         notes: "Terminal 3",
         tags: [],

@@ -139,11 +139,11 @@ struct TripItemDetailView: View {
         }
     }
 
-    /// Kind and scope badges across the top.
+    /// Kind and visibility badges across the top.
     private var header: some View {
         HStack(spacing: 8) {
             badge(item.kind.label.uppercased())
-            badge(item.scope.label.uppercased())
+            badge(item.visibility.label.uppercased())
             Spacer()
         }
     }
