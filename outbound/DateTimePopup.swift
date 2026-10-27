@@ -270,6 +270,15 @@ struct DateTimePopup: View {
         }
     }
 
+    /// Insets placing the active bar a little in from the card's corner
+    /// on the outer side and short of the arrow on the inner side.
+    private func activeBarLeading(_ field: Field) -> CGFloat {
+        field == .start ? Self.activeBarOuterInset : Self.activeBarArrowGap - Self.headerArrowSpacing
+    }
+    private func activeBarTrailing(_ field: Field) -> CGFloat {
+        field == .end ? Self.activeBarOuterInset : Self.activeBarArrowGap - Self.headerArrowSpacing
+    }
+
     /// One side of the header: the date over the time and zone code. Unset, its label
     /// takes the date line and "(optional)", if it applies, the time line, so both sides
     /// keep the same two-line shape.
@@ -321,8 +330,8 @@ struct DateTimePopup: View {
                     Rectangle()
                         .fill(Color.white)
                         .frame(height: 3)
-                        .padding(.leading, field == .start ? Self.activeBarOuterInset : Self.activeBarArrowGap - Self.headerArrowSpacing)
-                        .padding(.trailing, field == .end ? Self.activeBarOuterInset : Self.activeBarArrowGap - Self.headerArrowSpacing)
+                        .padding(.leading, activeBarLeading(field))
+                        .padding(.trailing, activeBarTrailing(field))
                         .offset(y: -Self.cardPadding)
                         .transition(.opacity)
                 }
