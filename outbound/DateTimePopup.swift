@@ -35,6 +35,10 @@ struct DateTimePopup: View {
     /// Corner radius of the day cells and the hour box.
     private static let gridCornerRadius: CGFloat = 4
     private static let hours = Array(1...12)
+    /// The hour row repeats 1–12 this many times and opens in the middle copy, so it
+    /// scrolls on in either direction as if it looped.
+    private static let hourCycles = 100
+    private static let middleCycle = hourCycles / 2
     private static let minutes = [0, 15, 30, 45]
     /// Hour cells share one fixed width so the box scrolls rather than squeezing 12 in.
     private static let hourCellWidth: CGFloat = 48
@@ -201,28 +205,41 @@ struct DateTimePopup: View {
     }
 
     /// Hours 1–12 as one rounded box of equal-width, full-height cells split by thin
-    /// dividers. The box scrolls horizontally, starting scrolled to the selection.
+    /// dividers. The hours repeat in a lazy row that opens on the selection in the
+    /// middle copy, so the box scrolls endlessly either way.
     private var hourRow: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
-                HStack(spacing: 0) {
-                    ForEach(Self.hours, id: \.self) { hour in
-                        if hour != Self.hours.first {
-                            Rectangle()
-                                .fill(Color.appForeground.opacity(0.15))
-                                .frame(width: 1)
-                                .padding(.vertical, 10)
+                LazyHStack(spacing: 0) {
+                    ForEach(0..<(Self.hourCycles * Self.hours.count), id: \.self) { index in
+                        HStack(spacing: 0) {
+                            if index > 0 {
+                                Rectangle()
+                                    .fill(Color.appForeground.opacity(0.15))
+                                    .frame(width: 1)
+                                    .padding(.vertical, 10)
+                            }
+                            hourCell(Self.hours[index % Self.hours.count])
                         }
-                        hourCell(hour)
+                        // VoiceOver gets one set of hours rather than every copy.
+                        .accessibilityHidden(index / Self.hours.count != Self.middleCycle)
                     }
                 }
                 .frame(height: Self.hourRowHeight)
+                .scrollTargetLayout()
             }
             .scrollIndicators(.hidden)
+            // Tame the fling: a swipe moves only a few hours, then settles on a cell edge.
+            .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByFew))
             .background(Color.appForeground.opacity(0.14))
             .clipShape(.rect(cornerRadius: Self.gridCornerRadius))
             .onAppear {
-                if let selectedHour { proxy.scrollTo(selectedHour, anchor: .center) }
+                let middle = Self.middleCycle * Self.hours.count
+                if let selectedHour {
+                    proxy.scrollTo(middle + selectedHour - 1, anchor: .center)
+                } else {
+                    proxy.scrollTo(middle, anchor: .leading)
+                }
             }
         }
     }
@@ -279,7 +296,6 @@ struct DateTimePopup: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .id(hour)
         .accessibilityLabel("\(hour) o'clock")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
