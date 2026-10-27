@@ -123,16 +123,10 @@ struct TripItemFormView: View {
         }
     }
 
-    /// Leads the date popup's date line, e.g. "Starts at" or "Departs at".
-    private func popupTitle(for field: TimeField) -> String {
-        switch (kind, field) {
-        case (.lodging, .start): "Check-in at"
-        case (.lodging, .end): "Check-out at"
-        case (.transit, .start): "Departs at"
-        case (.transit, .end): "Arrives at"
-        case (.activity, .start): "Starts at"
-        case (.activity, .end): "Ends at"
-        }
+    /// What the date popup's header reads for an unset start or end. An activity's
+    /// end is optional, so it says so.
+    private var endPlaceholder: String {
+        kind == .activity ? "Optional end time" : endLabel
     }
 
     /// The zone actually used for the end: an explicit choice, else the start zone.
@@ -386,10 +380,14 @@ struct TripItemFormView: View {
         if let editingTimeField {
             DimmedPopup(onClose: closeTimePicker) {
                 DateTimePopup(
-                    title: popupTitle(for: editingTimeField),
+                    field: editingTimeField == .start ? .start : .end,
+                    startPlaceholder: startLabel,
+                    endPlaceholder: endPlaceholder,
                     tripDates: tripDates,
-                    date: editingTimeField == .start ? $startsAt : $endsAt,
-                    zone: editingTimeField == .start ? $startZone : endZoneBinding,
+                    start: $startsAt,
+                    end: $endsAt,
+                    startZone: $startZone,
+                    endZone: endZoneBinding,
                     viewedDay: viewedDay,
                     onClose: closeTimePicker
                 )

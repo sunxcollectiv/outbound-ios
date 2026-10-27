@@ -5,24 +5,35 @@
 
 import SwiftUI
 
-/// A centered black card for picking an item's start or end, shown over the item
-/// form when its date row is tapped. Shows the trip's days as a Sunday–Saturday
-/// calendar, then the hours, minutes and AM/PM, then a time zone search. Each choice
-/// is written straight back to `date` once both a day and an hour are picked, and a
-/// picked zone straight to `zone`, so closing keeps them.
+/// A centered black card for picking an item's start and end, shown over the item
+/// form when either date block is tapped. A header shows start → end; tapping either
+/// side switches which one the calendar, hours, minutes, AM/PM and time zone search
+/// below edit. Each choice is written straight back to that side's date once both a
+/// day and an hour are picked, and a picked zone to its zone, so closing keeps them.
 struct DateTimePopup: View {
-    /// Leads the date line at the top, e.g. "Starts at" or "Check-out at".
-    let title: String
+    enum Field { case start, end }
+
+    /// What each side of the header reads while unset, e.g. "Check-in" / "Check-out".
+    let startPlaceholder: String
+    let endPlaceholder: String
     /// The trip's first through last day; nil when the trip's dates aren't known.
     let tripDates: ClosedRange<Date>?
-    /// The row's value, as a wall clock on the device-zone canvas the form uses.
-    @Binding var date: Date?
-    /// The zone this time is in; nil when none is set.
-    @Binding var zone: TimeZone?
+    /// The start and end, as wall clocks on the device-zone canvas the form uses.
+    @Binding var start: Date?
+    @Binding var end: Date?
+    /// The zones the start and end are in; nil when none is set.
+    @Binding var startZone: TimeZone?
+    @Binding var endZone: TimeZone?
     /// The itinerary day the form was opened from (midnight), marked with a dot; nil
-    /// when there isn't one, e.g. when editing an existing item.
+    /// when there isn't one.
     private let viewedDay: Date?
     let onClose: () -> Void
+
+    /// Which side the controls below the header are editing.
+    @State private var activeField: Field
+    /// Whether the last switch went start → end, so panes slide in from the right
+    /// (and back from the left).
+    @State private var slidesForward = true
 
     /// What's typed in the zone field; starts as the current zone's label.
     @State private var zoneQuery: String
@@ -32,8 +43,8 @@ struct DateTimePopup: View {
     @State private var zoneFieldBottom: CGFloat = 0
     @Environment(\.popupVisibleHeight) private var popupVisibleHeight
 
-    /// The highlighted day (midnight, as in the calendar grid), shown on the date
-    /// line; nil until the row has a value or a day is tapped.
+    /// The highlighted day (midnight, as in the calendar grid); nil until the active
+    /// side has a value or a day is tapped.
     @State private var selectedDay: Date?
     /// Natural height of the calendar, so the card hugs it until it needs to scroll.
     @State private var calendarHeight: CGFloat = 0
@@ -47,6 +58,10 @@ struct DateTimePopup: View {
     /// Whether the selected time is PM rather than AM.
     @State private var isPM: Bool
 
+    /// Matches the popup card's inner padding, so sliding panes reach its edges.
+    private static let cardPadding: CGFloat = 20
+    /// How far a sideways swipe on the pane must travel to switch sides.
+    private static let swipeThreshold: CGFloat = 50
     private static let cellSpacing: CGFloat = 3
     private static let columns = Array(repeating: GridItem(.flexible(), spacing: cellSpacing), count: 7)
     /// Corner radius of the day cells and the hour box.
@@ -68,32 +83,89 @@ struct DateTimePopup: View {
     /// Room the suggestions keep clear of the visible area's edge before flipping.
     private static let zoneResultsEdgeMargin: CGFloat = 16
 
-    /// `date` seeds the highlighted day, hour, minute and AM/PM (the row's current
-    /// value, if set).
-    init(title: String, tripDates: ClosedRange<Date>?, date: Binding<Date?>, zone: Binding<TimeZone?>, viewedDay: Date? = nil, onClose: @escaping () -> Void) {
-        self.title = title
+    /// Opens on `field`, its current value seeding the highlighted day, hour, minute,
+    /// AM/PM and zone.
+    init(
+        field: Field,
+        startPlaceholder: String,
+        endPlaceholder: String,
+        tripDates: ClosedRange<Date>?,
+        start: Binding<Date?>,
+        end: Binding<Date?>,
+        startZone: Binding<TimeZone?>,
+        endZone: Binding<TimeZone?>,
+        viewedDay: Date? = nil,
+        onClose: @escaping () -> Void
+    ) {
+        self.startPlaceholder = startPlaceholder
+        self.endPlaceholder = endPlaceholder
         self.tripDates = tripDates
-        _date = date
-        _zone = zone
+        _start = start
+        _end = end
+        _startZone = startZone
+        _endZone = endZone
         self.viewedDay = viewedDay.map { Calendar.sundayFirst.startOfDay(for: $0) }
         self.onClose = onClose
-        let date = date.wrappedValue
-        _zoneQuery = State(initialValue: zone.wrappedValue.map { TimeZoneSearch.label($0, at: date ?? tripDates?.lowerBound ?? .now) } ?? "")
-        _selectedDay = State(initialValue: date.map { Calendar.sundayFirst.startOfDay(for: $0) })
+        _activeField = State(initialValue: field)
+        let seed = Self.seed(
+            date: field == .start ? start.wrappedValue : end.wrappedValue,
+            fallbackDay: field == .end ? start.wrappedValue : nil,
+            zone: field == .start ? startZone.wrappedValue : endZone.wrappedValue,
+            tripStart: tripDates?.lowerBound
+        )
+        _selectedDay = State(initialValue: seed.day)
+        _selectedHour = State(initialValue: seed.hour)
+        _selectedMinute = State(initialValue: seed.minute)
+        _isPM = State(initialValue: seed.isPM)
+        _zoneQuery = State(initialValue: seed.zoneQuery)
+    }
+
+    /// The highlighted values for a side: its own date's day and time, else nothing
+    /// picked (an empty end starts on the start's day so only a time is left to pick).
+    private static func seed(date: Date?, fallbackDay: Date?, zone: TimeZone?, tripStart: Date?)
+        -> (day: Date?, hour: Int?, minute: Int, isPM: Bool, zoneQuery: String) {
         let parts = date.map { Calendar.current.dateComponents([.hour, .minute], from: $0) }
         // Snap to the nearest quarter so an off-grid time still highlights a choice.
         let minute = parts?.minute ?? 0
-        _selectedMinute = State(initialValue: Self.minutes.min { abs($0 - minute) < abs($1 - minute) } ?? 0)
-        _isPM = State(initialValue: (parts?.hour ?? 0) >= 12)
-        if let hour = parts?.hour {
-            _selectedHour = State(initialValue: hour % 12 == 0 ? 12 : hour % 12)
-        }
+        let snapped = minutes.min { abs($0 - minute) < abs($1 - minute) } ?? 0
+        let day = (date ?? fallbackDay).map { Calendar.sundayFirst.startOfDay(for: $0) }
+        let zoneQuery = zone.map { TimeZoneSearch.label($0, at: date ?? fallbackDay ?? tripStart ?? .now) } ?? ""
+        return (day, parts?.hour.map { $0 % 12 == 0 ? 12 : $0 % 12 }, snapped, (parts?.hour ?? 0) >= 12, zoneQuery)
     }
 
-    /// The selected time, e.g. "3:30 PM", or nil when no hour is selected.
-    private var selectedTimeText: String? {
-        guard let selectedHour else { return nil }
-        return String(format: "%d:%02d %@", selectedHour, selectedMinute, isPM ? "PM" : "AM")
+    /// The active side's date and zone, read and written through its binding.
+    private var date: Date? {
+        get { activeField == .start ? start : end }
+        nonmutating set { if activeField == .start { start = newValue } else { end = newValue } }
+    }
+    private var zone: TimeZone? {
+        get { activeField == .start ? startZone : endZone }
+        nonmutating set { if activeField == .start { startZone = newValue } else { endZone = newValue } }
+    }
+
+    /// Makes `field` the side being edited, reseeding the controls from its value.
+    private func activate(_ field: Field) {
+        guard field != activeField else { return }
+        isZoneFieldFocused = false
+        let seed = Self.seed(
+            date: field == .start ? start : end,
+            fallbackDay: field == .end ? start : nil,
+            zone: field == .start ? startZone : endZone,
+            tripStart: tripDates?.lowerBound
+        )
+        // Set the direction first and let the outgoing pane pick it up, so it leaves
+        // toward the opposite side from the one the new pane comes in on.
+        slidesForward = field == .end
+        DispatchQueue.main.async {
+            withAnimation(.snappy(duration: 0.35)) {
+                activeField = field
+                selectedDay = seed.day
+                selectedHour = seed.hour
+                selectedMinute = seed.minute
+                isPM = seed.isPM
+                zoneQuery = seed.zoneQuery
+            }
+        }
     }
 
     /// The selected day and time as one date, or nil until both a day and an hour
@@ -111,12 +183,41 @@ struct DateTimePopup: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center) {
-                valueLine(title, selectedDay?.formatted(.dateTime.month(.abbreviated).day().year()))
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-            }
+            rangeHeader
 
+            // One pane per side; switching sides pushes the new pane in from that side.
+            // Clipped to the card's full width so panes slide in from its edges.
+            ZStack {
+                pane
+                    .id(activeField)
+                    .transition(.push(from: slidesForward ? .trailing : .leading))
+            }
+            .padding(.horizontal, Self.cardPadding)
+            .clipped()
+            .padding(.horizontal, -Self.cardPadding)
+            // Swiping the pane sideways switches sides too: left to the end, right back
+            // to the start. The hour row's own scrolling still wins for drags on it.
+            .gesture(
+                DragGesture(minimumDistance: 20)
+                    .onEnded { value in
+                        let dx = value.translation.width
+                        guard abs(dx) > abs(value.translation.height), abs(dx) > Self.swipeThreshold else { return }
+                        activate(dx < 0 ? .end : .start)
+                    }
+            )
+
+            zoneField
+        }
+        // Black with a light gray edge so the card stands out against the dimmed form.
+        .popupCard(background: .black, border: .white.opacity(0.3), onClose: onClose)
+        .onChange(of: selectedDate) { _, newDate in
+            if let newDate { date = newDate }
+        }
+    }
+
+    /// The calendar and time controls for the side being edited.
+    private var pane: some View {
+        VStack(alignment: .leading, spacing: 16) {
             if let tripDates {
                 ScrollView {
                     calendar(TripCalendarGrid.months(start: tripDates.lowerBound, end: tripDates.upperBound))
@@ -138,18 +239,71 @@ struct DateTimePopup: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 8) {
-                valueLine("Time", selectedTimeText)
                 hourRow
                 minuteRow
             }
+        }
+        .background(Color.black)
+    }
 
-            zoneField
+    /// Start → end, each side showing its date and time (or its placeholder), with the
+    /// arrow centered between two equal halves. The side being edited is lit; tapping
+    /// the other switches to it.
+    private var rangeHeader: some View {
+        HStack(spacing: 8) {
+            endpoint(.start, date: start, zone: startZone, placeholder: startPlaceholder)
+            Image(systemName: "arrow.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.appForeground.opacity(0.5))
+                .accessibilityHidden(true)
+            endpoint(.end, date: end, zone: endZone, placeholder: endPlaceholder)
         }
-        // Black with a light gray edge so the card stands out against the dimmed form.
-        .popupCard(background: .black, border: .white.opacity(0.3), onClose: onClose)
-        .onChange(of: selectedDate) { _, newDate in
-            if let newDate { date = newDate }
+    }
+
+    /// One side of the header: the date over the time and zone code, or a placeholder.
+    private func endpoint(_ field: Field, date: Date?, zone: TimeZone?, placeholder: String) -> some View {
+        let isActive = activeField == field
+        return Button {
+            activate(field)
+        } label: {
+            VStack(spacing: 2) {
+                if let date {
+                    Text(date, format: .dateTime.month(.abbreviated).day())
+                        .font(.subheadline.weight(.semibold))
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text(date, format: .dateTime.hour().minute())
+                            .font(.caption.weight(.medium))
+                        if let zone {
+                            Text(WallClock.zoneAbbreviation(zone, at: date))
+                                .font(.caption2)
+                                .foregroundStyle(Color.appForeground.opacity(0.6))
+                        }
+                    }
+                } else {
+                    Text(placeholder)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Color.appForeground.opacity(0.45))
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .contentTransition(.numericText())
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.vertical, 6)
+            .background(
+                Color.appForeground.opacity(isActive ? 0.14 : 0.04),
+                in: .rect(cornerRadius: Self.gridCornerRadius)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Self.gridCornerRadius)
+                    .strokeBorder(Color.appForeground.opacity(isActive ? 0.35 : 0))
+            )
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(field == .start ? "Start" : "End")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     /// The moment zone abbreviations are read at (EST vs EDT): the chosen time, else the
@@ -274,17 +428,6 @@ struct DateTimePopup: View {
         CGFloat(zoneResults.count) * Self.zoneResultRowHeight + CGFloat(max(zoneResults.count - 1, 0))
     }
 
-    /// A "Label: value" line with the label dimmed, e.g. "Time: 3:30 PM"; a nil value
-    /// reads as a faint em dash, set a little further from the label.
-    private func valueLine(_ label: String, _ value: String?) -> some View {
-        (Text("\(label): ").foregroundStyle(Color.appForeground.opacity(0.6))
-            + (value.map { Text($0) } ?? Text(" —").foregroundStyle(Color.appForeground.opacity(0.3))))
-            .font(.subheadline.weight(.semibold))
-            .monospacedDigit()
-            .contentTransition(.numericText())
-            .padding(.horizontal, 4)
-    }
-
     /// A section per month the trip touches: the month's name over its days, inset to
     /// line up with the date and time labels.
     private func calendar(_ months: [TripCalendarGrid.Month]) -> some View {
@@ -395,6 +538,8 @@ struct DateTimePopup: View {
             .onAppear { scrollToSelectedHour(proxy) }
             // The cells resize once the calendar is measured; keep the selection centered.
             .onChange(of: dayCellSize) { scrollToSelectedHour(proxy) }
+            // Switching between start and end brings that side's hour back to center.
+            .onChange(of: activeField) { withAnimation(.snappy(duration: 0.3)) { scrollToSelectedHour(proxy) } }
         }
     }
 
@@ -484,6 +629,16 @@ struct DateTimePopup: View {
 #Preview {
     ZStack {
         Color(white: 0.3).ignoresSafeArea()
-        DateTimePopup(title: "Starts at", tripDates: .now ... .now.addingTimeInterval(9 * 86_400), date: .constant(nil), zone: .constant(nil), onClose: {})
+        DateTimePopup(
+            field: .start,
+            startPlaceholder: "Starts",
+            endPlaceholder: "Optional end time",
+            tripDates: .now ... .now.addingTimeInterval(9 * 86_400),
+            start: .constant(.now),
+            end: .constant(nil),
+            startZone: .constant(.current),
+            endZone: .constant(nil),
+            onClose: {}
+        )
     }
 }
