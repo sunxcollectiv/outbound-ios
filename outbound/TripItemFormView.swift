@@ -52,16 +52,16 @@ struct TripItemFormView: View {
     @State private var originalMemberIds: Set<String>?
     @State private var showingMemberPicker = false
     @State private var title: String
-    @State private var startsAt: Date
-    @State private var hasEndTime: Bool
-    @State private var endsAt: Date
+    /// The start wall clock; nil once cleared, which blocks saving (a start is required).
+    @State private var startsAt: Date?
+    /// The end wall clock; nil means the item has no end time.
+    @State private var endsAt: Date?
     /// The start zone, when one is known (the item's, a picked place's, or the trip's
     /// default). nil shows no zone and saves the item without one.
     @State private var startZone: TimeZone?
     /// The end zone; `nil` means "follow the start zone" until the user or a place sets it.
     @State private var endZone: TimeZone?
     @State private var notes: String
-    @State private var activeField: TimeField?
     @State private var isSaving = false
     @State private var errorMessage: String?
     /// Showing the confirmation before an existing item is deleted.
@@ -82,8 +82,6 @@ struct TripItemFormView: View {
     @State private var endPlaceText: String
     /// The destination place's time zone from Google, used to drive `endZone`.
     @State private var endPlaceZone: TimeZone?
-
-    private enum TimeField { case start, end }
 
     /// Scroll target for the error banner, so a failed save brings it into view.
     private static let errorAnchor = "error"
@@ -113,9 +111,8 @@ struct TripItemFormView: View {
         // the current places. Names that are still null get filled from Google on appear.
         _startPlaceText = State(initialValue: item?.place?.name ?? "")
         _endPlaceText = State(initialValue: item?.endPlace?.name ?? "")
-        _hasEndTime = State(initialValue: item?.endsAtLocal != nil)
         _notes = State(initialValue: item?.notes ?? "")
-        // Load the item's wall clock onto the device-zone canvas (so the picker shows
+        // Load the item's wall clock onto the device-zone canvas (so the rows show
         // the same numbers), or for a new item start on the day being viewed at the
         // current time-of-day (falling back to "now" when no day was supplied).
         // `startsAtLocal` is a floating UTC date, so reading it in UTC gives the wall clock.
@@ -123,13 +120,9 @@ struct TripItemFormView: View {
             ?? Self.canvasStart(onDay: defaultDate)
             ?? Self.roundedToMinuteInterval(Date())
         _startsAt = State(initialValue: start)
-        _endsAt = State(initialValue: Self.wallClock(of: item?.endsAtLocal, in: .gmt) ?? start)
+        _endsAt = State(initialValue: Self.wallClock(of: item?.endsAtLocal, in: .gmt))
         _startZone = State(initialValue: item == nil ? defaultZone : item?.startTimezone)
         _endZone = State(initialValue: item?.endTimezone)
-        // SwiftUI's DatePicker has no minute-interval option, so set it on the
-        // underlying UIDatePicker. This is app-wide, but the only other pickers
-        // (TripFormView) are date-only and unaffected.
-        UIDatePicker.appearance().minuteInterval = Self.minuteInterval
     }
 
     var body: some View {
@@ -197,46 +190,15 @@ struct TripItemFormView: View {
                         }
 
                         VStack(spacing: 8) {
-                            timeRow(title: startLabel, date: startsAt, field: .start)
-                            if activeField == .start {
-                                DatePicker("", selection: $startsAt, displayedComponents: [.date, .hourAndMinute])
-                                    .datePickerStyle(.graphical)
-                                    .labelsHidden()
-                                    .onChange(of: startsAt) { _, newValue in
-                                        if endsAt < newValue { endsAt = newValue }
-                                    }
+                            VStack(spacing: 6) {
+                                timeRow(title: startLabel, placeholder: "Add start", date: $startsAt)
+                                if startsAt != nil, let startZone { zoneNote(startZone) }
                             }
-
-                            if let startZone { zoneNote(startZone) }
-
-                            Divider().overlay(Color.appForeground.opacity(0.2))
-
-                            // The whole row flips the switch. On iOS 26 a bare Toggle in this
-                            // scrolling sheet ignores taps (only a drag moves it), so the row
-                            // handles the tap and the switch is just the indicator.
-                            Button {
-                                withAnimation { hasEndTime.toggle() }
-                            } label: {
-                                Toggle(kind == .lodging ? "Set check-out time" : "Set end time", isOn: .constant(hasEndTime))
-                                    .allowsHitTesting(false)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            if hasEndTime {
-                                timeRow(title: endLabel, date: endsAt, field: .end)
-                                if activeField == .end {
-                                    // No wall-clock range: a westbound leg can land at an
-                                    // earlier clock time than it departs. Ordering is checked
-                                    // on instants in `save()`.
-                                    DatePicker("", selection: $endsAt, displayedComponents: [.date, .hourAndMinute])
-                                        .datePickerStyle(.graphical)
-                                        .labelsHidden()
-                                }
-                                if let effectiveEndZone { zoneNote(effectiveEndZone) }
+                            VStack(spacing: 6) {
+                                timeRow(title: endLabel, placeholder: "Add end", date: $endsAt)
+                                if endsAt != nil, let effectiveEndZone { zoneNote(effectiveEndZone) }
                             }
                         }
-                        .padding(14)
-                        .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
 
                         // Sits right under the times (the usual cause) rather than at the
                         // bottom, where the keyboard hides it and Save looks unresponsive.
@@ -422,20 +384,31 @@ struct TripItemFormView: View {
         }
     }
 
-    /// A tappable row showing a date/time; tapping toggles the inline picker below it.
-    private func timeRow(title: String, date: Date, field: TimeField) -> some View {
-        Button {
-            withAnimation { activeField = (activeField == field) ? nil : field }
-        } label: {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(date, format: .dateTime.month().day().hour().minute())
-                    .foregroundStyle(activeField == field ? Color.appAccent : Color.appForeground)
+    /// A boxed row like the members row: the label on the left, the date/time (or a
+    /// placeholder) on the right, and a clear button once there's a value. Picking a
+    /// date isn't wired up yet.
+    private func timeRow(title: String, placeholder: String, date: Binding<Date?>) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+            Spacer()
+            if let value = date.wrappedValue {
+                Text(value, format: .dateTime.month().day().hour().minute())
+                    .foregroundStyle(Color.appForeground.opacity(0.75))
+                Button {
+                    withAnimation { date.wrappedValue = nil }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Color.appForeground.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear \(title)")
+            } else {
+                Text(placeholder)
+                    .foregroundStyle(Color.appForeground.opacity(0.45))
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .padding(14)
+        .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
     }
 
     /// A read-only caption noting the time zone a time is in, sitting under its row.
@@ -447,20 +420,26 @@ struct TripItemFormView: View {
                 .font(.caption)
                 .foregroundStyle(Color.appForeground.opacity(0.6))
         }
+        .padding(.horizontal, 4)
     }
 
     /// A friendly label for a zone, e.g. "Tokyo (JST)".
     private func zoneLabel(_ zone: TimeZone) -> String {
         let city = (zone.identifier.split(separator: "/").last.map(String.init) ?? zone.identifier)
             .replacingOccurrences(of: "_", with: " ")
-        return "\(city) (\(WallClock.zoneAbbreviation(zone, at: startsAt)))"
+        return "\(city) (\(WallClock.zoneAbbreviation(zone, at: startsAt ?? Date())))"
     }
 
     private func save() {
         let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
         guard !trimmedTitle.isEmpty else { return }
+        guard let startsAt else {
+            errorMessage = "Add a \(startLabel.lowercased()) time."
+            errorScrollTrigger += 1
+            return
+        }
         // Validate ordering on instants, not wall clocks, so cross-zone legs are allowed.
-        if hasEndTime,
+        if let endsAt,
            Self.instant(of: endsAt, in: effectiveEndZone ?? .gmt) < Self.instant(of: startsAt, in: startZone ?? .gmt) {
             errorMessage = "End time can't be before the start time."
             errorScrollTrigger += 1
@@ -474,9 +453,9 @@ struct TripItemFormView: View {
                 let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
                 let resolvedNotes = trimmedNotes.isEmpty ? nil : trimmedNotes
                 let startWall = Self.naiveString(from: startsAt)
-                let endWall = hasEndTime ? Self.naiveString(from: endsAt) : nil
+                let endWall = endsAt.map(Self.naiveString(from:))
                 let startZoneId = startZone?.identifier
-                let endZoneId = hasEndTime ? effectiveEndZone?.identifier : nil
+                let endZoneId = endsAt != nil ? effectiveEndZone?.identifier : nil
                 // End place only applies to transit (origin → destination).
                 let endPlaceId = kind == .transit ? endPlace?.id : nil
 
