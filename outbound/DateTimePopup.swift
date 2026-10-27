@@ -19,6 +19,9 @@ struct DateTimePopup: View {
     @Binding var date: Date?
     /// The zone this time is in; nil when none is set.
     @Binding var zone: TimeZone?
+    /// The itinerary day the form was opened from (midnight), marked with a dot; nil
+    /// when there isn't one, e.g. when editing an existing item.
+    private let viewedDay: Date?
     let onClose: () -> Void
 
     /// What's typed in the zone field; starts as the current zone's label.
@@ -67,11 +70,12 @@ struct DateTimePopup: View {
 
     /// `date` seeds the highlighted day, hour, minute and AM/PM (the row's current
     /// value, if set).
-    init(title: String, tripDates: ClosedRange<Date>?, date: Binding<Date?>, zone: Binding<TimeZone?>, onClose: @escaping () -> Void) {
+    init(title: String, tripDates: ClosedRange<Date>?, date: Binding<Date?>, zone: Binding<TimeZone?>, viewedDay: Date? = nil, onClose: @escaping () -> Void) {
         self.title = title
         self.tripDates = tripDates
         _date = date
         _zone = zone
+        self.viewedDay = viewedDay.map { Calendar.sundayFirst.startOfDay(for: $0) }
         self.onClose = onClose
         let date = date.wrappedValue
         _zoneQuery = State(initialValue: zone.wrappedValue.map { TimeZoneSearch.label($0, at: date ?? tripDates?.lowerBound ?? .now) } ?? "")
@@ -335,6 +339,16 @@ struct DateTimePopup: View {
                     }
                 }
                 .clipShape(.rect(cornerRadius: Self.gridCornerRadius))
+                .overlay(alignment: .topTrailing) {
+                    // Marks the day being viewed in the itinerary; black on the cream
+                    // selected fill so it stays visible there too.
+                    if day.date == viewedDay {
+                        Circle()
+                            .fill(isSelected ? Color.black : Color.white.opacity(0.6))
+                            .frame(width: 4, height: 4)
+                            .padding(4)
+                    }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

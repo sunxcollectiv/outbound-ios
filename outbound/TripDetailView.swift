@@ -175,7 +175,7 @@ struct TripDetailView: View {
             })
         }
         .sheet(item: $editingLodging) { item in
-            TripItemFormView(tripId: item.tripId, members: trip.members ?? [], tripDates: trip.dateRange, item: item) { saved in
+            TripItemFormView(tripId: item.tripId, members: trip.members ?? [], tripDates: trip.dateRange, item: item, viewedDay: selectedDay?.calendarDate) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -189,7 +189,7 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: places.resolving(item), members: trip.members ?? [], tripDates: trip.dateRange) { saved in
+            TripItemDetailView(item: places.resolving(item), members: trip.members ?? [], tripDates: trip.dateRange, viewedDay: selectedDay?.calendarDate) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)

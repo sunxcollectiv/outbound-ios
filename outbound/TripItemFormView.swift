@@ -38,6 +38,10 @@ struct TripItemFormView: View {
     /// was tapped); the time-of-day defaults to now. `nil` falls back to today.
     private let defaultDate: Date?
 
+    /// The itinerary day the form was opened from, marked in the date popup's calendar.
+    /// For a new item it's `defaultDate`; edits pass it separately.
+    private let viewedDay: Date?
+
     /// Called with the created or updated item after a successful save.
     var onSaved: (TripItem) -> Void
 
@@ -140,13 +144,14 @@ struct TripItemFormView: View {
         Binding { effectiveEndZone } set: { endZone = $0 }
     }
 
-    init(tripId: String, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+    init(tripId: String, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         self.tripId = tripId
         self.members = members
         self.tripDates = tripDates
         self.item = item
         self.defaultZone = defaultZone
         self.defaultDate = defaultDate
+        self.viewedDay = viewedDay ?? defaultDate
         self.onSaved = onSaved
         self.onDeleted = onDeleted
         _kind = State(initialValue: item?.kind ?? defaultKind)
@@ -385,6 +390,7 @@ struct TripItemFormView: View {
                     tripDates: tripDates,
                     date: editingTimeField == .start ? $startsAt : $endsAt,
                     zone: editingTimeField == .start ? $startZone : endZoneBinding,
+                    viewedDay: viewedDay,
                     onClose: closeTimePicker
                 )
             }
@@ -526,7 +532,8 @@ struct TripItemFormView: View {
             .padding(14)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+        // A shade darker while empty, so an unset time reads as a slot to fill.
+        .background(Color.appForeground.opacity(value == nil ? 0.04 : 0.08), in: .rect(cornerRadius: appFieldCornerRadius))
         // A tap gesture rather than a Button, so the clear button inside stays its own
         // target instead of nesting a button in a button.
         .contentShape(Rectangle())
