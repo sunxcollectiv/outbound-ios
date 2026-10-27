@@ -134,6 +134,12 @@ struct TripItemFormView: View {
     /// The zone actually used for the end: an explicit choice, else the start zone.
     private var effectiveEndZone: TimeZone? { endZone ?? startZone }
 
+    /// The end zone as the popup sees it: the one in effect (following the start zone
+    /// until set), and setting it makes it explicit. Clearing it follows the start again.
+    private var endZoneBinding: Binding<TimeZone?> {
+        Binding { effectiveEndZone } set: { endZone = $0 }
+    }
+
     init(tripId: String, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         self.tripId = tripId
         self.members = members
@@ -380,6 +386,7 @@ struct TripItemFormView: View {
                     title: popupTitle(for: editingTimeField),
                     tripDates: tripDates,
                     date: editingTimeField == .start ? $startsAt : $endsAt,
+                    zone: editingTimeField == .start ? $startZone : endZoneBinding,
                     onClose: closeTimePicker
                 )
             }
@@ -481,7 +488,7 @@ struct TripItemFormView: View {
     }
 
     /// A read-only caption noting the time zone a time is in, sitting under its row.
-    /// Zone selection is driven by the picked place for now; manual choice comes later.
+    /// The zone comes from a picked place or the date popup's time zone search.
     private func zoneNote(_ zone: TimeZone) -> some View {
         HStack {
             Spacer()
@@ -494,9 +501,7 @@ struct TripItemFormView: View {
 
     /// A friendly label for a zone, e.g. "Tokyo (JST)".
     private func zoneLabel(_ zone: TimeZone) -> String {
-        let city = (zone.identifier.split(separator: "/").last.map(String.init) ?? zone.identifier)
-            .replacingOccurrences(of: "_", with: " ")
-        return "\(city) (\(WallClock.zoneAbbreviation(zone, at: startsAt ?? Date())))"
+        TimeZoneSearch.label(zone, at: startsAt ?? Date())
     }
 
     private func save() {

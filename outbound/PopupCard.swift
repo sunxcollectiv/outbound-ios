@@ -23,8 +23,13 @@ struct PopupCard: ViewModifier {
             .foregroundStyle(Color.appForeground)
             .padding(20)
             .frame(maxWidth: Self.maxWidth)
-            .background(background, in: .rect(cornerRadius: Self.cornerRadius))
-            .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).strokeBorder(border))
+            // The border sits behind the content (not over it), so anything floating out
+            // past the card's edge, like a suggestion list, covers it.
+            .background {
+                RoundedRectangle(cornerRadius: Self.cornerRadius)
+                    .fill(background)
+                    .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).strokeBorder(border))
+            }
             .shadow(color: .black.opacity(0.4), radius: 24, y: 10)
             .padding(.horizontal, Self.sideMargin)
             .accessibilityElement(children: .contain)
@@ -52,6 +57,13 @@ struct DimmedPopup<Card: View>: View {
     let onClose: () -> Void
     @ViewBuilder let card: () -> Card
 
+    /// The coordinate space spanning the visible area a popup sits in, so a card can
+    /// tell how much room is left above or below a view of its own.
+    static var space: NamedCoordinateSpace { .named("DimmedPopup") }
+
+    /// Height of the visible area, which shrinks while the keyboard is up.
+    @State private var visibleHeight: CGFloat = 0
+
     var body: some View {
         ZStack {
             Color.black.opacity(0.8)
@@ -61,10 +73,17 @@ struct DimmedPopup<Card: View>: View {
                 .transition(.opacity)
             VStack(spacing: 16) {
                 card()
+                    // Above the close button, so anything floating off the card's bottom
+                    // edge (like a suggestion list) draws over it.
+                    .zIndex(1)
                 closeButton
             }
             .transition(.scale(scale: 0.94).combined(with: .opacity))
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { visibleHeight = $0 }
+        .coordinateSpace(Self.space)
+        .environment(\.popupVisibleHeight, visibleHeight)
     }
 
     private var closeButton: some View {
@@ -80,4 +99,10 @@ struct DimmedPopup<Card: View>: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Close")
     }
+}
+
+extension EnvironmentValues {
+    /// Height of the visible area a `DimmedPopup` fills (above the keyboard when it's
+    /// up), measured in `DimmedPopup.space`; zero outside a popup.
+    @Entry var popupVisibleHeight: CGFloat = 0
 }

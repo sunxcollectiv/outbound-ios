@@ -7,8 +7,9 @@ import SwiftUI
 
 /// A centered black card for picking an item's start or end, shown over the item
 /// form when its date row is tapped. Shows the trip's days as a Sunday–Saturday
-/// calendar, then the hours, minutes and AM/PM. Each choice is written straight back
-/// to `date` once both a day and an hour are picked, so closing keeps it.
+/// calendar, then the hours, minutes and AM/PM, then a time zone search. Each choice
+/// is written straight back to `date` once both a day and an hour are picked, and a
+/// picked zone straight to `zone`, so closing keeps them.
 struct DateTimePopup: View {
     /// Leads the date line at the top, e.g. "Starts at" or "Check-out at".
     let title: String
@@ -16,7 +17,17 @@ struct DateTimePopup: View {
     let tripDates: ClosedRange<Date>?
     /// The row's value, as a wall clock on the device-zone canvas the form uses.
     @Binding var date: Date?
+    /// The zone this time is in; nil when none is set.
+    @Binding var zone: TimeZone?
     let onClose: () -> Void
+
+    /// What's typed in the zone field; starts as the current zone's label.
+    @State private var zoneQuery: String
+    @FocusState private var isZoneFieldFocused: Bool
+    /// Bottom edge of the zone field in the popup's visible area, to decide which way
+    /// the suggestions open.
+    @State private var zoneFieldBottom: CGFloat = 0
+    @Environment(\.popupVisibleHeight) private var popupVisibleHeight
 
     /// The highlighted day (midnight, as in the calendar grid), shown on the date
     /// line; nil until the row has a value or a day is tapped.
@@ -47,15 +58,23 @@ struct DateTimePopup: View {
     private static let hourFadeWidth: CGFloat = 100
     /// How dark the fade gets at the very ends, so edge hours stay faintly visible.
     private static let hourFadeOpacity: Double = 0.6
+    private static let zoneFieldHeight: CGFloat = 44
+    private static let zoneResultRowHeight: CGFloat = 40
+    /// Space between the zone field and its floating suggestions.
+    private static let zoneResultsGap: CGFloat = 4
+    /// Room the suggestions keep clear of the visible area's edge before flipping.
+    private static let zoneResultsEdgeMargin: CGFloat = 16
 
     /// `date` seeds the highlighted day, hour, minute and AM/PM (the row's current
     /// value, if set).
-    init(title: String, tripDates: ClosedRange<Date>?, date: Binding<Date?>, onClose: @escaping () -> Void) {
+    init(title: String, tripDates: ClosedRange<Date>?, date: Binding<Date?>, zone: Binding<TimeZone?>, onClose: @escaping () -> Void) {
         self.title = title
         self.tripDates = tripDates
         _date = date
+        _zone = zone
         self.onClose = onClose
         let date = date.wrappedValue
+        _zoneQuery = State(initialValue: zone.wrappedValue.map { TimeZoneSearch.label($0, at: date ?? .now) } ?? "")
         _selectedDay = State(initialValue: date.map { Calendar.sundayFirst.startOfDay(for: $0) })
         let parts = date.map { Calendar.current.dateComponents([.hour, .minute], from: $0) }
         // Snap to the nearest quarter so an off-grid time still highlights a choice.
@@ -119,12 +138,129 @@ struct DateTimePopup: View {
                 hourRow
                 minuteRow
             }
+
+            zoneField
         }
         // Black with a light gray edge so the card stands out against the dimmed form.
         .popupCard(background: .black, border: .white.opacity(0.3), onClose: onClose)
         .onChange(of: selectedDate) { _, newDate in
             if let newDate { date = newDate }
         }
+    }
+
+    /// Zones matching what's typed, hidden once the text is the chosen zone's label.
+    private var zoneResults: [TimeZone] {
+        guard isZoneFieldFocused, zoneQuery != zone.map(zoneLabel) else { return [] }
+        return TimeZoneSearch.matches(zoneQuery, at: date ?? .now)
+    }
+
+    private func zoneLabel(_ zone: TimeZone) -> String {
+        TimeZoneSearch.label(zone, at: date ?? .now)
+    }
+
+    /// A search field for the time zone, kept dark with a light outline. Matches float
+    /// in a list over the card rather than growing it: below the field, or above it
+    /// when there isn't room below (say, with the keyboard up). Clearing it removes the zone.
+    private var zoneField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "globe")
+                .foregroundStyle(Color.appForeground.opacity(0.5))
+            TextField(
+                "",
+                text: $zoneQuery,
+                prompt: Text("Timezone (optional)").foregroundStyle(Color.appForeground.opacity(0.4))
+            )
+            .textFieldStyle(.plain)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .submitLabel(.done)
+            .focused($isZoneFieldFocused)
+            if !zoneQuery.isEmpty {
+                Button {
+                    zoneQuery = ""
+                    zone = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Color.appForeground.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear time zone")
+            }
+        }
+        .font(.subheadline)
+        .padding(.horizontal, 12)
+        .frame(height: Self.zoneFieldHeight)
+        .overlay(
+            RoundedRectangle(cornerRadius: Self.gridCornerRadius)
+                .strokeBorder(Color.appForeground.opacity(0.25))
+        )
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: DimmedPopup<EmptyView>.space).maxY } action: {
+            zoneFieldBottom = $0
+        }
+        .overlay(alignment: showsZoneResultsAbove ? .bottom : .top) {
+            if !zoneResults.isEmpty {
+                // Start level with the field, then slide a field's height (plus a small
+                // gap) up or down so the list sits just clear of it.
+                zoneResultsList
+                    .fixedSize(horizontal: false, vertical: true)
+                    .offset(y: (Self.zoneFieldHeight + Self.zoneResultsGap) * (showsZoneResultsAbove ? -1 : 1))
+            }
+        }
+    }
+
+    /// The floating list of matching zones.
+    private var zoneResultsList: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(zoneResults.enumerated()), id: \.element.identifier) { index, match in
+                if index > 0 {
+                    Rectangle()
+                        .fill(Color.appForeground.opacity(0.12))
+                        .frame(height: 1)
+                }
+                Button {
+                    zone = match
+                    zoneQuery = zoneLabel(match)
+                    isZoneFieldFocused = false
+                } label: {
+                    HStack {
+                        Text(TimeZoneSearch.city(match))
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                        Spacer(minLength: 12)
+                        // Long ids (America/North_Dakota/New_Salem) shorten in the middle,
+                        // keeping the abbreviation at the end readable.
+                        Text("\(match.identifier) · \(WallClock.zoneAbbreviation(match, at: date ?? .now))")
+                            .font(.caption)
+                            .foregroundStyle(Color.appForeground.opacity(0.5))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 12)
+                    .frame(height: Self.zoneResultRowHeight)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(Color(white: 0.08), in: .rect(cornerRadius: Self.gridCornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: Self.gridCornerRadius)
+                .strokeBorder(Color.appForeground.opacity(0.25))
+        )
+        .shadow(color: .black.opacity(0.5), radius: 16, y: 8)
+    }
+
+    /// Whether the suggestion list opens above the field: when the room left below it
+    /// in the visible area (above the keyboard, when it's up) can't fit the list.
+    private var showsZoneResultsAbove: Bool {
+        let roomBelow = popupVisibleHeight - zoneFieldBottom - Self.zoneResultsEdgeMargin
+        return popupVisibleHeight > 0 && roomBelow < zoneResultsHeight + Self.zoneResultsGap
+    }
+
+    /// Height of the suggestion list: its fixed-height rows plus the dividers between.
+    private var zoneResultsHeight: CGFloat {
+        CGFloat(zoneResults.count) * Self.zoneResultRowHeight + CGFloat(max(zoneResults.count - 1, 0))
     }
 
     /// A "Label: value" line with the label dimmed, e.g. "Time: 3:30 PM"; a nil value
@@ -263,7 +399,7 @@ struct DateTimePopup: View {
                 .accessibilityLabel("\(minute) minutes")
             }
             Rectangle()
-                .fill(Color.appForeground.opacity(0.15))
+                .fill(Color.appForeground.opacity(0.3))
                 .frame(width: 1, height: 20)
                 // On top of the columns' own centering gap, to set AM/PM further apart.
                 .padding(.horizontal, 16)
@@ -327,6 +463,6 @@ struct DateTimePopup: View {
 #Preview {
     ZStack {
         Color(white: 0.3).ignoresSafeArea()
-        DateTimePopup(title: "Starts at", tripDates: .now ... .now.addingTimeInterval(9 * 86_400), date: .constant(nil), onClose: {})
+        DateTimePopup(title: "Starts at", tripDates: .now ... .now.addingTimeInterval(9 * 86_400), date: .constant(nil), zone: .constant(nil), onClose: {})
     }
 }
