@@ -20,26 +20,29 @@ struct DateTimePopup: View {
     @State private var calendarHeight: CGFloat = 0
     /// The highlighted hour on a 12-hour clock (1–12), if any.
     @State private var selectedHour: Int?
-    /// Minutes and AM/PM carried over from the row's current value, since the popup
-    /// only picks 1–12 for now.
-    private let minute: Int
-    private let isPM: Bool
+    /// The highlighted minute, one of `minutes`.
+    @State private var selectedMinute: Int
+    /// Whether the selected time is PM rather than AM.
+    @State private var isPM: Bool
 
     private static let cellSpacing: CGFloat = 6
     private static let columns = Array(repeating: GridItem(.flexible(), spacing: cellSpacing), count: 7)
     private static let hours = Array(1...12)
+    private static let minutes = [0, 15, 30, 45]
     /// Hour cells share one fixed width so the box scrolls rather than squeezing 12 in.
     private static let hourCellWidth: CGFloat = 48
     private static let hourRowHeight: CGFloat = 44
 
-    /// `date` seeds the highlighted hour (the row's current value, if set).
+    /// `date` seeds the highlighted hour, minute and AM/PM (the row's current value, if set).
     init(title: String, tripDates: ClosedRange<Date>?, date: Date? = nil, onClose: @escaping () -> Void) {
         self.title = title
         self.tripDates = tripDates
         self.onClose = onClose
         let parts = date.map { Calendar.current.dateComponents([.hour, .minute], from: $0) }
-        minute = parts?.minute ?? 0
-        isPM = (parts?.hour ?? 0) >= 12
+        // Snap to the nearest quarter so an off-grid time still highlights a choice.
+        let minute = parts?.minute ?? 0
+        _selectedMinute = State(initialValue: Self.minutes.min { abs($0 - minute) < abs($1 - minute) } ?? 0)
+        _isPM = State(initialValue: (parts?.hour ?? 0) >= 12)
         if let hour = parts?.hour {
             _selectedHour = State(initialValue: hour % 12 == 0 ? 12 : hour % 12)
         }
@@ -48,7 +51,7 @@ struct DateTimePopup: View {
     /// The selected time, e.g. "3:30 PM", or nil when no hour is selected.
     private var selectedTimeText: String? {
         guard let selectedHour else { return nil }
-        return String(format: "%d:%02d %@", selectedHour, minute, isPM ? "PM" : "AM")
+        return String(format: "%d:%02d %@", selectedHour, selectedMinute, isPM ? "PM" : "AM")
     }
 
     var body: some View {
@@ -95,6 +98,7 @@ struct DateTimePopup: View {
                     .contentTransition(.numericText())
                     .padding(.horizontal, 4)
                 hourRow
+                minuteRow
             }
         }
         .foregroundStyle(Color.appForeground)
@@ -171,6 +175,42 @@ struct DateTimePopup: View {
                 if let selectedHour { proxy.scrollTo(selectedHour, anchor: .center) }
             }
         }
+    }
+
+    /// The quarter-hour minutes, then AM/PM after a thin divider, as plain text spread
+    /// across the row: the selected choices in full white, the rest at half opacity.
+    private var minuteRow: some View {
+        HStack(spacing: 0) {
+            ForEach(Self.minutes, id: \.self) { minute in
+                textChoice(String(format: "%02d", minute), isSelected: selectedMinute == minute) {
+                    selectedMinute = minute
+                }
+                .accessibilityLabel("\(minute) minutes")
+            }
+            Rectangle()
+                .fill(Color.appForeground.opacity(0.15))
+                .frame(width: 1, height: 20)
+                // On top of the columns' own centering gap, to set AM/PM further apart.
+                .padding(.horizontal, 16)
+            textChoice("AM", isSelected: !isPM) { isPM = false }
+            textChoice("PM", isSelected: isPM) { isPM = true }
+        }
+    }
+
+    /// A tappable plain-text choice, full white when selected and half opacity otherwise.
+    private func textChoice(_ label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.snappy(duration: 0.15), action)
+        } label: {
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(Color.white.opacity(isSelected ? 1 : 0.5))
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     /// A tappable hour, filled edge to edge when selected.
