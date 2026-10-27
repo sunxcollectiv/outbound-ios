@@ -212,7 +212,7 @@ struct TripItemFormView: View {
                         }
 
                         TextField("Title", text: $title)
-                            .textInputAutocapitalization(.words)
+                            .textInputAutocapitalization(.never)
                             .appField()
 
                         VStack(alignment: .leading, spacing: 8) {
