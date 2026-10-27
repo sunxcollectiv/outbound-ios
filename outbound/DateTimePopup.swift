@@ -90,6 +90,12 @@ struct DateTimePopup: View {
                     .padding(.horizontal, 4)
             }
 
+            // Sets the date section apart from the time below it.
+            Rectangle()
+                .fill(Color.appForeground.opacity(0.12))
+                .frame(height: 1)
+                .accessibilityHidden(true)
+
             VStack(alignment: .leading, spacing: 8) {
                 valueLine("Time", selectedTimeText)
                 hourRow
@@ -100,7 +106,8 @@ struct DateTimePopup: View {
         .padding(20)
         .frame(maxWidth: 360)
         .background(Color.black, in: .rect(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.08)))
+        // A light gray edge so the black card stands out against the dimmed form.
+        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.3)))
         .shadow(color: .black.opacity(0.4), radius: 24, y: 10)
         .padding(.horizontal, 24)
         .accessibilityElement(children: .contain)
