@@ -281,67 +281,26 @@ struct TripItemFormView: View {
         .onAppear(perform: seedSelectedMembers)
     }
 
-    /// The signed-in user's row on this trip, if they're on it.
-    private var currentMember: TripMember? {
-        members.first { $0.user?.id != nil && $0.user?.id == auth.currentUser?.id }
+    private var memberSelection: ItemMemberSelection {
+        ItemMemberSelection(members: members, currentUserId: auth.currentUser?.id)
     }
 
-    /// The member a personal item belongs to: its creator, or the signed-in user for a
-    /// new item. The server always keeps them in, so their row can't be unchecked.
-    private var ownerMember: TripMember? {
-        guard let ownerId = item.map({ $0.createdBy?.id }) ?? auth.currentUser?.id else { return nil }
-        return members.first { $0.user?.id == ownerId }
-    }
-
-    /// A new or group item starts with everyone; a personal one with whoever's in.
     private func seedSelectedMembers() {
         guard selectedMemberIds == nil else { return }
-        let seeded: Set<String>
-        if let item, item.scope == .personal {
-            let joined = item.participants.filter { $0.status != .declined }.map(\.member.id)
-            seeded = Set(joined + [ownerMember?.id].compactMap { $0 })
-        } else {
-            seeded = Set(members.map(\.id))
-        }
+        let seeded = memberSelection.initialSelection(for: item)
         selectedMemberIds = seeded
         originalMemberIds = seeded
     }
 
-    /// How the selection is saved. Everyone, picked by an organizer, is a group item
-    /// (only organizers may post those); any other pick is a personal item for the
-    /// chosen members. On an edit, nil when the selection is unchanged, so the item's
-    /// scope and RSVPs are left alone.
+    /// The `scope` + `participants` to send. On an edit, nil when the selection is
+    /// unchanged, so the item's scope and RSVPs are left alone.
     private var membersToSave: (scope: TripItemScope, participants: [TripItemsAPI.ParticipantRequest]?)? {
         // Without a roster (a backend that doesn't send members) keep the old default.
         guard !members.isEmpty, let selected = selectedMemberIds else {
             return item == nil ? (.group, nil) : nil
         }
         if item != nil, selected == originalMemberIds { return nil }
-        if selected.count == members.count, currentMember?.role == .organizer {
-            return (.group, nil)
-        }
-        // Roster order, so the request is stable.
-        let going = members.filter { selected.contains($0.id) }
-            .map { TripItemsAPI.ParticipantRequest(memberId: $0.id, status: .going) }
-        return (.personal, going)
-    }
-
-    /// "Everyone", "Just you", "You and 2 others", or a head count without you.
-    private var membersSummary: String {
-        let selected = selectedMemberIds ?? []
-        let includesYou = currentMember.map { selected.contains($0.id) } ?? false
-        let others = selected.count - (includesYou ? 1 : 0)
-        // A trip without a loaded roster only has the user creating the item.
-        if members.isEmpty { return "Just you" }
-        if selected.isEmpty { return "No one" }
-        if selected.count == members.count && members.count > 1 { return "Everyone" }
-        switch (includesYou, others) {
-        case (true, 0): return "Just you"
-        case (true, 1): return "You and 1 other"
-        case (true, _): return "You and \(others) others"
-        case (false, 1): return "1 person"
-        case (false, _): return "\(others) people"
-        }
+        return memberSelection.saved(selected)
     }
 
     /// A one-line row summarizing who the item is for; tapping it opens the picker.
@@ -352,7 +311,7 @@ struct TripItemFormView: View {
             HStack {
                 Text("Members")
                 Spacer()
-                Text(membersSummary)
+                Text(memberSelection.summary(of: selectedMemberIds ?? []))
                     .foregroundStyle(Color.appForeground.opacity(0.75))
             }
             .padding(14)
@@ -379,7 +338,7 @@ struct TripItemFormView: View {
                 ItemMembersPopup(
                     members: members,
                     currentUserId: auth.currentUser?.id,
-                    lockedId: ownerMember?.id,
+                    lockedId: memberSelection.ownerMember(of: item)?.id,
                     selectedIds: Binding { selectedMemberIds ?? [] } set: { selectedMemberIds = $0 },
                     onClose: closeMemberPicker
                 )

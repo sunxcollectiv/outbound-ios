@@ -83,6 +83,7 @@ struct TripDetailView: View {
     private static let topFadeReach: CGFloat = 60
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var auth
 
     private let api = APIClient.shared
 
@@ -565,16 +566,23 @@ struct TripDetailView: View {
     // MARK: - Rows
 
     private func itemRow(_ entry: ItineraryEntry, topFade: CGFloat) -> some View {
-        ItineraryEntryCard(entry: entry, places: places, placeDetails: placeDetails)
-            .contentShape(.rect)
-            // Every entry of an item (each end, each layover) opens the same record.
-            .onTapGesture { selectedItem = entry.item }
-            .mask {
-                GeometryReader { geo in
-                    let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
-                    cardFadeGradient(cardFrame: geo.frame(in: .named(Self.detailSpace)), detailHeight: detailHeight, topFade: topFade)
-                }
+        let going = memberSelection.initialSelection(for: entry.item)
+        return ItineraryEntryCard(
+            entry: entry,
+            places: places,
+            placeDetails: placeDetails,
+            membersSummary: memberSelection.summary(of: going),
+            membersCount: going.count
+        )
+        .contentShape(.rect)
+        // Every entry of an item (each end, each layover) opens the same record.
+        .onTapGesture { selectedItem = entry.item }
+        .mask {
+            GeometryReader { geo in
+                let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
+                cardFadeGradient(cardFrame: geo.frame(in: .named(Self.detailSpace)), detailHeight: detailHeight, topFade: topFade)
             }
+        }
     }
 
     /// A per-card vertical gradient that fades the card as it scrolls into either band
@@ -733,6 +741,10 @@ struct TripDetailView: View {
                 .transition(.scale(scale: 0.94).combined(with: .opacity))
             }
         }
+    }
+
+    private var memberSelection: ItemMemberSelection {
+        ItemMemberSelection(members: trip.members ?? [], currentUserId: auth.currentUser?.id)
     }
 
     private func closeAddLodgingPopup() {
