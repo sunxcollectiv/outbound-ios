@@ -50,8 +50,11 @@ struct TripDetailView: View {
     @State private var selectedItem: TripItem?
     /// The stay whose lodging popup is open, from tapping its lodging bar.
     @State private var popupLodging: TripItem?
-    /// A stay opened straight into its edit form, from the lodging popup.
-    @State private var editingLodging: TripItem?
+    /// An item opened straight into its edit form: long-pressing its card or lodging
+    /// strip, or Edit in the lodging popup.
+    @State private var editingItem: TripItem?
+    /// Bumped on each long press, to play a haptic as the edit form opens.
+    @State private var editHaptic = 0
     /// The day whose add-lodging popup is open, from tapping its empty lodging strip.
     @State private var addLodgingDay: ItineraryDay?
     /// Showing the photo picker for a screenshot of a booking, from the add-lodging popup
@@ -174,7 +177,8 @@ struct TripDetailView: View {
                 Task { await load(focusItemId: saved.id) }
             })
         }
-        .sheet(item: $editingLodging) { item in
+        .sensoryFeedback(.impact(weight: .medium), trigger: editHaptic)
+        .sheet(item: $editingItem) { item in
             TripItemFormView(tripId: item.tripId, members: trip.members ?? [], tripDates: trip.dateRange, item: item, viewedDay: selectedDay?.calendarDate) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
@@ -565,6 +569,12 @@ struct TripDetailView: View {
 
     // MARK: - Rows
 
+    /// Opens an item's edit form directly, with a haptic tap to confirm the long press.
+    private func editItem(_ item: TripItem) {
+        editHaptic += 1
+        editingItem = places.resolving(item)
+    }
+
     private func itemRow(_ entry: ItineraryEntry, topFade: CGFloat) -> some View {
         let going = memberSelection.initialSelection(for: entry.item)
         return ItineraryEntryCard(
@@ -578,8 +588,11 @@ struct TripDetailView: View {
             isCondensed: entry.item.visibility == .open && memberSelection.includesCurrentUser(entry.item) == false
         )
         .contentShape(.rect)
-        // Every entry of an item (each end, each layover) opens the same record.
+        // Every entry of an item (each end, each layover) opens the same record; a
+        // long press skips the detail view and goes straight to editing it.
         .onTapGesture { selectedItem = entry.item }
+        .onLongPressGesture { editItem(entry.item) }
+        .accessibilityAction(named: "Edit") { editItem(entry.item) }
         .mask {
             GeometryReader { geo in
                 let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
@@ -732,7 +745,7 @@ struct TripDetailView: View {
                     googlePlaceId: place?.googlePlaceId,
                     onEdit: {
                         closeLodgingPopup()
-                        editingLodging = places.resolving(item)
+                        editingItem = places.resolving(item)
                     },
                     onClose: closeLodgingPopup
                 )
@@ -804,10 +817,12 @@ struct TripDetailView: View {
         .frame(maxWidth: .infinity)
         .contentShape(.rect)
         .onTapGesture { showLodgingPopup(stay.item) }
+        .onLongPressGesture { editItem(stay.item) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(lodgingName(stay)), \(stay.phase.label)")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { showLodgingPopup(stay.item) }
+        .accessibilityAction(named: "Edit") { editItem(stay.item) }
     }
 
     private var lodgingArrow: some View {
