@@ -170,7 +170,7 @@ struct TripDetailView: View {
             Task { await importScreenshot(item) }
         }
         .sheet(item: $addItemRequest) { request in
-            TripItemFormView(tripId: trip.id, members: trip.members ?? [], tripDates: trip.dateRange, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
+            TripItemFormView(tripId: trip.id, members: trip.members ?? [], tripDates: trip.dateRange, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
         }
@@ -872,31 +872,6 @@ struct TripDetailView: View {
     /// The day currently shown in the pager.
     private var selectedDay: ItineraryDay? {
         days?.first(where: { $0.dayNumber == selection })
-    }
-
-    /// The zones of the currently shown day, used as a fallback for the add-item picker.
-    private var selectedDayTimeZones: [TimeZone] {
-        guard let date = selectedDay?.date else { return [] }
-        return dayTimeZones[date] ?? []
-    }
-
-    /// The zone a newly added item should default to: the zone the traveler is in at the
-    /// end of the chronologically last item (its end zone, else its start zone). Falls
-    /// back to the selected day's zone when the trip has no items yet or the last one
-    /// is zoneless.
-    private var defaultNewItemZone: TimeZone? {
-        // Zoneless items are ordered by their wall clock read in their day's zone.
-        let timed = (days ?? []).flatMap { day in
-            let fallback = dayTimeZones[day.date]?.first ?? .current
-            return day.uniqueItems.map { item in
-                (item, item.endInstant(fallbackZone: fallback) ?? item.startInstant(fallbackZone: fallback))
-            }
-        }
-        if let last = timed.max(by: { $0.1 < $1.1 })?.0,
-           let zone = last.endTimezone ?? last.startTimezone {
-            return zone
-        }
-        return selectedDayTimeZones.first
     }
 
     /// The day to show after a reload: the day holding the just-saved item when given,

@@ -13,9 +13,8 @@ import SwiftUI
 /// The zone is chosen separately, so changing it keeps the wall time and only moves
 /// the underlying instant — matching the server's "right time, wrong zone" fix.
 ///
-/// Pass an existing `item` to edit it; omit it to create a new one. `defaultZone`
-/// is the zone a new item's start defaults to — the zone the traveler ends up in
-/// after the chronologically last item, so a new item continues from there.
+/// Pass an existing `item` to edit it; omit it to create a new one. A new item starts
+/// with no time zones; each side gets one only when it's picked (or comes from a place).
 struct TripItemFormView: View {
     let tripId: String
 
@@ -30,9 +29,6 @@ struct TripItemFormView: View {
 
     /// The item being edited, or `nil` when creating a new one.
     private let item: TripItem?
-
-    /// The zone a new item's start defaults to (from the last item chronologically).
-    private let defaultZone: TimeZone?
 
     /// The calendar day a new item's start defaults to (the day being viewed when add
     /// was tapped); the time-of-day defaults to now. `nil` falls back to today.
@@ -129,21 +125,11 @@ struct TripItemFormView: View {
         kind == .activity ? "Optional end time" : endLabel
     }
 
-    /// The zone actually used for the end: an explicit choice, else the start zone.
-    private var effectiveEndZone: TimeZone? { endZone ?? startZone }
-
-    /// The end zone as the popup sees it: the one in effect (following the start zone
-    /// until set), and setting it makes it explicit. Clearing it follows the start again.
-    private var endZoneBinding: Binding<TimeZone?> {
-        Binding { effectiveEndZone } set: { endZone = $0 }
-    }
-
-    init(tripId: String, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+    init(tripId: String, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         self.tripId = tripId
         self.members = members
         self.tripDates = tripDates
         self.item = item
-        self.defaultZone = defaultZone
         self.defaultDate = defaultDate
         self.viewedDay = viewedDay ?? defaultDate
         self.onSaved = onSaved
@@ -166,7 +152,7 @@ struct TripItemFormView: View {
             ?? Self.roundedToMinuteInterval(Date())
         _startsAt = State(initialValue: start)
         _endsAt = State(initialValue: Self.wallClock(of: item?.endsAtLocal, in: .gmt))
-        _startZone = State(initialValue: item == nil ? defaultZone : item?.startTimezone)
+        _startZone = State(initialValue: item?.startTimezone)
         _endZone = State(initialValue: item?.endTimezone)
         // SwiftUI can't color segmented picker labels, so set them on the underlying
         // UISegmentedControl: light labels to read on the dark gray sheet, dark on the
@@ -245,8 +231,8 @@ struct TripItemFormView: View {
                         }
 
                         HStack(spacing: 8) {
-                            timeBlock(title: startLabel, placeholder: "Add start", date: $startsAt, zone: startZone, field: .start)
-                            timeBlock(title: endLabel, placeholder: "Add end", date: $endsAt, zone: effectiveEndZone, field: .end)
+                            timeBlock(title: startLabel, placeholder: "Add start", date: $startsAt, zone: $startZone, field: .start)
+                            timeBlock(title: endLabel, placeholder: "Add end", date: $endsAt, zone: $endZone, field: .end)
                         }
 
                         // Sits right under the times (the usual cause) rather than at the
@@ -387,7 +373,7 @@ struct TripItemFormView: View {
                     start: $startsAt,
                     end: $endsAt,
                     startZone: $startZone,
-                    endZone: endZoneBinding,
+                    endZone: $endZone,
                     viewedDay: viewedDay,
                     onClose: closeTimePicker
                 )
@@ -462,8 +448,9 @@ struct TripItemFormView: View {
     /// zone's short code. The time line always keeps its space, so
     /// both blocks stay the same height whether or not they're set. Tapping the block
     /// opens its date popup.
-    private func timeBlock(title: String, placeholder: String, date: Binding<Date?>, zone: TimeZone?, field: TimeField) -> some View {
+    private func timeBlock(title: String, placeholder: String, date: Binding<Date?>, zone zoneBinding: Binding<TimeZone?>, field: TimeField) -> some View {
         let value = date.wrappedValue
+        let zone = zoneBinding.wrappedValue
         return VStack(alignment: .leading, spacing: 0) {
             // The label and clear button sit in their own header above a thin rule,
             // a little tighter than the date and time below.
@@ -476,7 +463,11 @@ struct TripItemFormView: View {
                 Spacer(minLength: 4)
                 if value != nil {
                     Button {
-                        withAnimation { date.wrappedValue = nil }
+                        // Clearing a time clears everything about it, its zone included.
+                        withAnimation {
+                            date.wrappedValue = nil
+                            zoneBinding.wrappedValue = nil
+                        }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(Color.appForeground.opacity(0.5))
@@ -549,7 +540,8 @@ struct TripItemFormView: View {
         }
         // Validate ordering on instants, not wall clocks, so cross-zone legs are allowed.
         if let endsAt,
-           Self.instant(of: endsAt, in: effectiveEndZone ?? .gmt) < Self.instant(of: startsAt, in: startZone ?? .gmt) {
+           // An end without a zone is taken to be in the start's zone, just for this check.
+           Self.instant(of: endsAt, in: endZone ?? startZone ?? .gmt) < Self.instant(of: startsAt, in: startZone ?? .gmt) {
             errorMessage = "End time can't be before the start time."
             errorScrollTrigger += 1
             return
@@ -564,7 +556,7 @@ struct TripItemFormView: View {
                 let startWall = Self.naiveString(from: startsAt)
                 let endWall = endsAt.map(Self.naiveString(from:))
                 let startZoneId = startZone?.identifier
-                let endZoneId = endsAt != nil ? effectiveEndZone?.identifier : nil
+                let endZoneId = endsAt != nil ? endZone?.identifier : nil
                 // End place only applies to transit (origin → destination).
                 let endPlaceId = kind == .transit ? endPlace?.id : nil
 
