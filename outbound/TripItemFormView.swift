@@ -123,12 +123,18 @@ struct TripItemFormView: View {
         _endsAt = State(initialValue: Self.wallClock(of: item?.endsAtLocal, in: .gmt))
         _startZone = State(initialValue: item == nil ? defaultZone : item?.startTimezone)
         _endZone = State(initialValue: item?.endTimezone)
+        // SwiftUI can't color segmented picker labels, so set them on the underlying
+        // UISegmentedControl: light labels to read on the dark gray sheet, dark on the
+        // white selected pill. This is app-wide, but these are the only segmented pickers.
+        let segments = UISegmentedControl.appearance()
+        segments.setTitleTextAttributes([.foregroundColor: UIColor(Color.appForeground)], for: .normal)
+        segments.setTitleTextAttributes([.foregroundColor: UIColor.black], for: .selected)
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.appBackground.ignoresSafeArea()
+                Color.sheetBackground.ignoresSafeArea()
                 ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 20) {
@@ -230,7 +236,7 @@ struct TripItemFormView: View {
             .foregroundStyle(Color.appForeground)
             .navigationTitle(isEditing ? "Edit Item" : "New Item")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color.appBackground, for: .navigationBar)
+            .toolbarBackground(Color.sheetBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
