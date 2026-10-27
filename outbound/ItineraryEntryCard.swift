@@ -23,6 +23,9 @@ import SwiftUI
 /// `membersSummary` (e.g. "You and 2 others") shows in a box under the kind label on
 /// the item's own card, in place of the assignee avatar. Derived moments and layovers
 /// don't show it. Nil keeps the avatar.
+///
+/// `isCondensed` swaps the item's own card for a light one-line one — time, title and
+/// members — for items others are doing that you can see but aren't on.
 struct ItineraryEntryCard: View {
     let entry: ItineraryEntry
     let places: ItineraryPlaces
@@ -30,6 +33,11 @@ struct ItineraryEntryCard: View {
     var membersSummary: String? = nil
     /// How many are going, which picks the box's icon.
     var membersCount: Int = 0
+    var isCondensed = false
+
+    /// The condensed card's title: a point under subheadline (15pt), scaled with
+    /// Dynamic Type like the text styles around it.
+    @ScaledMetric(relativeTo: .subheadline) private var condensedTitleSize: CGFloat = 14
 
     private var item: TripItem { entry.item }
     /// The place this entry is at, from the itinerary's shared copy.
@@ -43,7 +51,9 @@ struct ItineraryEntryCard: View {
         case .layover:
             compactCard(badge: badge, title: nil, detail: transitDetail, place: place, style: .light)
         default:
-            if item.kind == .transit {
+            if isCondensed {
+                condensedCard
+            } else if item.kind == .transit {
                 compactCard(badge: badge, title: item.title, detail: transitDetail, place: place, showsMembers: true)
             } else if let photo = place?.coverPhoto {
                 coverCard(photo)
@@ -178,6 +188,33 @@ struct ItineraryEntryCard: View {
     }
 
     // MARK: - Compact cards
+
+    /// An item you can see but aren't on, kept out of the way: one line with the time,
+    /// the title (or its kind, if it has none) and the members, in white on a mostly
+    /// see-through card with a white border.
+    private var condensedCard: some View {
+        let title = item.title.trimmingCharacters(in: .whitespaces)
+        return HStack(spacing: 10) {
+            Text(time)
+                .font(.caption.weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.75))
+            Text(title.isEmpty ? item.kind.label : title)
+                .font(.system(size: condensedTitleSize, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let membersSummary {
+                membersBox(membersSummary, tint: Color(white: 0.85))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.3), in: .rect(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white, lineWidth: 0.5))
+        .padding(.vertical, 6)
+    }
 
     /// A derived moment of an item rather than the item itself: a light card headed by
     /// where it happens, with the item named top-right for reference — or its kind,

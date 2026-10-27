@@ -39,6 +39,14 @@ struct ItemMemberSelectionTests {
         #expect(selection.initialSelection(for: item(participants: [])).isEmpty)
     }
 
+    @Test func knowsWhetherYouAreOnAnItem() {
+        let selection = ItemMemberSelection(members: members, currentUserId: "u1")
+        #expect(selection.includesCurrentUser(item(participants: [("m1", nil)])) == true)
+        #expect(selection.includesCurrentUser(item(participants: [("m2", .going)])) == false)
+        // Without a roster there's no telling.
+        #expect(ItemMemberSelection(members: [], currentUserId: "u1").includesCurrentUser(item(participants: [])) == nil)
+    }
+
     @Test func summaries() {
         let selection = ItemMemberSelection(members: members, currentUserId: "u1")
         #expect(selection.summary(of: ["m1", "m2", "m3"]) == "Everyone")

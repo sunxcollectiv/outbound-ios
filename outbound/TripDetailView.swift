@@ -573,7 +573,9 @@ struct TripDetailView: View {
             placeDetails: placeDetails,
             // A redacted item's participants are blanked, so there's no one to count.
             membersSummary: entry.item.redacted ? nil : memberSelection.summary(of: going),
-            membersCount: going.count
+            membersCount: going.count,
+            // Open items others are doing shrink to a one-line card.
+            isCondensed: entry.item.visibility == .open && memberSelection.includesCurrentUser(entry.item) == false
         )
         .contentShape(.rect)
         // Every entry of an item (each end, each layover) opens the same record.

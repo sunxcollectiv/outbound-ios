@@ -19,6 +19,13 @@ struct ItemMemberSelection {
         members.first { $0.user?.id != nil && $0.user?.id == currentUserId }
     }
 
+    /// Whether the signed-in user is one of the item's participants. Nil when that can't
+    /// be told: no roster, or the user isn't on the trip.
+    func includesCurrentUser(_ item: TripItem) -> Bool? {
+        guard let currentMember else { return nil }
+        return item.participants.contains { $0.member.id == currentMember.id }
+    }
+
     /// A new item starts with everyone; an existing one with exactly its participants.
     func initialSelection(for item: TripItem?) -> Set<String> {
         guard let item else { return Set(members.map(\.id)) }
