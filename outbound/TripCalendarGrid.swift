@@ -42,6 +42,31 @@ struct TripCalendarGrid {
         }
         weeks = stride(from: 0, to: days.count, by: 7).map { Array(days[$0..<min($0 + 7, days.count)]) }
     }
+
+    /// One calendar month of a trip: the month's first day and a grid of just the trip
+    /// days in that month (days of neighboring months pad the weeks, outside the trip).
+    struct Month: Identifiable {
+        let start: Date
+        let grid: TripCalendarGrid
+        var id: Date { start }
+    }
+
+    /// Splits `start` through `end` into a grid per calendar month it touches, in order.
+    static func months(start: Date, end: Date, calendar: Calendar = .sundayFirst) -> [Month] {
+        let firstDay = calendar.startOfDay(for: start)
+        let lastDay = max(firstDay, calendar.startOfDay(for: end))
+        guard var monthStart = calendar.dateInterval(of: .month, for: firstDay)?.start else { return [] }
+
+        var months: [Month] = []
+        while monthStart <= lastDay {
+            guard let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart),
+                  let monthEnd = calendar.date(byAdding: .day, value: -1, to: nextMonth) else { break }
+            let grid = TripCalendarGrid(start: max(firstDay, monthStart), end: min(lastDay, monthEnd), calendar: calendar)
+            months.append(Month(start: monthStart, grid: grid))
+            monthStart = nextMonth
+        }
+        return months
+    }
 }
 
 extension Calendar {

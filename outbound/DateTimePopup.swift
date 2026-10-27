@@ -27,8 +27,10 @@ struct DateTimePopup: View {
     /// Whether the selected time is PM rather than AM.
     @State private var isPM: Bool
 
-    private static let cellSpacing: CGFloat = 6
+    private static let cellSpacing: CGFloat = 3
     private static let columns = Array(repeating: GridItem(.flexible(), spacing: cellSpacing), count: 7)
+    /// Corner radius of the day cells and the hour box.
+    private static let gridCornerRadius: CGFloat = 4
     private static let hours = Array(1...12)
     private static let minutes = [0, 15, 30, 45]
     /// Hour cells share one fixed width so the box scrolls rather than squeezing 12 in.
@@ -74,15 +76,12 @@ struct DateTimePopup: View {
             }
 
             if let tripDates {
-                VStack(spacing: 8) {
-                    weekdayHeader
-                    ScrollView {
-                        calendar(TripCalendarGrid(start: tripDates.lowerBound, end: tripDates.upperBound))
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { calendarHeight = $0 }
-                    }
-                    .frame(height: min(calendarHeight, 360))
-                    .scrollBounceBehavior(.basedOnSize)
+                ScrollView {
+                    calendar(TripCalendarGrid.months(start: tripDates.lowerBound, end: tripDates.upperBound))
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { calendarHeight = $0 }
                 }
+                .frame(height: min(calendarHeight, 360))
+                .scrollBounceBehavior(.basedOnSize)
             } else {
                 Text("This trip has no dates yet.")
                     .font(.footnote)
@@ -126,22 +125,26 @@ struct DateTimePopup: View {
             .padding(.horizontal, 4)
     }
 
-    /// Single-letter weekday labels, Sunday first.
-    private var weekdayHeader: some View {
-        LazyVGrid(columns: Self.columns, spacing: Self.cellSpacing) {
-            ForEach(Array(Calendar.sundayFirst.veryShortWeekdaySymbols.enumerated()), id: \.offset) { _, symbol in
-                Text(symbol)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color.appForeground.opacity(0.5))
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func calendar(_ grid: TripCalendarGrid) -> some View {
-        LazyVGrid(columns: Self.columns, spacing: Self.cellSpacing) {
-            ForEach(grid.weeks.flatMap { $0 }) { day in
-                dayCell(day)
+    /// A section per month the trip touches: the month's name over its days, inset to
+    /// line up with the date and time labels.
+    private func calendar(_ months: [TripCalendarGrid.Month]) -> some View {
+        VStack(spacing: 16) {
+            ForEach(months) { month in
+                VStack(spacing: 8) {
+                    Text(month.start, format: .dateTime.month(.wide))
+                        .font(.caption.weight(.semibold))
+                        .textCase(.uppercase)
+                        .tracking(2.5)
+                        .foregroundStyle(Color.appForeground.opacity(0.25))
+                        .padding(.horizontal, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityAddTraits(.isHeader)
+                    LazyVGrid(columns: Self.columns, spacing: Self.cellSpacing) {
+                        ForEach(month.grid.weeks.flatMap { $0 }) { day in
+                            dayCell(day)
+                        }
+                    }
+                }
             }
         }
     }
@@ -156,8 +159,8 @@ struct DateTimePopup: View {
                     .foregroundStyle(Color.appForeground.opacity(day.isInTrip ? 1 : 0.3))
             }
             .background(
-                Color.appForeground.opacity(day.isInTrip ? 0.14 : 0.04),
-                in: .rect(cornerRadius: 8)
+                Color.appForeground.opacity(day.isInTrip ? 0.14 : 0.08),
+                in: .rect(cornerRadius: Self.gridCornerRadius)
             )
             .accessibilityLabel(Text(day.date, format: .dateTime.weekday(.wide).month(.wide).day()))
             .accessibilityHidden(!day.isInTrip)
@@ -183,7 +186,7 @@ struct DateTimePopup: View {
             }
             .scrollIndicators(.hidden)
             .background(Color.appForeground.opacity(0.14))
-            .clipShape(.rect(cornerRadius: 8))
+            .clipShape(.rect(cornerRadius: Self.gridCornerRadius))
             .onAppear {
                 if let selectedHour { proxy.scrollTo(selectedHour, anchor: .center) }
             }

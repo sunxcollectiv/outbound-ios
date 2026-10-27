@@ -50,6 +50,38 @@ struct TripCalendarGridTests {
         #expect(grid.weeks[0].allSatisfy { $0.isInTrip })
     }
 
+    @Test func singleMonthTripIsOneSection() {
+        let months = TripCalendarGrid.months(start: day(2026, 11, 11), end: day(2026, 11, 19), calendar: calendar)
+        #expect(months.map(\.start) == [day(2026, 11, 1)])
+        #expect(months[0].grid.weeks.flatMap { $0 }.filter(\.isInTrip).count == 9)
+    }
+
+    @Test func tripAcrossMonthsSplitsIntoSections() {
+        // Dec 23, 2026 through Jan 14, 2027.
+        let months = TripCalendarGrid.months(start: day(2026, 12, 23), end: day(2027, 1, 14), calendar: calendar)
+        #expect(months.map(\.start) == [day(2026, 12, 1), day(2027, 1, 1)])
+
+        let december = months[0].grid.weeks.flatMap { $0 }
+        #expect(december.filter(\.isInTrip).map(\.date).first == day(2026, 12, 23))
+        #expect(december.filter(\.isInTrip).map(\.date).last == day(2026, 12, 31))
+        // The last December week runs into January, which pads it outside the trip.
+        #expect(december.last?.date == day(2027, 1, 2))
+        #expect(december.last?.isInTrip == false)
+
+        let january = months[1].grid.weeks.flatMap { $0 }
+        #expect(january.filter(\.isInTrip).map(\.date).first == day(2027, 1, 1))
+        #expect(january.filter(\.isInTrip).map(\.date).last == day(2027, 1, 14))
+        #expect(january.first?.date == day(2026, 12, 27))
+        #expect(january.first?.isInTrip == false)
+        #expect(months.allSatisfy { $0.grid.weeks.allSatisfy { $0.count == 7 } })
+    }
+
+    @Test func tripTouchingThreeMonthsHasThreeSections() {
+        let months = TripCalendarGrid.months(start: day(2026, 10, 30), end: day(2026, 12, 2), calendar: calendar)
+        #expect(months.map(\.start) == [day(2026, 10, 1), day(2026, 11, 1), day(2026, 12, 1)])
+        #expect(months[1].grid.weeks.flatMap { $0 }.filter(\.isInTrip).count == 30)
+    }
+
     @Test func endBeforeStartIsOneDay() {
         let grid = TripCalendarGrid(start: day(2026, 11, 4), end: day(2026, 11, 2), calendar: calendar)
         #expect(grid.weeks.count == 1)
