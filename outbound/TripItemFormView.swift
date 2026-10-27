@@ -347,6 +347,7 @@ struct TripItemFormView: View {
                 DateTimePopup(
                     title: editingTimeField == .start ? startLabel : endLabel,
                     tripDates: tripDates,
+                    date: editingTimeField == .start ? startsAt : endsAt,
                     onClose: closeTimePicker
                 )
             }

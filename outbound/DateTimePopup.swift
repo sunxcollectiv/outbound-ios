@@ -7,7 +7,8 @@ import SwiftUI
 
 /// A centered black card for picking an item's start or end, shown over the item
 /// form when its date row is tapped. Shows the trip's days as a Sunday–Saturday
-/// calendar; picking a day and time isn't wired up yet.
+/// calendar, then a row of hours. Tapping an hour highlights it, but nothing is
+/// written back to the form yet.
 struct DateTimePopup: View {
     /// The row's label, e.g. "Starts" or "Check-out".
     let title: String
@@ -17,9 +18,38 @@ struct DateTimePopup: View {
 
     /// Natural height of the calendar, so the card hugs it until it needs to scroll.
     @State private var calendarHeight: CGFloat = 0
+    /// The highlighted hour on a 12-hour clock (1–12), if any.
+    @State private var selectedHour: Int?
+    /// Minutes and AM/PM carried over from the row's current value, since the popup
+    /// only picks 1–12 for now.
+    private let minute: Int
+    private let isPM: Bool
 
     private static let cellSpacing: CGFloat = 6
     private static let columns = Array(repeating: GridItem(.flexible(), spacing: cellSpacing), count: 7)
+    private static let hours = Array(1...12)
+    /// Hour cells share one fixed width so the box scrolls rather than squeezing 12 in.
+    private static let hourCellWidth: CGFloat = 48
+    private static let hourRowHeight: CGFloat = 44
+
+    /// `date` seeds the highlighted hour (the row's current value, if set).
+    init(title: String, tripDates: ClosedRange<Date>?, date: Date? = nil, onClose: @escaping () -> Void) {
+        self.title = title
+        self.tripDates = tripDates
+        self.onClose = onClose
+        let parts = date.map { Calendar.current.dateComponents([.hour, .minute], from: $0) }
+        minute = parts?.minute ?? 0
+        isPM = (parts?.hour ?? 0) >= 12
+        if let hour = parts?.hour {
+            _selectedHour = State(initialValue: hour % 12 == 0 ? 12 : hour % 12)
+        }
+    }
+
+    /// The selected time, e.g. "3:30 PM", or nil when no hour is selected.
+    private var selectedTimeText: String? {
+        guard let selectedHour else { return nil }
+        return String(format: "%d:%02d %@", selectedHour, minute, isPM ? "PM" : "AM")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -55,6 +85,16 @@ struct DateTimePopup: View {
                     .font(.footnote)
                     .foregroundStyle(Color.appForeground.opacity(0.6))
                     .padding(.horizontal, 4)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                (Text("Time: ").foregroundStyle(Color.appForeground.opacity(0.6))
+                    + Text(selectedTimeText ?? "Not set"))
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .padding(.horizontal, 4)
+                hourRow
             }
         }
         .foregroundStyle(Color.appForeground)
@@ -104,6 +144,54 @@ struct DateTimePopup: View {
             )
             .accessibilityLabel(Text(day.date, format: .dateTime.weekday(.wide).month(.wide).day()))
             .accessibilityHidden(!day.isInTrip)
+    }
+
+    /// Hours 1–12 as one rounded box of equal-width, full-height cells split by thin
+    /// dividers. The box scrolls horizontally, starting scrolled to the selection.
+    private var hourRow: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(Self.hours, id: \.self) { hour in
+                        if hour != Self.hours.first {
+                            Rectangle()
+                                .fill(Color.appForeground.opacity(0.15))
+                                .frame(width: 1)
+                                .padding(.vertical, 10)
+                        }
+                        hourCell(hour)
+                    }
+                }
+                .frame(height: Self.hourRowHeight)
+            }
+            .scrollIndicators(.hidden)
+            .background(Color.appForeground.opacity(0.14))
+            .clipShape(.rect(cornerRadius: 8))
+            .onAppear {
+                if let selectedHour { proxy.scrollTo(selectedHour, anchor: .center) }
+            }
+        }
+    }
+
+    /// A tappable hour, filled edge to edge when selected.
+    private func hourCell(_ hour: Int) -> some View {
+        let isSelected = selectedHour == hour
+        return Button {
+            withAnimation(.snappy(duration: 0.15)) { selectedHour = hour }
+        } label: {
+            Text(String(hour))
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(isSelected ? Color.black : Color.appForeground)
+                .frame(width: Self.hourCellWidth)
+                .frame(maxHeight: .infinity)
+                .background(isSelected ? Color.appForeground : Color.clear)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .id(hour)
+        .accessibilityLabel("\(hour) o'clock")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
