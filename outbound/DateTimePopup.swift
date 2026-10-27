@@ -23,6 +23,9 @@ struct DateTimePopup: View {
     @State private var selectedDay: Date?
     /// Natural height of the calendar, so the card hugs it until it needs to scroll.
     @State private var calendarHeight: CGFloat = 0
+    /// Side of a day cell as laid out, so the hour cells can match it. Starts at a
+    /// typical size until the calendar is measured (or when there's no calendar).
+    @State private var dayCellSize: CGFloat = 44
     /// The highlighted hour on a 12-hour clock (1–12), if any.
     @State private var selectedHour: Int?
     /// The highlighted minute, one of `minutes`.
@@ -40,9 +43,10 @@ struct DateTimePopup: View {
     private static let hourCycles = 100
     private static let middleCycle = hourCycles / 2
     private static let minutes = [0, 15, 30, 45]
-    /// Hour cells share one fixed width so the box scrolls rather than squeezing 12 in.
-    private static let hourCellWidth: CGFloat = 48
-    private static let hourRowHeight: CGFloat = 44
+    /// How far the dark fade reaches in from each end of the hour row.
+    private static let hourFadeWidth: CGFloat = 100
+    /// How dark the fade gets at the very ends, so edge hours stay faintly visible.
+    private static let hourFadeOpacity: Double = 0.6
 
     /// `date` seeds the highlighted day, hour, minute and AM/PM (the row's current
     /// value, if set).
@@ -170,6 +174,9 @@ struct DateTimePopup: View {
                             dayCell(day)
                         }
                     }
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        (proxy.size.width - 6 * Self.cellSpacing) / 7
+                    } action: { dayCellSize = $0 }
                 }
             }
         }
@@ -204,7 +211,7 @@ struct DateTimePopup: View {
         .accessibilityHidden(!day.isInTrip)
     }
 
-    /// Hours 1–12 as one rounded box of equal-width, full-height cells split by thin
+    /// Hours 1–12 as one rounded box of cells the size of a day cell, split by thin
     /// dividers. The hours repeat in a lazy row that opens on the selection in the
     /// middle copy, so the box scrolls endlessly either way.
     private var hourRow: some View {
@@ -219,28 +226,38 @@ struct DateTimePopup: View {
                                     .frame(width: 1)
                                     .padding(.vertical, 10)
                             }
-                            hourCell(Self.hours[index % Self.hours.count])
+                            hourCell(Self.hours[index % Self.hours.count]) {
+                                // Bring the tapped copy to the middle, clear of the edge fades.
+                                withAnimation(.snappy(duration: 0.3)) { proxy.scrollTo(index, anchor: .center) }
+                            }
                         }
                         // VoiceOver gets one set of hours rather than every copy.
                         .accessibilityHidden(index / Self.hours.count != Self.middleCycle)
                     }
                 }
-                .frame(height: Self.hourRowHeight)
+                .frame(height: dayCellSize)
                 .scrollTargetLayout()
             }
             .scrollIndicators(.hidden)
             // Tame the fling: a swipe moves only a few hours, then settles on a cell edge.
             .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByFew))
             .background(Color.appForeground.opacity(0.14))
+            .overlay { hourRowEdgeFades }
             .clipShape(.rect(cornerRadius: Self.gridCornerRadius))
-            .onAppear {
-                let middle = Self.middleCycle * Self.hours.count
-                if let selectedHour {
-                    proxy.scrollTo(middle + selectedHour - 1, anchor: .center)
-                } else {
-                    proxy.scrollTo(middle, anchor: .leading)
-                }
-            }
+            .onAppear { scrollToSelectedHour(proxy) }
+            // The cells resize once the calendar is measured; keep the selection centered.
+            .onChange(of: dayCellSize) { scrollToSelectedHour(proxy) }
+        }
+    }
+
+    /// Scrolls the hour row to the selected hour in the middle copy, or to the start of
+    /// that copy when no hour is selected.
+    private func scrollToSelectedHour(_ proxy: ScrollViewProxy) {
+        let middle = Self.middleCycle * Self.hours.count
+        if let selectedHour {
+            proxy.scrollTo(middle + selectedHour - 1, anchor: .center)
+        } else {
+            proxy.scrollTo(middle, anchor: .leading)
         }
     }
 
@@ -280,17 +297,32 @@ struct DateTimePopup: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// A tappable hour, filled edge to edge when selected.
-    private func hourCell(_ hour: Int) -> some View {
+    /// Dark gradients over both ends of the hour row, so hours fade in and out as they
+    /// scroll; they let taps through to the hours beneath.
+    private var hourRowEdgeFades: some View {
+        HStack(spacing: 0) {
+            LinearGradient(colors: [.black.opacity(Self.hourFadeOpacity), .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: Self.hourFadeWidth)
+            Spacer(minLength: 0)
+            LinearGradient(colors: [.clear, .black.opacity(Self.hourFadeOpacity)], startPoint: .leading, endPoint: .trailing)
+                .frame(width: Self.hourFadeWidth)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// A tappable hour, filled edge to edge when selected; `onSelect` runs after the tap.
+    private func hourCell(_ hour: Int, onSelect: @escaping () -> Void) -> some View {
         let isSelected = selectedHour == hour
         return Button {
             withAnimation(.snappy(duration: 0.15)) { selectedHour = hour }
+            onSelect()
         } label: {
             Text(String(hour))
                 .font(.subheadline.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(isSelected ? Color.black : Color.appForeground)
-                .frame(width: Self.hourCellWidth)
+                .frame(width: dayCellSize)
                 .frame(maxHeight: .infinity)
                 .background(isSelected ? Color.appForeground : Color.clear)
                 .contentShape(Rectangle())
