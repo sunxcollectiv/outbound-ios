@@ -120,7 +120,6 @@ struct DateTimePopup: View {
         _activeField = State(initialValue: field)
         let seed = Self.seed(
             date: field == .start ? start.wrappedValue : end.wrappedValue,
-            fallbackDay: field == .end ? start.wrappedValue : nil,
             zone: field == .start ? startZone.wrappedValue : endZone.wrappedValue,
             tripStart: tripDates?.lowerBound
         )
@@ -132,15 +131,15 @@ struct DateTimePopup: View {
     }
 
     /// The highlighted values for a side: its own date's day and time, else nothing
-    /// picked (an empty end starts on the start's day so only a time is left to pick).
-    private static func seed(date: Date?, fallbackDay: Date?, zone: TimeZone?, tripStart: Date?)
+    /// picked, so an empty side opens with no day or hour selected.
+    private static func seed(date: Date?, zone: TimeZone?, tripStart: Date?)
         -> (day: Date?, hour: Int?, minute: Int, isPM: Bool, zoneQuery: String) {
         let parts = date.map { Calendar.current.dateComponents([.hour, .minute], from: $0) }
         // Snap to the nearest quarter so an off-grid time still highlights a choice.
         let minute = parts?.minute ?? 0
         let snapped = minutes.min { abs($0 - minute) < abs($1 - minute) } ?? 0
-        let day = (date ?? fallbackDay).map { Calendar.sundayFirst.startOfDay(for: $0) }
-        let zoneQuery = zone.map { TimeZoneSearch.label($0, at: date ?? fallbackDay ?? tripStart ?? .now) } ?? ""
+        let day = date.map { Calendar.sundayFirst.startOfDay(for: $0) }
+        let zoneQuery = zone.map { TimeZoneSearch.label($0, at: date ?? tripStart ?? .now) } ?? ""
         return (day, parts?.hour.map { $0 % 12 == 0 ? 12 : $0 % 12 }, snapped, (parts?.hour ?? 0) >= 12, zoneQuery)
     }
 
@@ -160,7 +159,6 @@ struct DateTimePopup: View {
         isZoneFieldFocused = false
         let seed = Self.seed(
             date: field == .start ? start : end,
-            fallbackDay: field == .end ? start : nil,
             zone: field == .start ? startZone : endZone,
             tripStart: tripDates?.lowerBound
         )
@@ -293,6 +291,14 @@ struct DateTimePopup: View {
                                 .foregroundStyle(Color.appForeground.opacity(0.6))
                         }
                     }
+                } else if isActive, let selectedDay {
+                    // A day is picked but no time yet, so nothing's saved: show the day
+                    // and ask for the time.
+                    Text(selectedDay, format: .dateTime.month(.abbreviated).day())
+                        .font(.subheadline.weight(.semibold))
+                    Text("Select a time")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color.appError)
                 } else {
                     Text(placeholder)
                         .font(.subheadline.weight(.semibold))
