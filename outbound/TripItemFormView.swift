@@ -216,9 +216,13 @@ struct TripItemFormView: View {
                             .appField()
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(kind == .transit ? "Origin" : "Location")
-                                .font(.subheadline)
-                                .foregroundStyle(Color.appForeground.opacity(0.8))
+                            // Transit labels its origin to tell it from the destination
+                            // below; a lone place field needs no label.
+                            if kind == .transit {
+                                Text("Origin")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.appForeground.opacity(0.8))
+                            }
                             PlaceSearchField(
                                 placeholder: kind == .transit ? "Search origin" : "Search a place",
                                 text: $startPlaceText,
