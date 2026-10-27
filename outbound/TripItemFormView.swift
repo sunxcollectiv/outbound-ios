@@ -22,6 +22,9 @@ struct TripItemFormView: View {
     /// Everyone on the trip, offered in the "who's going" popup.
     private let members: [TripMember]
 
+    /// The trip's first through last day, shown in the date popup's calendar.
+    private let tripDates: ClosedRange<Date>?
+
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var auth
 
@@ -99,9 +102,10 @@ struct TripItemFormView: View {
     /// The zone actually used for the end: an explicit choice, else the start zone.
     private var effectiveEndZone: TimeZone? { endZone ?? startZone }
 
-    init(tripId: String, members: [TripMember] = [], item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+    init(tripId: String, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         self.tripId = tripId
         self.members = members
+        self.tripDates = tripDates
         self.item = item
         self.defaultZone = defaultZone
         self.defaultDate = defaultDate
@@ -342,6 +346,7 @@ struct TripItemFormView: View {
             popup(onClose: closeTimePicker) {
                 DateTimePopup(
                     title: editingTimeField == .start ? startLabel : endLabel,
+                    tripDates: tripDates,
                     onClose: closeTimePicker
                 )
             }
@@ -617,6 +622,6 @@ struct TripItemFormView: View {
 }
 
 #Preview {
-    TripItemFormView(tripId: "sample")
+    TripItemFormView(tripId: "sample", tripDates: .now ... .now.addingTimeInterval(3 * 86_400))
         .environment(AuthStore())
 }

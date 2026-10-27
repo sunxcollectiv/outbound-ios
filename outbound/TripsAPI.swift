@@ -69,6 +69,14 @@ extension Trip {
         return "\(startText) – \(Self.monthDayYear.format(end))"
     }
 
+    /// The trip's first and last days as midnight in the device zone, or nil if either
+    /// date doesn't parse.
+    var dateRange: ClosedRange<Date>? {
+        guard let start = Self.isoDate.date(from: startDate),
+              let end = Self.isoDate.date(from: endDate) else { return nil }
+        return start...max(start, end)
+    }
+
     /// Today as a "yyyy-MM-dd" date in the device's time zone, for comparing with trip
     /// dates (which sort correctly as strings).
     static func isoDateString(for date: Date = .now) -> String {

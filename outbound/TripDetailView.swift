@@ -170,12 +170,12 @@ struct TripDetailView: View {
             Task { await importScreenshot(item) }
         }
         .sheet(item: $addItemRequest) { request in
-            TripItemFormView(tripId: trip.id, members: trip.members ?? [], defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
+            TripItemFormView(tripId: trip.id, members: trip.members ?? [], tripDates: trip.dateRange, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
         }
         .sheet(item: $editingLodging) { item in
-            TripItemFormView(tripId: item.tripId, members: trip.members ?? [], item: item) { saved in
+            TripItemFormView(tripId: item.tripId, members: trip.members ?? [], tripDates: trip.dateRange, item: item) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -189,7 +189,7 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: places.resolving(item), members: trip.members ?? []) { saved in
+            TripItemDetailView(item: places.resolving(item), members: trip.members ?? [], tripDates: trip.dateRange) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
