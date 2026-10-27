@@ -18,6 +18,12 @@ struct TripItemDetailView: View {
     /// Everyone on the item's trip, passed through to the edit form.
     private let members: [TripMember]
 
+    /// The trip's first through last day, passed through to the edit form's calendar.
+    private let tripDates: ClosedRange<Date>?
+
+    /// The itinerary day this was opened from, passed through to the edit form.
+    private let viewedDay: Date?
+
     /// Called with the updated item after an edit is saved, so the presenter can
     /// refresh its itinerary.
     var onSaved: (TripItem) -> Void
@@ -39,9 +45,11 @@ struct TripItemDetailView: View {
     private let sheetBackground = Color(white: 0.9)
     private let sheetForeground = Color(white: 0.1)
 
-    init(item: TripItem, members: [TripMember] = [], onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+    init(item: TripItem, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, viewedDay: Date? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         _item = State(initialValue: item)
         self.members = members
+        self.tripDates = tripDates
+        self.viewedDay = viewedDay
         self.onSaved = onSaved
         self.onDeleted = onDeleted
     }
@@ -78,7 +86,7 @@ struct TripItemDetailView: View {
         }
         .presentationBackground(sheetBackground)
         .sheet(isPresented: $showingEdit) {
-            TripItemFormView(tripId: item.tripId, members: members, item: item) { updated in
+            TripItemFormView(tripId: item.tripId, members: members, tripDates: tripDates, item: item, viewedDay: viewedDay) { updated in
                 item = updated
                 onSaved(updated)
             } onDeleted: {

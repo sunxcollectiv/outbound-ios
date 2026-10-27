@@ -13,14 +13,16 @@ import SwiftUI
 /// The zone is chosen separately, so changing it keeps the wall time and only moves
 /// the underlying instant — matching the server's "right time, wrong zone" fix.
 ///
-/// Pass an existing `item` to edit it; omit it to create a new one. `defaultZone`
-/// is the zone a new item's start defaults to — the zone the traveler ends up in
-/// after the chronologically last item, so a new item continues from there.
+/// Pass an existing `item` to edit it; omit it to create a new one. A new item starts
+/// with no time zones; each side gets one only when it's picked (or comes from a place).
 struct TripItemFormView: View {
     let tripId: String
 
     /// Everyone on the trip, offered in the "who's going" popup.
     private let members: [TripMember]
+
+    /// The trip's first through last day, shown in the date popup's calendar.
+    private let tripDates: ClosedRange<Date>?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var auth
@@ -28,12 +30,13 @@ struct TripItemFormView: View {
     /// The item being edited, or `nil` when creating a new one.
     private let item: TripItem?
 
-    /// The zone a new item's start defaults to (from the last item chronologically).
-    private let defaultZone: TimeZone?
-
     /// The calendar day a new item's start defaults to (the day being viewed when add
     /// was tapped); the time-of-day defaults to now. `nil` falls back to today.
     private let defaultDate: Date?
+
+    /// The itinerary day the form was opened from, marked in the date popup's calendar.
+    /// For a new item it's `defaultDate`; edits pass it separately.
+    private let viewedDay: Date?
 
     /// Called with the created or updated item after a successful save.
     var onSaved: (TripItem) -> Void
@@ -51,17 +54,19 @@ struct TripItemFormView: View {
     /// it changed.
     @State private var originalMemberIds: Set<String>?
     @State private var showingMemberPicker = false
+    /// Which date row's popup is open, if any.
+    @State private var editingTimeField: TimeField?
     @State private var title: String
-    @State private var startsAt: Date
-    @State private var hasEndTime: Bool
-    @State private var endsAt: Date
+    /// The start wall clock; nil once cleared, which blocks saving (a start is required).
+    @State private var startsAt: Date?
+    /// The end wall clock; nil means the item has no end time.
+    @State private var endsAt: Date?
     /// The start zone, when one is known (the item's, a picked place's, or the trip's
     /// default). nil shows no zone and saves the item without one.
     @State private var startZone: TimeZone?
     /// The end zone; `nil` means "follow the start zone" until the user or a place sets it.
     @State private var endZone: TimeZone?
     @State private var notes: String
-    @State private var activeField: TimeField?
     @State private var isSaving = false
     @State private var errorMessage: String?
     /// Showing the confirmation before an existing item is deleted.
@@ -91,18 +96,36 @@ struct TripItemFormView: View {
     private let api = APIClient.shared
 
     private var isEditing: Bool { item != nil }
-    private var startLabel: String { kind == .lodging ? "Check-in" : "Starts" }
-    private var endLabel: String { kind == .lodging ? "Check-out" : "Ends" }
+    private var startLabel: String {
+        switch kind {
+        case .lodging: "Check-in"
+        case .transit: "Departs"
+        case .activity: "Starts"
+        }
+    }
+    private var endLabel: String {
+        switch kind {
+        case .lodging: "Check-out"
+        case .transit: "Arrives"
+        case .activity: "Ends"
+        }
+    }
+    /// Shown when saving without a start, which the API requires.
+    private var missingStartMessage: String {
+        switch kind {
+        case .lodging: "Add a check-in time."
+        case .transit: "Add a departure time."
+        case .activity: "Add a start time."
+        }
+    }
 
-    /// The zone actually used for the end: an explicit choice, else the start zone.
-    private var effectiveEndZone: TimeZone? { endZone ?? startZone }
-
-    init(tripId: String, members: [TripMember] = [], item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+    init(tripId: String, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         self.tripId = tripId
         self.members = members
+        self.tripDates = tripDates
         self.item = item
-        self.defaultZone = defaultZone
         self.defaultDate = defaultDate
+        self.viewedDay = viewedDay ?? defaultDate
         self.onSaved = onSaved
         self.onDeleted = onDeleted
         _kind = State(initialValue: item?.kind ?? defaultKind)
@@ -113,9 +136,8 @@ struct TripItemFormView: View {
         // the current places. Names that are still null get filled from Google on appear.
         _startPlaceText = State(initialValue: item?.place?.name ?? "")
         _endPlaceText = State(initialValue: item?.endPlace?.name ?? "")
-        _hasEndTime = State(initialValue: item?.endsAtLocal != nil)
         _notes = State(initialValue: item?.notes ?? "")
-        // Load the item's wall clock onto the device-zone canvas (so the picker shows
+        // Load the item's wall clock onto the device-zone canvas (so the rows show
         // the same numbers), or for a new item start on the day being viewed at the
         // current time-of-day (falling back to "now" when no day was supplied).
         // `startsAtLocal` is a floating UTC date, so reading it in UTC gives the wall clock.
@@ -123,19 +145,21 @@ struct TripItemFormView: View {
             ?? Self.canvasStart(onDay: defaultDate)
             ?? Self.roundedToMinuteInterval(Date())
         _startsAt = State(initialValue: start)
-        _endsAt = State(initialValue: Self.wallClock(of: item?.endsAtLocal, in: .gmt) ?? start)
-        _startZone = State(initialValue: item == nil ? defaultZone : item?.startTimezone)
+        _endsAt = State(initialValue: Self.wallClock(of: item?.endsAtLocal, in: .gmt))
+        _startZone = State(initialValue: item?.startTimezone)
         _endZone = State(initialValue: item?.endTimezone)
-        // SwiftUI's DatePicker has no minute-interval option, so set it on the
-        // underlying UIDatePicker. This is app-wide, but the only other pickers
-        // (TripFormView) are date-only and unaffected.
-        UIDatePicker.appearance().minuteInterval = Self.minuteInterval
+        // SwiftUI can't color segmented picker labels, so set them on the underlying
+        // UISegmentedControl: light labels to read on the dark gray sheet, dark on the
+        // white selected pill. This is app-wide, but these are the only segmented pickers.
+        let segments = UISegmentedControl.appearance()
+        segments.setTitleTextAttributes([.foregroundColor: UIColor(Color.appForeground)], for: .normal)
+        segments.setTitleTextAttributes([.foregroundColor: UIColor.black], for: .selected)
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.appBackground.ignoresSafeArea()
+                Color.sheetBackground.ignoresSafeArea()
                 ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 20) {
@@ -167,13 +191,17 @@ struct TripItemFormView: View {
                         }
 
                         TextField("Title", text: $title)
-                            .textInputAutocapitalization(.words)
+                            .textInputAutocapitalization(.never)
                             .appField()
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(kind == .transit ? "Origin" : "Location")
-                                .font(.subheadline)
-                                .foregroundStyle(Color.appForeground.opacity(0.8))
+                            // Transit labels its origin to tell it from the destination
+                            // below; a lone place field needs no label.
+                            if kind == .transit {
+                                Text("Origin")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.appForeground.opacity(0.8))
+                            }
                             PlaceSearchField(
                                 placeholder: kind == .transit ? "Search origin" : "Search a place",
                                 text: $startPlaceText,
@@ -196,47 +224,10 @@ struct TripItemFormView: View {
                             }
                         }
 
-                        VStack(spacing: 8) {
-                            timeRow(title: startLabel, date: startsAt, field: .start)
-                            if activeField == .start {
-                                DatePicker("", selection: $startsAt, displayedComponents: [.date, .hourAndMinute])
-                                    .datePickerStyle(.graphical)
-                                    .labelsHidden()
-                                    .onChange(of: startsAt) { _, newValue in
-                                        if endsAt < newValue { endsAt = newValue }
-                                    }
-                            }
-
-                            if let startZone { zoneNote(startZone) }
-
-                            Divider().overlay(Color.appForeground.opacity(0.2))
-
-                            // The whole row flips the switch. On iOS 26 a bare Toggle in this
-                            // scrolling sheet ignores taps (only a drag moves it), so the row
-                            // handles the tap and the switch is just the indicator.
-                            Button {
-                                withAnimation { hasEndTime.toggle() }
-                            } label: {
-                                Toggle(kind == .lodging ? "Set check-out time" : "Set end time", isOn: .constant(hasEndTime))
-                                    .allowsHitTesting(false)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            if hasEndTime {
-                                timeRow(title: endLabel, date: endsAt, field: .end)
-                                if activeField == .end {
-                                    // No wall-clock range: a westbound leg can land at an
-                                    // earlier clock time than it departs. Ordering is checked
-                                    // on instants in `save()`.
-                                    DatePicker("", selection: $endsAt, displayedComponents: [.date, .hourAndMinute])
-                                        .datePickerStyle(.graphical)
-                                        .labelsHidden()
-                                }
-                                if let effectiveEndZone { zoneNote(effectiveEndZone) }
-                            }
+                        HStack(spacing: 8) {
+                            timeBlock(title: startLabel, placeholder: "Add start", date: $startsAt, zone: $startZone, field: .start)
+                            timeBlock(title: endLabel, placeholder: "Add end", date: $endsAt, zone: $endZone, field: .end)
                         }
-                        .padding(14)
-                        .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
 
                         // Sits right under the times (the usual cause) rather than at the
                         // bottom, where the keyboard hides it and Save looks unresponsive.
@@ -268,7 +259,7 @@ struct TripItemFormView: View {
             .foregroundStyle(Color.appForeground)
             .navigationTitle(isEditing ? "Edit Item" : "New Item")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color.appBackground, for: .navigationBar)
+            .toolbarBackground(Color.sheetBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -293,6 +284,7 @@ struct TripItemFormView: View {
             .task { await prefillPlaceNames() }
         }
         .overlay { memberPickerPopup }
+        .overlay { timePickerPopup }
         .appTheme()
         .onAppear(perform: seedSelectedMembers)
     }
@@ -343,19 +335,44 @@ struct TripItemFormView: View {
     @ViewBuilder
     private var memberPickerPopup: some View {
         if showingMemberPicker {
-            ZStack {
-                Color.black.opacity(0.8)
-                    .ignoresSafeArea()
-                    .onTapGesture { closeMemberPicker() }
-                    .accessibilityHidden(true)
-                    .transition(.opacity)
+            DimmedPopup(onClose: closeMemberPicker) {
                 ItemMembersPopup(
                     members: members,
                     currentUserId: auth.currentUser?.id,
                     selectedIds: Binding { selectedMemberIds ?? [] } set: { selectedMemberIds = $0 },
                     onClose: closeMemberPicker
                 )
-                .transition(.scale(scale: 0.94).combined(with: .opacity))
+            }
+        }
+    }
+
+    private func openTimePicker(_ field: TimeField) {
+        withAnimation(.snappy(duration: 0.25)) { editingTimeField = field }
+    }
+
+    private func closeTimePicker() {
+        withAnimation(.snappy(duration: 0.2)) { editingTimeField = nil }
+    }
+
+    /// The open date popup for the tapped row over a dimmed form; tapping outside closes it.
+    @ViewBuilder
+    private var timePickerPopup: some View {
+        if let editingTimeField {
+            DimmedPopup(onClose: closeTimePicker) {
+                DateTimePopup(
+                    field: editingTimeField == .start ? .start : .end,
+                    startPlaceholder: startLabel,
+                    endPlaceholder: endLabel,
+                    // An activity's end is optional; lodging and transit expect one.
+                    endIsOptional: kind == .activity,
+                    tripDates: tripDates,
+                    start: $startsAt,
+                    end: $endsAt,
+                    startZone: $startZone,
+                    endZone: $endZone,
+                    viewedDay: viewedDay,
+                    onClose: closeTimePicker
+                )
             }
         }
     }
@@ -422,46 +439,105 @@ struct TripItemFormView: View {
         }
     }
 
-    /// A tappable row showing a date/time; tapping toggles the inline picker below it.
-    private func timeRow(title: String, date: Date, field: TimeField) -> some View {
-        Button {
-            withAnimation { activeField = (activeField == field) ? nil : field }
-        } label: {
+    /// One of the side-by-side start/end blocks: the label on top with a clear button
+    /// once there's a value, then the date (or a placeholder) and the time with its
+    /// zone's short code. The time line always keeps its space, so
+    /// both blocks stay the same height whether or not they're set. Tapping the block
+    /// opens its date popup.
+    private func timeBlock(title: String, placeholder: String, date: Binding<Date?>, zone zoneBinding: Binding<TimeZone?>, field: TimeField) -> some View {
+        let value = date.wrappedValue
+        let zone = zoneBinding.wrappedValue
+        return VStack(alignment: .leading, spacing: 0) {
+            // The label and clear button sit in their own header above a thin rule,
+            // a little tighter than the date and time below.
             HStack {
                 Text(title)
-                Spacer()
-                Text(date, format: .dateTime.month().day().hour().minute())
-                    .foregroundStyle(activeField == field ? Color.appAccent : Color.appForeground)
+                    .font(.caption.weight(.semibold))
+                    .textCase(.uppercase)
+                    .tracking(1)
+                    .foregroundStyle(Color.appForeground.opacity(0.7))
+                Spacer(minLength: 4)
+                if value != nil {
+                    Button {
+                        // Clearing a time clears everything about it, its zone included.
+                        withAnimation {
+                            date.wrappedValue = nil
+                            zoneBinding.wrappedValue = nil
+                        }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Color.appForeground.opacity(0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear \(title)")
+                }
             }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
+            // Fixed to the clear button's height, so the header (and the block) is the
+            // same height with or without it.
+            .frame(height: 22)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
 
-    /// A read-only caption noting the time zone a time is in, sitting under its row.
-    /// Zone selection is driven by the picked place for now; manual choice comes later.
-    private func zoneNote(_ zone: TimeZone) -> some View {
-        HStack {
-            Spacer()
-            Text(zoneLabel(zone))
-                .font(.caption)
-                .foregroundStyle(Color.appForeground.opacity(0.6))
-        }
-    }
+            Rectangle()
+                .fill(Color.appForeground.opacity(0.12))
+                .frame(height: 1)
 
-    /// A friendly label for a zone, e.g. "Tokyo (JST)".
-    private func zoneLabel(_ zone: TimeZone) -> String {
-        let city = (zone.identifier.split(separator: "/").last.map(String.init) ?? zone.identifier)
-            .replacingOccurrences(of: "_", with: " ")
-        return "\(city) (\(WallClock.zoneAbbreviation(zone, at: startsAt)))"
+            VStack(alignment: .leading, spacing: 2) {
+                Group {
+                    if let value {
+                        Text(value, format: .dateTime.month(.abbreviated).day())
+                    } else {
+                        Text(placeholder)
+                            .foregroundStyle(Color.appForeground.opacity(0.45))
+                    }
+                }
+                .font(.body.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+                // The time with its zone's short code beside it (e.g. "12:00 PM EST"); a
+                // blank line holds its place when there's no time yet.
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if let value {
+                        Text(value, format: .dateTime.hour().minute())
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Color.appForeground.opacity(0.85))
+                        if let zone {
+                            Text(WallClock.zoneAbbreviation(zone, at: value))
+                                .font(.caption2)
+                                .foregroundStyle(Color.appForeground.opacity(0.6))
+                        }
+                    } else {
+                        Text(" ")
+                            .font(.subheadline.weight(.medium))
+                    }
+                }
+                .lineLimit(1)
+            }
+            .padding(14)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // A shade darker while empty, so an unset time reads as a slot to fill.
+        .background(Color.appForeground.opacity(value == nil ? 0.04 : 0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+        // A tap gesture rather than a Button, so the clear button inside stays its own
+        // target instead of nesting a button in a button.
+        .contentShape(Rectangle())
+        .onTapGesture { openTimePicker(field) }
+        .accessibilityAddTraits(.isButton)
     }
 
     private func save() {
         let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
         guard !trimmedTitle.isEmpty else { return }
+        guard let startsAt else {
+            errorMessage = missingStartMessage
+            errorScrollTrigger += 1
+            return
+        }
         // Validate ordering on instants, not wall clocks, so cross-zone legs are allowed.
-        if hasEndTime,
-           Self.instant(of: endsAt, in: effectiveEndZone ?? .gmt) < Self.instant(of: startsAt, in: startZone ?? .gmt) {
+        if let endsAt,
+           // An end without a zone is taken to be in the start's zone, just for this check.
+           Self.instant(of: endsAt, in: endZone ?? startZone ?? .gmt) < Self.instant(of: startsAt, in: startZone ?? .gmt) {
             errorMessage = "End time can't be before the start time."
             errorScrollTrigger += 1
             return
@@ -474,9 +550,9 @@ struct TripItemFormView: View {
                 let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
                 let resolvedNotes = trimmedNotes.isEmpty ? nil : trimmedNotes
                 let startWall = Self.naiveString(from: startsAt)
-                let endWall = hasEndTime ? Self.naiveString(from: endsAt) : nil
+                let endWall = endsAt.map(Self.naiveString(from:))
                 let startZoneId = startZone?.identifier
-                let endZoneId = hasEndTime ? effectiveEndZone?.identifier : nil
+                let endZoneId = endsAt != nil ? endZone?.identifier : nil
                 // End place only applies to transit (origin → destination).
                 let endPlaceId = kind == .transit ? endPlace?.id : nil
 
@@ -594,6 +670,6 @@ struct TripItemFormView: View {
 }
 
 #Preview {
-    TripItemFormView(tripId: "sample")
+    TripItemFormView(tripId: "sample", tripDates: .now ... .now.addingTimeInterval(3 * 86_400))
         .environment(AuthStore())
 }

@@ -248,14 +248,8 @@ struct TripFormView: View {
     @ViewBuilder
     private var memberInvitePopup: some View {
         if showingMemberInvite {
-            ZStack {
-                Color.black.opacity(0.8)
-                    .ignoresSafeArea()
-                    .onTapGesture { closeMemberInvite() }
-                    .accessibilityHidden(true)
-                    .transition(.opacity)
+            DimmedPopup(onClose: closeMemberInvite) {
                 MemberInvitePopup(emails: $memberEmails, onClose: closeMemberInvite)
-                    .transition(.scale(scale: 0.94).combined(with: .opacity))
             }
         }
     }

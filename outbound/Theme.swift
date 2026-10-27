@@ -23,6 +23,12 @@ extension Color {
     /// the trips grid.
     static let drawerBackground = Color(red: 0.20, green: 0.20, blue: 0.21)
 
+    /// Dark gray behind modal form sheets, such as adding or editing a trip item.
+    static let sheetBackground = Color(red: 0.20, green: 0.20, blue: 0.21)
+
+    /// Slightly pinkish red for error and warning text, readable on the dark surfaces.
+    static let appError = Color(red: 1.0, green: 0.42, blue: 0.47)
+
     /// Muted slate blue filling the header chip at the top of a trip's itinerary.
     static let tripHeader = Color(red: 0.29, green: 0.39, blue: 0.51)
 }

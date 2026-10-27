@@ -35,14 +35,6 @@ struct LodgingPopup: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Edit Lodging")
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 28, height: 28)
-                        .background(Color.appForeground.opacity(0.12), in: .circle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -82,16 +74,7 @@ struct LodgingPopup: View {
             .fixedSize(horizontal: false, vertical: true)
             .buttonStyle(.plain)
         }
-        .foregroundStyle(Color.appForeground)
-        .padding(20)
-        .frame(maxWidth: 360)
-        .background(Color(white: 0.15), in: .rect(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.08)))
-        .shadow(color: .black.opacity(0.4), radius: 24, y: 10)
-        .padding(.horizontal, 24)
-        .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isModal)
-        .accessibilityAction(.escape, onClose)
+        .popupCard(onClose: onClose)
     }
 
     /// Icon over title, so a long title fits a half-width button.

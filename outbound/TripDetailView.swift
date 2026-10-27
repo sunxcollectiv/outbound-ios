@@ -50,8 +50,11 @@ struct TripDetailView: View {
     @State private var selectedItem: TripItem?
     /// The stay whose lodging popup is open, from tapping its lodging bar.
     @State private var popupLodging: TripItem?
-    /// A stay opened straight into its edit form, from the lodging popup.
-    @State private var editingLodging: TripItem?
+    /// An item opened straight into its edit form: long-pressing its card or lodging
+    /// strip, or Edit in the lodging popup.
+    @State private var editingItem: TripItem?
+    /// Bumped on each long press, to play a haptic as the edit form opens.
+    @State private var editHaptic = 0
     /// The day whose add-lodging popup is open, from tapping its empty lodging strip.
     @State private var addLodgingDay: ItineraryDay?
     /// Showing the photo picker for a screenshot of a booking, from the add-lodging popup
@@ -170,12 +173,13 @@ struct TripDetailView: View {
             Task { await importScreenshot(item) }
         }
         .sheet(item: $addItemRequest) { request in
-            TripItemFormView(tripId: trip.id, members: trip.members ?? [], defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
+            TripItemFormView(tripId: trip.id, members: trip.members ?? [], tripDates: trip.dateRange, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
         }
-        .sheet(item: $editingLodging) { item in
-            TripItemFormView(tripId: item.tripId, members: trip.members ?? [], item: item) { saved in
+        .sensoryFeedback(.impact(weight: .medium), trigger: editHaptic)
+        .sheet(item: $editingItem) { item in
+            TripItemFormView(tripId: item.tripId, members: trip.members ?? [], tripDates: trip.dateRange, item: item, viewedDay: selectedDay?.calendarDate) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -189,7 +193,7 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: places.resolving(item), members: trip.members ?? []) { saved in
+            TripItemDetailView(item: places.resolving(item), members: trip.members ?? [], tripDates: trip.dateRange, viewedDay: selectedDay?.calendarDate) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -565,6 +569,12 @@ struct TripDetailView: View {
 
     // MARK: - Rows
 
+    /// Opens an item's edit form directly, with a haptic tap to confirm the long press.
+    private func editItem(_ item: TripItem) {
+        editHaptic += 1
+        editingItem = places.resolving(item)
+    }
+
     private func itemRow(_ entry: ItineraryEntry, topFade: CGFloat) -> some View {
         let going = memberSelection.initialSelection(for: entry.item)
         return ItineraryEntryCard(
@@ -578,8 +588,11 @@ struct TripDetailView: View {
             isCondensed: entry.item.visibility == .open && memberSelection.includesCurrentUser(entry.item) == false
         )
         .contentShape(.rect)
-        // Every entry of an item (each end, each layover) opens the same record.
+        // Every entry of an item (each end, each layover) opens the same record; a
+        // long press skips the detail view and goes straight to editing it.
         .onTapGesture { selectedItem = entry.item }
+        .onLongPressGesture { editItem(entry.item) }
+        .accessibilityAction(named: "Edit") { editItem(entry.item) }
         .mask {
             GeometryReader { geo in
                 let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
@@ -725,23 +738,17 @@ struct TripDetailView: View {
             let place = places.current(item.place)
             let name = lodgingName(item)
             let address = place?.googlePlaceId.flatMap { placeDetails[$0] }?.address ?? place?.address
-            ZStack {
-                Color.black.opacity(0.8)
-                    .ignoresSafeArea()
-                    .onTapGesture { closeLodgingPopup() }
-                    .accessibilityHidden(true)
-                    .transition(.opacity)
+            DimmedPopup(onClose: closeLodgingPopup) {
                 LodgingPopup(
                     name: name,
                     address: address,
                     googlePlaceId: place?.googlePlaceId,
                     onEdit: {
                         closeLodgingPopup()
-                        editingLodging = places.resolving(item)
+                        editingItem = places.resolving(item)
                     },
                     onClose: closeLodgingPopup
                 )
-                .transition(.scale(scale: 0.94).combined(with: .opacity))
             }
         }
     }
@@ -758,12 +765,7 @@ struct TripDetailView: View {
     @ViewBuilder
     private var addLodgingPopup: some View {
         if let day = addLodgingDay {
-            ZStack {
-                Color.black.opacity(0.8)
-                    .ignoresSafeArea()
-                    .onTapGesture { closeAddLodgingPopup() }
-                    .accessibilityHidden(true)
-                    .transition(.opacity)
+            DimmedPopup(onClose: closeAddLodgingPopup) {
                 AddLodgingPopup(
                     onUploadImage: {
                         closeAddLodgingPopup()
@@ -775,7 +777,6 @@ struct TripDetailView: View {
                     },
                     onClose: closeAddLodgingPopup
                 )
-                .transition(.scale(scale: 0.94).combined(with: .opacity))
             }
         }
     }
@@ -816,10 +817,12 @@ struct TripDetailView: View {
         .frame(maxWidth: .infinity)
         .contentShape(.rect)
         .onTapGesture { showLodgingPopup(stay.item) }
+        .onLongPressGesture { editItem(stay.item) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(lodgingName(stay)), \(stay.phase.label)")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { showLodgingPopup(stay.item) }
+        .accessibilityAction(named: "Edit") { editItem(stay.item) }
     }
 
     private var lodgingArrow: some View {
@@ -884,31 +887,6 @@ struct TripDetailView: View {
     /// The day currently shown in the pager.
     private var selectedDay: ItineraryDay? {
         days?.first(where: { $0.dayNumber == selection })
-    }
-
-    /// The zones of the currently shown day, used as a fallback for the add-item picker.
-    private var selectedDayTimeZones: [TimeZone] {
-        guard let date = selectedDay?.date else { return [] }
-        return dayTimeZones[date] ?? []
-    }
-
-    /// The zone a newly added item should default to: the zone the traveler is in at the
-    /// end of the chronologically last item (its end zone, else its start zone). Falls
-    /// back to the selected day's zone when the trip has no items yet or the last one
-    /// is zoneless.
-    private var defaultNewItemZone: TimeZone? {
-        // Zoneless items are ordered by their wall clock read in their day's zone.
-        let timed = (days ?? []).flatMap { day in
-            let fallback = dayTimeZones[day.date]?.first ?? .current
-            return day.uniqueItems.map { item in
-                (item, item.endInstant(fallbackZone: fallback) ?? item.startInstant(fallbackZone: fallback))
-            }
-        }
-        if let last = timed.max(by: { $0.1 < $1.1 })?.0,
-           let zone = last.endTimezone ?? last.startTimezone {
-            return zone
-        }
-        return selectedDayTimeZones.first
     }
 
     /// The day to show after a reload: the day holding the just-saved item when given,
