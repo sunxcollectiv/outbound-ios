@@ -15,6 +15,9 @@ import MapKit
 struct TripItemDetailView: View {
     @State private var item: TripItem
 
+    /// Everyone on the item's trip, passed through to the edit form.
+    private let members: [TripMember]
+
     /// Called with the updated item after an edit is saved, so the presenter can
     /// refresh its itinerary.
     var onSaved: (TripItem) -> Void
@@ -36,8 +39,9 @@ struct TripItemDetailView: View {
     private let sheetBackground = Color(white: 0.9)
     private let sheetForeground = Color(white: 0.1)
 
-    init(item: TripItem, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+    init(item: TripItem, members: [TripMember] = [], onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         _item = State(initialValue: item)
+        self.members = members
         self.onSaved = onSaved
         self.onDeleted = onDeleted
     }
@@ -74,7 +78,7 @@ struct TripItemDetailView: View {
         }
         .presentationBackground(sheetBackground)
         .sheet(isPresented: $showingEdit) {
-            TripItemFormView(tripId: item.tripId, item: item) { updated in
+            TripItemFormView(tripId: item.tripId, members: members, item: item) { updated in
                 item = updated
                 onSaved(updated)
             } onDeleted: {
@@ -135,11 +139,11 @@ struct TripItemDetailView: View {
         }
     }
 
-    /// Kind and scope badges across the top.
+    /// Kind and visibility badges across the top.
     private var header: some View {
         HStack(spacing: 8) {
             badge(item.kind.label.uppercased())
-            badge(item.scope.label.uppercased())
+            badge(item.visibility.label.uppercased())
             Spacer()
         }
     }
@@ -335,4 +339,5 @@ private struct DarkPillButtonStyle: ButtonStyle {
 
 #Preview {
     TripItemDetailView(item: .sample)
+        .environment(AuthStore())
 }

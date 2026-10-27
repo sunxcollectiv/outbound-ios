@@ -83,6 +83,7 @@ struct TripDetailView: View {
     private static let topFadeReach: CGFloat = 60
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var auth
 
     private let api = APIClient.shared
 
@@ -169,12 +170,12 @@ struct TripDetailView: View {
             Task { await importScreenshot(item) }
         }
         .sheet(item: $addItemRequest) { request in
-            TripItemFormView(tripId: trip.id, defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
+            TripItemFormView(tripId: trip.id, members: trip.members ?? [], defaultZone: defaultNewItemZone, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
         }
         .sheet(item: $editingLodging) { item in
-            TripItemFormView(tripId: item.tripId, item: item) { saved in
+            TripItemFormView(tripId: item.tripId, members: trip.members ?? [], item: item) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -188,7 +189,7 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: places.resolving(item)) { saved in
+            TripItemDetailView(item: places.resolving(item), members: trip.members ?? []) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -565,16 +566,26 @@ struct TripDetailView: View {
     // MARK: - Rows
 
     private func itemRow(_ entry: ItineraryEntry, topFade: CGFloat) -> some View {
-        ItineraryEntryCard(entry: entry, places: places, placeDetails: placeDetails)
-            .contentShape(.rect)
-            // Every entry of an item (each end, each layover) opens the same record.
-            .onTapGesture { selectedItem = entry.item }
-            .mask {
-                GeometryReader { geo in
-                    let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
-                    cardFadeGradient(cardFrame: geo.frame(in: .named(Self.detailSpace)), detailHeight: detailHeight, topFade: topFade)
-                }
+        let going = memberSelection.initialSelection(for: entry.item)
+        return ItineraryEntryCard(
+            entry: entry,
+            places: places,
+            placeDetails: placeDetails,
+            // A redacted item's participants are blanked, so there's no one to count.
+            membersSummary: entry.item.redacted ? nil : memberSelection.summary(of: going),
+            membersCount: going.count,
+            // Open items others are doing shrink to a one-line card.
+            isCondensed: entry.item.visibility == .open && memberSelection.includesCurrentUser(entry.item) == false
+        )
+        .contentShape(.rect)
+        // Every entry of an item (each end, each layover) opens the same record.
+        .onTapGesture { selectedItem = entry.item }
+        .mask {
+            GeometryReader { geo in
+                let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
+                cardFadeGradient(cardFrame: geo.frame(in: .named(Self.detailSpace)), detailHeight: detailHeight, topFade: topFade)
             }
+        }
     }
 
     /// A per-card vertical gradient that fades the card as it scrolls into either band
@@ -733,6 +744,10 @@ struct TripDetailView: View {
                 .transition(.scale(scale: 0.94).combined(with: .opacity))
             }
         }
+    }
+
+    private var memberSelection: ItemMemberSelection {
+        ItemMemberSelection(members: trip.members ?? [], currentUserId: auth.currentUser?.id)
     }
 
     private func closeAddLodgingPopup() {
@@ -1164,6 +1179,7 @@ private struct DayPager<Content: View>: View {
         TripDetailView(trip: .sample, days: ItineraryDay.sampleDays)
     }
     .appTheme()
+    .environment(AuthStore())
 }
 
 /// Fades content in, optionally sliding it up, once `isRevealed` turns true.

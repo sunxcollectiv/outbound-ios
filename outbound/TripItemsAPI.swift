@@ -15,17 +15,31 @@ enum TripItemKind: String, Codable, CaseIterable, Identifiable {
     var label: String { rawValue.capitalized }
 }
 
-/// Whether an item is for the whole group or a single traveler, matching `TripItemScope`.
-enum TripItemScope: String, Codable, CaseIterable, Identifiable {
-    case group
-    case personal
+/// What people on the trip who aren't participants see of an item, matching
+/// `TripItemVisibility`. Participants always see all of it.
+enum TripItemVisibility: String, Codable, CaseIterable, Identifiable {
+    /// Everything.
+    case open
+    /// That something is on, and when: its kind, title and times.
+    case closed
+    /// Nothing: the item doesn't exist for them.
+    case `private`
 
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
+
+    /// What this means for people on the trip who aren't going, for the item form.
+    var explanation: String {
+        switch self {
+        case .open: "Everyone on the trip can see all the details."
+        case .closed: "Others see only the title and time."
+        case .private: "Hidden from everyone who isn't going."
+        }
+    }
 }
 
 /// `TripItemRead` from the backend. `place`/`endPlace` are the associated places
-/// (end place is used by transit for the destination); traveler objects are omitted.
+/// (end place is used by transit for the destination).
 ///
 /// Times are local wall time + an optional IANA zone, one zone per end of the item;
 /// see `WallClockSpan` for how to display and order them.
@@ -33,7 +47,10 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     let id: String
     let tripId: String
     var kind: TripItemKind
-    var scope: TripItemScope
+    var visibility: TripItemVisibility = .open
+    /// True when the caller isn't a participant on a closed item: only its kind, title
+    /// and times come through, and the other details are blanked.
+    var redacted = false
     var title: String
     var notes: String?
     var tags: [String]
@@ -51,6 +68,20 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     /// The legs of a transit booking, in travel order (one for a direct trip). Empty
     /// for other kinds.
     var segments: [TransitSegment] = []
+    /// Who added the item; nil once they've left the trip.
+    var createdBy: User? = nil
+    /// Who the item is for, each with an optional RSVP-style answer.
+    var participants: [TripItemParticipant] = []
+}
+
+enum RsvpStatus: String, Codable {
+    case going, maybe, declined
+}
+
+/// `ParticipantRead` — one trip member an item is for, and their answer if any.
+struct TripItemParticipant: Decodable, Equatable {
+    var member: TripMember
+    var status: RsvpStatus?
 }
 
 /// `TransitSegmentRead` — one leg of a transit booking, e.g. JFK → LAX on a two-leg
@@ -100,10 +131,10 @@ struct TransitSegment: Identifiable, Equatable, Decodable, WallClockSpan {
 
 extension TripItem: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case id, tripId, kind, scope, title, notes, tags
+        case id, tripId, kind, visibility, redacted, title, notes, tags
         case startTimezone, endTimezone
         case startsAt, endsAt, startsAtUtc, endsAtUtc
-        case imageUrl, place, endPlace, createdAt, updatedAt, segments
+        case imageUrl, place, endPlace, createdAt, updatedAt, segments, createdBy, participants
     }
 
     init(from decoder: Decoder) throws {
@@ -111,7 +142,8 @@ extension TripItem: Decodable {
         id = try c.decode(String.self, forKey: .id)
         tripId = try c.decode(String.self, forKey: .tripId)
         kind = try c.decode(TripItemKind.self, forKey: .kind)
-        scope = try c.decode(TripItemScope.self, forKey: .scope)
+        visibility = try c.decodeIfPresent(TripItemVisibility.self, forKey: .visibility) ?? .open
+        redacted = try c.decodeIfPresent(Bool.self, forKey: .redacted) ?? false
         title = try c.decode(String.self, forKey: .title)
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
@@ -128,6 +160,8 @@ extension TripItem: Decodable {
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         segments = (try c.decodeIfPresent([TransitSegment].self, forKey: .segments) ?? [])
             .sorted { $0.position < $1.position }
+        createdBy = try c.decodeIfPresent(User.self, forKey: .createdBy)
+        participants = try c.decodeIfPresent([TripItemParticipant].self, forKey: .participants) ?? []
     }
 }
 
@@ -143,7 +177,7 @@ enum TripItemsAPI {
     /// `POST /places`); nil values are omitted from the JSON.
     struct CreateRequest: Encodable {
         let kind: TripItemKind
-        let scope: TripItemScope
+        var visibility: TripItemVisibility? = nil
         let title: String
         let notes: String?
         let startsAt: String
@@ -152,15 +186,26 @@ enum TripItemsAPI {
         let endTimezone: String?
         let placeId: String?
         let endPlaceId: String?
+        /// Exactly who the item is for; nobody is implied. Omitted when nil, which makes
+        /// the item just for its creator.
+        var participants: [ParticipantRequest]? = nil
+    }
+
+    /// `ParticipantSet` — one member an item is for, by their trip-member id. A nil
+    /// `status` is omitted, keeping whatever answer they already had.
+    struct ParticipantRequest: Encodable, Equatable {
+        let memberId: String
+        var status: RsvpStatus? = nil
     }
 
     /// `TripItemUpdate` — body for `PATCH /trips/{id}/items/{itemId}`. Every field is
-    /// optional server-side. It has **no `scope`** (the backend rejects extra fields),
-    /// so scope isn't editable here. Nil place ids are omitted, leaving existing places
+    /// optional server-side. Nil place ids are omitted, leaving existing places
     /// untouched. A nil `endsAt` is sent as an explicit `null` to clear the end time;
-    /// the server drops the end zone with it.
+    /// the server drops the end zone with it. `participants` is omitted when nil; when
+    /// sent it replaces who the item is for (listed members keep their answers).
     struct UpdateRequest: Encodable {
         let kind: TripItemKind
+        var visibility: TripItemVisibility? = nil
         let title: String
         let notes: String?
         let startsAt: String
@@ -169,14 +214,17 @@ enum TripItemsAPI {
         let endTimezone: String?
         let placeId: String?
         let endPlaceId: String?
+        var participants: [ParticipantRequest]? = nil
 
         private enum CodingKeys: String, CodingKey {
-            case kind, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
+            case kind, visibility, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
+            case participants
         }
 
         func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(kind, forKey: .kind)
+            try c.encodeIfPresent(visibility, forKey: .visibility)
             try c.encode(title, forKey: .title)
             try c.encodeIfPresent(notes, forKey: .notes)
             try c.encode(startsAt, forKey: .startsAt)
@@ -190,6 +238,7 @@ enum TripItemsAPI {
             }
             try c.encodeIfPresent(placeId, forKey: .placeId)
             try c.encodeIfPresent(endPlaceId, forKey: .endPlaceId)
+            try c.encodeIfPresent(participants, forKey: .participants)
         }
     }
 
@@ -216,7 +265,6 @@ extension TripItem {
         id: "sample-item",
         tripId: "sample",
         kind: .activity,
-        scope: .group,
         title: "Land at HND",
         notes: "Terminal 3",
         tags: [],

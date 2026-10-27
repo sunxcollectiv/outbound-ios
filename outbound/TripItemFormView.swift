@@ -19,7 +19,11 @@ import SwiftUI
 struct TripItemFormView: View {
     let tripId: String
 
+    /// Everyone on the trip, offered in the "who's going" popup.
+    private let members: [TripMember]
+
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var auth
 
     /// The item being edited, or `nil` when creating a new one.
     private let item: TripItem?
@@ -38,7 +42,15 @@ struct TripItemFormView: View {
     var onDeleted: () -> Void
 
     @State private var kind: TripItemKind
-    @State private var scope: TripItemScope
+    /// What people who aren't going see of the item.
+    @State private var visibility: TripItemVisibility
+    /// Ids of the trip members this item is for, toggled in the popup. Nil until
+    /// seeded on appear, once the signed-in user is known.
+    @State private var selectedMemberIds: Set<String>?
+    /// The selection the item was opened with, so an edit only re-sends who's in when
+    /// it changed.
+    @State private var originalMemberIds: Set<String>?
+    @State private var showingMemberPicker = false
     @State private var title: String
     @State private var startsAt: Date
     @State private var hasEndTime: Bool
@@ -85,15 +97,16 @@ struct TripItemFormView: View {
     /// The zone actually used for the end: an explicit choice, else the start zone.
     private var effectiveEndZone: TimeZone? { endZone ?? startZone }
 
-    init(tripId: String, item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+    init(tripId: String, members: [TripMember] = [], item: TripItem? = nil, defaultZone: TimeZone? = nil, defaultDate: Date? = nil, defaultKind: TripItemKind = .activity, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         self.tripId = tripId
+        self.members = members
         self.item = item
         self.defaultZone = defaultZone
         self.defaultDate = defaultDate
         self.onSaved = onSaved
         self.onDeleted = onDeleted
         _kind = State(initialValue: item?.kind ?? defaultKind)
-        _scope = State(initialValue: item?.scope ?? .group)
+        _visibility = State(initialValue: item?.visibility ?? .open)
         _title = State(initialValue: item?.title ?? "")
         // Prefill the location fields with the existing place names (if the backend has
         // enriched them), leaving `startPlace`/`endPlace` nil so an untouched edit keeps
@@ -138,16 +151,19 @@ struct TripItemFormView: View {
                             .pickerStyle(.segmented)
                         }
 
+                        // Who it's for and who else sees it read as one group, so the
+                        // picker sits tight under the members row with no label of its own.
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Scope")
-                                .font(.subheadline)
-                                .foregroundStyle(Color.appForeground.opacity(0.8))
-                            Picker("Scope", selection: $scope) {
-                                ForEach(TripItemScope.allCases) { scope in
-                                    Text(scope.label).tag(scope)
+                            membersRow
+                            Picker("Visibility", selection: $visibility) {
+                                ForEach(TripItemVisibility.allCases) { visibility in
+                                    Text(visibility.label).tag(visibility)
                                 }
                             }
                             .pickerStyle(.segmented)
+                            Text(visibility.explanation)
+                                .font(.caption)
+                                .foregroundStyle(Color.appForeground.opacity(0.7))
                         }
 
                         TextField("Title", text: $title)
@@ -276,7 +292,72 @@ struct TripItemFormView: View {
             }
             .task { await prefillPlaceNames() }
         }
+        .overlay { memberPickerPopup }
         .appTheme()
+        .onAppear(perform: seedSelectedMembers)
+    }
+
+    private var memberSelection: ItemMemberSelection {
+        ItemMemberSelection(members: members, currentUserId: auth.currentUser?.id)
+    }
+
+    private func seedSelectedMembers() {
+        guard selectedMemberIds == nil else { return }
+        let seeded = memberSelection.initialSelection(for: item)
+        selectedMemberIds = seeded
+        originalMemberIds = seeded
+    }
+
+    /// The `participants` to send: exactly who's selected. Nil leaves them to the
+    /// server — on an edit when the selection is unchanged, and when there's no roster
+    /// to pick from (a new item is then just for its creator).
+    private var participantsToSave: [TripItemsAPI.ParticipantRequest]? {
+        guard !members.isEmpty, let selected = selectedMemberIds else { return nil }
+        if item != nil, selected == originalMemberIds { return nil }
+        return memberSelection.participants(for: selected)
+    }
+
+    /// A one-line row summarizing who the item is for; tapping it opens the picker.
+    private var membersRow: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.25)) { showingMemberPicker = true }
+        } label: {
+            HStack {
+                Text("Members")
+                Spacer()
+                Text(memberSelection.summary(of: selectedMemberIds ?? []))
+                    .foregroundStyle(Color.appForeground.opacity(0.75))
+            }
+            .padding(14)
+            .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func closeMemberPicker() {
+        withAnimation(.snappy(duration: 0.2)) { showingMemberPicker = false }
+    }
+
+    /// The open member picker over a dimmed form; tapping outside closes it.
+    @ViewBuilder
+    private var memberPickerPopup: some View {
+        if showingMemberPicker {
+            ZStack {
+                Color.black.opacity(0.8)
+                    .ignoresSafeArea()
+                    .onTapGesture { closeMemberPicker() }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                ItemMembersPopup(
+                    members: members,
+                    currentUserId: auth.currentUser?.id,
+                    selectedIds: Binding { selectedMemberIds ?? [] } set: { selectedMemberIds = $0 },
+                    onClose: closeMemberPicker
+                )
+                .transition(.scale(scale: 0.94).combined(with: .opacity))
+            }
+        }
     }
 
     /// Deletes an existing item, after a confirmation since it can't be undone.
@@ -401,11 +482,12 @@ struct TripItemFormView: View {
 
                 let endpoint: Endpoint
                 if let item {
-                    // The update endpoint has no `scope` field, so it isn't sent here.
                     // Place ids are omitted when nil, so an edit that doesn't touch the
-                    // place search leaves the existing places unchanged.
+                    // place search leaves the existing places unchanged; same for
+                    // participants when the member selection didn't change.
                     let body = TripItemsAPI.UpdateRequest(
                         kind: kind,
+                        visibility: visibility,
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startWall,
@@ -413,13 +495,14 @@ struct TripItemFormView: View {
                         endsAt: endWall,
                         endTimezone: endZoneId,
                         placeId: startPlace?.id,
-                        endPlaceId: endPlaceId
+                        endPlaceId: endPlaceId,
+                        participants: participantsToSave
                     )
                     endpoint = TripItemsAPI.update(tripId: tripId, itemId: item.id, body)
                 } else {
                     let body = TripItemsAPI.CreateRequest(
                         kind: kind,
-                        scope: scope,
+                        visibility: visibility,
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startWall,
@@ -427,7 +510,8 @@ struct TripItemFormView: View {
                         endsAt: endWall,
                         endTimezone: endZoneId,
                         placeId: startPlace?.id,
-                        endPlaceId: endPlaceId
+                        endPlaceId: endPlaceId,
+                        participants: participantsToSave
                     )
                     endpoint = TripItemsAPI.create(tripId: tripId, body)
                 }
@@ -511,4 +595,5 @@ struct TripItemFormView: View {
 
 #Preview {
     TripItemFormView(tripId: "sample")
+        .environment(AuthStore())
 }

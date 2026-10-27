@@ -21,8 +21,28 @@ struct Trip: Codable, Identifiable, Equatable {
     /// Ids of `areas` that have no photos yet. The trip is usable as is; the client
     /// asks `POST /areas/refresh-photos` for these and patches the areas in.
     var areasMissingPhotos: [String]?
+    var ownerId: String?
+    /// Everyone on the trip, owner included, in the order they were added. Optional so
+    /// trips still decode from a backend that doesn't send the field yet.
+    var members: [TripMember]?
     let createdAt: Date
     let updatedAt: Date
+}
+
+enum TripRole: String, Codable {
+    /// Posts group items and manages members.
+    case organizer
+    /// Adds their own items and RSVPs.
+    case member
+}
+
+/// `TripMemberRead` — a person on the trip, by email. `user` is nil until someone
+/// with that email has an account.
+struct TripMember: Codable, Identifiable, Equatable {
+    let id: String
+    var email: String
+    var user: User?
+    var role: TripRole
 }
 
 extension Trip {
@@ -96,6 +116,10 @@ enum TripsAPI {
     ///
     /// `areaIds` replaces the trip's whole set of areas. Nil keys are omitted, so on
     /// an edit leave it nil to keep the existing areas untouched.
+    ///
+    /// `members` lists everyone besides the creator. On an edit it replaces the
+    /// roster, matched by email (the owner is always kept); leave it nil to keep the
+    /// roster untouched.
     struct CreateRequest: Encodable {
         let title: String
         let description: String?
@@ -103,6 +127,13 @@ enum TripsAPI {
         let endDate: String
         var timezone: String?
         var areaIds: [String]?
+        var members: [MemberRequest]?
+    }
+
+    /// `TripMemberCreate`. A nil `role` lets the server default to `member`.
+    struct MemberRequest: Encodable, Equatable {
+        let email: String
+        var role: TripRole?
     }
 
     static let list = Endpoint(path: "/trips")
