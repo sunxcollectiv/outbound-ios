@@ -51,6 +51,8 @@ struct TripItemFormView: View {
     /// it changed.
     @State private var originalMemberIds: Set<String>?
     @State private var showingMemberPicker = false
+    /// Which date row's popup is open, if any.
+    @State private var editingTimeField: TimeField?
     @State private var title: String
     /// The start wall clock; nil once cleared, which blocks saving (a start is required).
     @State private var startsAt: Date?
@@ -82,6 +84,8 @@ struct TripItemFormView: View {
     @State private var endPlaceText: String
     /// The destination place's time zone from Google, used to drive `endZone`.
     @State private var endPlaceZone: TimeZone?
+
+    private enum TimeField { case start, end }
 
     /// Scroll target for the error banner, so a failed save brings it into view.
     private static let errorAnchor = "error"
@@ -197,11 +201,11 @@ struct TripItemFormView: View {
 
                         VStack(spacing: 8) {
                             VStack(spacing: 6) {
-                                timeRow(title: startLabel, placeholder: "Add start", date: $startsAt)
+                                timeRow(title: startLabel, placeholder: "Add start", date: $startsAt, field: .start)
                                 if startsAt != nil, let startZone { zoneNote(startZone) }
                             }
                             VStack(spacing: 6) {
-                                timeRow(title: endLabel, placeholder: "Add end", date: $endsAt)
+                                timeRow(title: endLabel, placeholder: "Add end", date: $endsAt, field: .end)
                                 if endsAt != nil, let effectiveEndZone { zoneNote(effectiveEndZone) }
                             }
                         }
@@ -261,6 +265,7 @@ struct TripItemFormView: View {
             .task { await prefillPlaceNames() }
         }
         .overlay { memberPickerPopup }
+        .overlay { timePickerPopup }
         .appTheme()
         .onAppear(perform: seedSelectedMembers)
     }
@@ -311,20 +316,48 @@ struct TripItemFormView: View {
     @ViewBuilder
     private var memberPickerPopup: some View {
         if showingMemberPicker {
-            ZStack {
-                Color.black.opacity(0.8)
-                    .ignoresSafeArea()
-                    .onTapGesture { closeMemberPicker() }
-                    .accessibilityHidden(true)
-                    .transition(.opacity)
+            popup(onClose: closeMemberPicker) {
                 ItemMembersPopup(
                     members: members,
                     currentUserId: auth.currentUser?.id,
                     selectedIds: Binding { selectedMemberIds ?? [] } set: { selectedMemberIds = $0 },
                     onClose: closeMemberPicker
                 )
-                .transition(.scale(scale: 0.94).combined(with: .opacity))
             }
+        }
+    }
+
+    private func openTimePicker(_ field: TimeField) {
+        withAnimation(.snappy(duration: 0.25)) { editingTimeField = field }
+    }
+
+    private func closeTimePicker() {
+        withAnimation(.snappy(duration: 0.2)) { editingTimeField = nil }
+    }
+
+    /// The open date popup for the tapped row over a dimmed form; tapping outside closes it.
+    @ViewBuilder
+    private var timePickerPopup: some View {
+        if let editingTimeField {
+            popup(onClose: closeTimePicker) {
+                DateTimePopup(
+                    title: editingTimeField == .start ? startLabel : endLabel,
+                    onClose: closeTimePicker
+                )
+            }
+        }
+    }
+
+    /// A popup card centered over a dimmed backdrop; tapping the backdrop closes it.
+    private func popup<Card: View>(onClose: @escaping () -> Void, @ViewBuilder card: () -> Card) -> some View {
+        ZStack {
+            Color.black.opacity(0.8)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onClose)
+                .accessibilityHidden(true)
+                .transition(.opacity)
+            card()
+                .transition(.scale(scale: 0.94).combined(with: .opacity))
         }
     }
 
@@ -391,9 +424,9 @@ struct TripItemFormView: View {
     }
 
     /// A boxed row like the members row: the label on the left, the date/time (or a
-    /// placeholder) on the right, and a clear button once there's a value. Picking a
-    /// date isn't wired up yet.
-    private func timeRow(title: String, placeholder: String, date: Binding<Date?>) -> some View {
+    /// placeholder) on the right, and a clear button once there's a value. Tapping the
+    /// row opens its date popup.
+    private func timeRow(title: String, placeholder: String, date: Binding<Date?>, field: TimeField) -> some View {
         HStack(spacing: 10) {
             Text(title)
             Spacer()
@@ -415,6 +448,11 @@ struct TripItemFormView: View {
         }
         .padding(14)
         .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+        // A tap gesture rather than a Button, so the clear button inside stays its own
+        // target instead of nesting a button in a button.
+        .contentShape(Rectangle())
+        .onTapGesture { openTimePicker(field) }
+        .accessibilityAddTraits(.isButton)
     }
 
     /// A read-only caption noting the time zone a time is in, sitting under its row.
