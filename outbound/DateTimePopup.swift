@@ -186,6 +186,11 @@ struct DateTimePopup: View {
     /// the selected hour. Days outside the trip only pad the week.
     private func dayCell(_ day: TripCalendarGrid.Day) -> some View {
         let isSelected = day.isInTrip && selectedDay == day.date
+        // Weekends stand out so the week's shape reads at a glance: trip weekends get a
+        // white line along the bottom, padding weekends a slightly lighter fill.
+        let isWeekend = Calendar.sundayFirst.isDateInWeekend(day.date)
+        let fill = day.isInTrip ? 0.14 : (isWeekend ? 0.09 : 0.06)
+        let showsWeekendLine = isWeekend && day.isInTrip && !isSelected
         return Button {
             withAnimation(.snappy(duration: 0.15)) { selectedDay = day.date }
         } label: {
@@ -197,10 +202,13 @@ struct DateTimePopup: View {
                         .monospacedDigit()
                         .foregroundStyle(isSelected ? Color.black : Color.appForeground.opacity(day.isInTrip ? 1 : 0.3))
                 }
-                .background(
-                    isSelected ? Color.appForeground : Color.appForeground.opacity(day.isInTrip ? 0.14 : 0.08),
-                    in: .rect(cornerRadius: Self.gridCornerRadius)
-                )
+                .background(isSelected ? Color.appForeground : Color.appForeground.opacity(fill))
+                .overlay(alignment: .bottom) {
+                    if showsWeekendLine {
+                        Color.white.opacity(0.5).frame(height: 2)
+                    }
+                }
+                .clipShape(.rect(cornerRadius: Self.gridCornerRadius))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
