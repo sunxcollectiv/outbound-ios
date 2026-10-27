@@ -7,17 +7,20 @@ import SwiftUI
 
 /// A centered black card for picking an item's start or end, shown over the item
 /// form when its date row is tapped. Shows the trip's days as a Sunday–Saturday
-/// calendar, then the hours, minutes and AM/PM. Tapping a time choice highlights it,
-/// but nothing is written back to the form yet.
+/// calendar, then the hours, minutes and AM/PM. Each choice is written straight back
+/// to `date` once both a day and an hour are picked, so closing keeps it.
 struct DateTimePopup: View {
     /// Leads the date line at the top, e.g. "Starts at" or "Check-out at".
     let title: String
     /// The trip's first through last day; nil when the trip's dates aren't known.
     let tripDates: ClosedRange<Date>?
+    /// The row's value, as a wall clock on the device-zone canvas the form uses.
+    @Binding var date: Date?
     let onClose: () -> Void
-    /// The row's current value, shown on the date line; nil when it isn't set.
-    private let date: Date?
 
+    /// The highlighted day (midnight, as in the calendar grid), shown on the date
+    /// line; nil until the row has a value or a day is tapped.
+    @State private var selectedDay: Date?
     /// Natural height of the calendar, so the card hugs it until it needs to scroll.
     @State private var calendarHeight: CGFloat = 0
     /// The highlighted hour on a 12-hour clock (1–12), if any.
@@ -37,12 +40,15 @@ struct DateTimePopup: View {
     private static let hourCellWidth: CGFloat = 48
     private static let hourRowHeight: CGFloat = 44
 
-    /// `date` seeds the highlighted hour, minute and AM/PM (the row's current value, if set).
-    init(title: String, tripDates: ClosedRange<Date>?, date: Date? = nil, onClose: @escaping () -> Void) {
+    /// `date` seeds the highlighted day, hour, minute and AM/PM (the row's current
+    /// value, if set).
+    init(title: String, tripDates: ClosedRange<Date>?, date: Binding<Date?>, onClose: @escaping () -> Void) {
         self.title = title
         self.tripDates = tripDates
+        _date = date
         self.onClose = onClose
-        self.date = date
+        let date = date.wrappedValue
+        _selectedDay = State(initialValue: date.map { Calendar.sundayFirst.startOfDay(for: $0) })
         let parts = date.map { Calendar.current.dateComponents([.hour, .minute], from: $0) }
         // Snap to the nearest quarter so an off-grid time still highlights a choice.
         let minute = parts?.minute ?? 0
@@ -59,10 +65,23 @@ struct DateTimePopup: View {
         return String(format: "%d:%02d %@", selectedHour, selectedMinute, isPM ? "PM" : "AM")
     }
 
+    /// The selected day and time as one date, or nil until both a day and an hour
+    /// are picked.
+    private var selectedDate: Date? {
+        guard let selectedDay, let selectedHour else { return nil }
+        return Self.date(on: selectedDay, hour: selectedHour, minute: selectedMinute, isPM: isPM)
+    }
+
+    /// `day` at the given 12-hour clock time, e.g. 12 AM is midnight and 12 PM is noon.
+    static func date(on day: Date, hour: Int, minute: Int, isPM: Bool, calendar: Calendar = .sundayFirst) -> Date? {
+        let hour24 = hour % 12 + (isPM ? 12 : 0)
+        return calendar.date(bySettingHour: hour24, minute: minute, second: 0, of: day)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center) {
-                valueLine(title, date?.formatted(.dateTime.month(.abbreviated).day().year()))
+                valueLine(title, selectedDay?.formatted(.dateTime.month(.abbreviated).day().year()))
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button(action: onClose) {
@@ -112,6 +131,9 @@ struct DateTimePopup: View {
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape, onClose)
+        .onChange(of: selectedDate) { _, newDate in
+            if let newDate { date = newDate }
+        }
     }
 
     /// A "Label: value" line with the label dimmed, e.g. "Time: 3:30 PM"; a nil value
@@ -149,21 +171,33 @@ struct DateTimePopup: View {
         }
     }
 
+    /// A square day; trip days can be tapped to select them, filling the cell like
+    /// the selected hour. Days outside the trip only pad the week.
     private func dayCell(_ day: TripCalendarGrid.Day) -> some View {
-        Color.clear
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                Text(day.date, format: .dateTime.day())
-                    .font(.subheadline.weight(day.isInTrip ? .semibold : .regular))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.appForeground.opacity(day.isInTrip ? 1 : 0.3))
-            }
-            .background(
-                Color.appForeground.opacity(day.isInTrip ? 0.14 : 0.08),
-                in: .rect(cornerRadius: Self.gridCornerRadius)
-            )
-            .accessibilityLabel(Text(day.date, format: .dateTime.weekday(.wide).month(.wide).day()))
-            .accessibilityHidden(!day.isInTrip)
+        let isSelected = day.isInTrip && selectedDay == day.date
+        return Button {
+            withAnimation(.snappy(duration: 0.15)) { selectedDay = day.date }
+        } label: {
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    Text(day.date, format: .dateTime.day())
+                        .font(.subheadline.weight(day.isInTrip ? .semibold : .regular))
+                        .monospacedDigit()
+                        .foregroundStyle(isSelected ? Color.black : Color.appForeground.opacity(day.isInTrip ? 1 : 0.3))
+                }
+                .background(
+                    isSelected ? Color.appForeground : Color.appForeground.opacity(day.isInTrip ? 0.14 : 0.08),
+                    in: .rect(cornerRadius: Self.gridCornerRadius)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Not `.disabled`, which would also fade the padding days past their own styling.
+        .allowsHitTesting(day.isInTrip)
+        .accessibilityLabel(Text(day.date, format: .dateTime.weekday(.wide).month(.wide).day()))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHidden(!day.isInTrip)
     }
 
     /// Hours 1–12 as one rounded box of equal-width, full-height cells split by thin
@@ -254,6 +288,6 @@ struct DateTimePopup: View {
 #Preview {
     ZStack {
         Color(white: 0.3).ignoresSafeArea()
-        DateTimePopup(title: "Starts at", tripDates: .now ... .now.addingTimeInterval(9 * 86_400), onClose: {})
+        DateTimePopup(title: "Starts at", tripDates: .now ... .now.addingTimeInterval(9 * 86_400), date: .constant(nil), onClose: {})
     }
 }
