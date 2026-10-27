@@ -27,14 +27,6 @@ struct MemberInvitePopup: View {
                     .tracking(1)
                     .foregroundStyle(Color.appForeground.opacity(0.6))
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 28, height: 28)
-                        .background(Color.appForeground.opacity(0.12), in: .circle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -48,16 +40,6 @@ struct MemberInvitePopup: View {
             }
 
             emailList
-
-            Button(action: onClose) {
-                Text("Done")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .foregroundStyle(Color(white: 0.15))
-                    .background(Color.appForeground, in: .rect(cornerRadius: 10))
-            }
-            .buttonStyle(.plain)
         }
         .popupCard(onClose: onClose)
         .onAppear { isFocused = true }

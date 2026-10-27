@@ -35,14 +35,6 @@ struct LodgingPopup: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Edit Lodging")
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 28, height: 28)
-                        .background(Color.appForeground.opacity(0.12), in: .circle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
             }
 
             VStack(alignment: .leading, spacing: 6) {

@@ -44,9 +44,10 @@ extension View {
     }
 }
 
-/// A popup card centered over a dimmed screen; tapping the dimmed area closes it.
-/// Show it from an `.overlay` while the popup is open, changing that state inside
-/// `withAnimation` so the backdrop fades and the card scales in and out.
+/// A popup card centered over a dimmed screen, with a round close button just below
+/// it; tapping the button or the dimmed area closes it. Show it from an `.overlay`
+/// while the popup is open, changing that state inside `withAnimation` so the
+/// backdrop fades and the card scales in and out.
 struct DimmedPopup<Card: View>: View {
     let onClose: () -> Void
     @ViewBuilder let card: () -> Card
@@ -58,8 +59,25 @@ struct DimmedPopup<Card: View>: View {
                 .onTapGesture(perform: onClose)
                 .accessibilityHidden(true)
                 .transition(.opacity)
-            card()
-                .transition(.scale(scale: 0.94).combined(with: .opacity))
+            VStack(spacing: 16) {
+                card()
+                closeButton
+            }
+            .transition(.scale(scale: 0.94).combined(with: .opacity))
         }
+    }
+
+    private var closeButton: some View {
+        Button(action: onClose) {
+            Image(systemName: "xmark")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color.appForeground)
+                .frame(width: 44, height: 44)
+                .background(Color(white: 0.15), in: .circle)
+                .overlay(Circle().strokeBorder(.white.opacity(0.12)))
+                .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Close")
     }
 }

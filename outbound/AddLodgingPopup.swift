@@ -27,14 +27,6 @@ struct AddLodgingPopup: View {
                     .tracking(1)
                     .foregroundStyle(Color.appForeground.opacity(0.6))
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 28, height: 28)
-                        .background(Color.appForeground.opacity(0.12), in: .circle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
             }
 
             VStack(alignment: .leading, spacing: 10) {

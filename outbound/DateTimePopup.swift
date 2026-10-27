@@ -92,14 +92,6 @@ struct DateTimePopup: View {
                 valueLine(title, selectedDay?.formatted(.dateTime.month(.abbreviated).day().year()))
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 28, height: 28)
-                        .background(Color.appForeground.opacity(0.12), in: .circle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
             }
 
             if let tripDates {
