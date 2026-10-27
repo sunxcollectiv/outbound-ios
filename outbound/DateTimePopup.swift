@@ -7,14 +7,16 @@ import SwiftUI
 
 /// A centered black card for picking an item's start or end, shown over the item
 /// form when its date row is tapped. Shows the trip's days as a Sunday–Saturday
-/// calendar, then a row of hours. Tapping an hour highlights it, but nothing is
-/// written back to the form yet.
+/// calendar, then the hours, minutes and AM/PM. Tapping a time choice highlights it,
+/// but nothing is written back to the form yet.
 struct DateTimePopup: View {
-    /// The row's label, e.g. "Starts" or "Check-out".
+    /// Leads the date line at the top, e.g. "Starts at" or "Check-out at".
     let title: String
     /// The trip's first through last day; nil when the trip's dates aren't known.
     let tripDates: ClosedRange<Date>?
     let onClose: () -> Void
+    /// The row's current value, shown on the date line; nil when it isn't set.
+    private let date: Date?
 
     /// Natural height of the calendar, so the card hugs it until it needs to scroll.
     @State private var calendarHeight: CGFloat = 0
@@ -38,6 +40,7 @@ struct DateTimePopup: View {
         self.title = title
         self.tripDates = tripDates
         self.onClose = onClose
+        self.date = date
         let parts = date.map { Calendar.current.dateComponents([.hour, .minute], from: $0) }
         // Snap to the nearest quarter so an off-grid time still highlights a choice.
         let minute = parts?.minute ?? 0
@@ -57,11 +60,8 @@ struct DateTimePopup: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center) {
-                Label(title, systemImage: "calendar")
-                    .font(.caption.weight(.semibold))
-                    .textCase(.uppercase)
-                    .tracking(1)
-                    .foregroundStyle(Color.appForeground.opacity(0.6))
+                valueLine(title, date?.formatted(.dateTime.month(.abbreviated).day().year()))
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -91,12 +91,7 @@ struct DateTimePopup: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                (Text("Time: ").foregroundStyle(Color.appForeground.opacity(0.6))
-                    + Text(selectedTimeText ?? "Not set"))
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .padding(.horizontal, 4)
+                valueLine("Time", selectedTimeText)
                 hourRow
                 minuteRow
             }
@@ -111,6 +106,17 @@ struct DateTimePopup: View {
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape, onClose)
+    }
+
+    /// A "Label: value" line with the label dimmed, e.g. "Time: 3:30 PM"; a nil value
+    /// reads as a faint em dash, set a little further from the label.
+    private func valueLine(_ label: String, _ value: String?) -> some View {
+        (Text("\(label): ").foregroundStyle(Color.appForeground.opacity(0.6))
+            + (value.map { Text($0) } ?? Text(" —").foregroundStyle(Color.appForeground.opacity(0.3))))
+            .font(.subheadline.weight(.semibold))
+            .monospacedDigit()
+            .contentTransition(.numericText())
+            .padding(.horizontal, 4)
     }
 
     /// Single-letter weekday labels, Sunday first.
@@ -238,6 +244,6 @@ struct DateTimePopup: View {
 #Preview {
     ZStack {
         Color(white: 0.3).ignoresSafeArea()
-        DateTimePopup(title: "Starts", tripDates: .now ... .now.addingTimeInterval(9 * 86_400), onClose: {})
+        DateTimePopup(title: "Starts at", tripDates: .now ... .now.addingTimeInterval(9 * 86_400), onClose: {})
     }
 }

@@ -96,8 +96,40 @@ struct TripItemFormView: View {
     private let api = APIClient.shared
 
     private var isEditing: Bool { item != nil }
-    private var startLabel: String { kind == .lodging ? "Check-in" : "Starts" }
-    private var endLabel: String { kind == .lodging ? "Check-out" : "Ends" }
+    private var startLabel: String {
+        switch kind {
+        case .lodging: "Check-in"
+        case .transit: "Departs"
+        case .activity: "Starts"
+        }
+    }
+    private var endLabel: String {
+        switch kind {
+        case .lodging: "Check-out"
+        case .transit: "Arrives"
+        case .activity: "Ends"
+        }
+    }
+    /// Shown when saving without a start, which the API requires.
+    private var missingStartMessage: String {
+        switch kind {
+        case .lodging: "Add a check-in time."
+        case .transit: "Add a departure time."
+        case .activity: "Add a start time."
+        }
+    }
+
+    /// Leads the date popup's date line, e.g. "Starts at" or "Departs at".
+    private func popupTitle(for field: TimeField) -> String {
+        switch (kind, field) {
+        case (.lodging, .start): "Check-in at"
+        case (.lodging, .end): "Check-out at"
+        case (.transit, .start): "Departs at"
+        case (.transit, .end): "Arrives at"
+        case (.activity, .start): "Starts at"
+        case (.activity, .end): "Ends at"
+        }
+    }
 
     /// The zone actually used for the end: an explicit choice, else the start zone.
     private var effectiveEndZone: TimeZone? { endZone ?? startZone }
@@ -345,7 +377,7 @@ struct TripItemFormView: View {
         if let editingTimeField {
             popup(onClose: closeTimePicker) {
                 DateTimePopup(
-                    title: editingTimeField == .start ? startLabel : endLabel,
+                    title: popupTitle(for: editingTimeField),
                     tripDates: tripDates,
                     date: editingTimeField == .start ? startsAt : endsAt,
                     onClose: closeTimePicker
@@ -484,7 +516,7 @@ struct TripItemFormView: View {
         let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
         guard !trimmedTitle.isEmpty else { return }
         guard let startsAt else {
-            errorMessage = "Add a \(startLabel.lowercased()) time."
+            errorMessage = missingStartMessage
             errorScrollTrigger += 1
             return
         }
