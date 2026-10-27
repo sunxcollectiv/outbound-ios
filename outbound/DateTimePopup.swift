@@ -130,12 +130,12 @@ struct DateTimePopup: View {
         }
         .foregroundStyle(Color.appForeground)
         .padding(20)
-        .frame(maxWidth: 360)
+        .frame(maxWidth: 400)
         .background(Color.black, in: .rect(cornerRadius: 20))
         // A light gray edge so the black card stands out against the dimmed form.
         .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.3)))
         .shadow(color: .black.opacity(0.4), radius: 24, y: 10)
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 16)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape, onClose)
