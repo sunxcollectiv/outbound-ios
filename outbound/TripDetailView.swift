@@ -725,12 +725,7 @@ struct TripDetailView: View {
             let place = places.current(item.place)
             let name = lodgingName(item)
             let address = place?.googlePlaceId.flatMap { placeDetails[$0] }?.address ?? place?.address
-            ZStack {
-                Color.black.opacity(0.8)
-                    .ignoresSafeArea()
-                    .onTapGesture { closeLodgingPopup() }
-                    .accessibilityHidden(true)
-                    .transition(.opacity)
+            DimmedPopup(onClose: closeLodgingPopup) {
                 LodgingPopup(
                     name: name,
                     address: address,
@@ -741,7 +736,6 @@ struct TripDetailView: View {
                     },
                     onClose: closeLodgingPopup
                 )
-                .transition(.scale(scale: 0.94).combined(with: .opacity))
             }
         }
     }
@@ -758,12 +752,7 @@ struct TripDetailView: View {
     @ViewBuilder
     private var addLodgingPopup: some View {
         if let day = addLodgingDay {
-            ZStack {
-                Color.black.opacity(0.8)
-                    .ignoresSafeArea()
-                    .onTapGesture { closeAddLodgingPopup() }
-                    .accessibilityHidden(true)
-                    .transition(.opacity)
+            DimmedPopup(onClose: closeAddLodgingPopup) {
                 AddLodgingPopup(
                     onUploadImage: {
                         closeAddLodgingPopup()
@@ -775,7 +764,6 @@ struct TripDetailView: View {
                     },
                     onClose: closeAddLodgingPopup
                 )
-                .transition(.scale(scale: 0.94).combined(with: .opacity))
             }
         }
     }

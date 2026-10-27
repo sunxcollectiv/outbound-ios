@@ -352,7 +352,7 @@ struct TripItemFormView: View {
     @ViewBuilder
     private var memberPickerPopup: some View {
         if showingMemberPicker {
-            popup(onClose: closeMemberPicker) {
+            DimmedPopup(onClose: closeMemberPicker) {
                 ItemMembersPopup(
                     members: members,
                     currentUserId: auth.currentUser?.id,
@@ -375,7 +375,7 @@ struct TripItemFormView: View {
     @ViewBuilder
     private var timePickerPopup: some View {
         if let editingTimeField {
-            popup(onClose: closeTimePicker) {
+            DimmedPopup(onClose: closeTimePicker) {
                 DateTimePopup(
                     title: popupTitle(for: editingTimeField),
                     tripDates: tripDates,
@@ -383,19 +383,6 @@ struct TripItemFormView: View {
                     onClose: closeTimePicker
                 )
             }
-        }
-    }
-
-    /// A popup card centered over a dimmed backdrop; tapping the backdrop closes it.
-    private func popup<Card: View>(onClose: @escaping () -> Void, @ViewBuilder card: () -> Card) -> some View {
-        ZStack {
-            Color.black.opacity(0.8)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onClose)
-                .accessibilityHidden(true)
-                .transition(.opacity)
-            card()
-                .transition(.scale(scale: 0.94).combined(with: .opacity))
         }
     }
 

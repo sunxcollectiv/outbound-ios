@@ -60,16 +60,7 @@ struct ItemMembersPopup: View {
             }
             .buttonStyle(.plain)
         }
-        .foregroundStyle(Color.appForeground)
-        .padding(20)
-        .frame(maxWidth: 360)
-        .background(Color(white: 0.15), in: .rect(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.08)))
-        .shadow(color: .black.opacity(0.4), radius: 24, y: 10)
-        .padding(.horizontal, 24)
-        .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isModal)
-        .accessibilityAction(.escape, onClose)
+        .popupCard(onClose: onClose)
     }
 
     private var memberList: some View {
