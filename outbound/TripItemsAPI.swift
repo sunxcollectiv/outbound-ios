@@ -18,15 +18,24 @@ enum TripItemKind: String, Codable, CaseIterable, Identifiable {
 /// What people on the trip who aren't participants see of an item, matching
 /// `TripItemVisibility`. Participants always see all of it.
 enum TripItemVisibility: String, Codable, CaseIterable, Identifiable {
-    /// Nothing: the item doesn't exist for them.
-    case `private`
     /// Everything.
     case open
     /// That something is on, and when: its kind, title and times.
     case closed
+    /// Nothing: the item doesn't exist for them.
+    case `private`
 
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
+
+    /// What this means for people on the trip who aren't going, for the item form.
+    var explanation: String {
+        switch self {
+        case .open: "Everyone on the trip can see all the details."
+        case .closed: "Others see only the title and time."
+        case .private: "Hidden from everyone who isn't going."
+        }
+    }
 }
 
 /// `TripItemRead` from the backend. `place`/`endPlace` are the associated places
@@ -168,6 +177,7 @@ enum TripItemsAPI {
     /// `POST /places`); nil values are omitted from the JSON.
     struct CreateRequest: Encodable {
         let kind: TripItemKind
+        var visibility: TripItemVisibility? = nil
         let title: String
         let notes: String?
         let startsAt: String
@@ -195,6 +205,7 @@ enum TripItemsAPI {
     /// sent it replaces who the item is for (listed members keep their answers).
     struct UpdateRequest: Encodable {
         let kind: TripItemKind
+        var visibility: TripItemVisibility? = nil
         let title: String
         let notes: String?
         let startsAt: String
@@ -206,13 +217,14 @@ enum TripItemsAPI {
         var participants: [ParticipantRequest]? = nil
 
         private enum CodingKeys: String, CodingKey {
-            case kind, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
+            case kind, visibility, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
             case participants
         }
 
         func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(kind, forKey: .kind)
+            try c.encodeIfPresent(visibility, forKey: .visibility)
             try c.encode(title, forKey: .title)
             try c.encodeIfPresent(notes, forKey: .notes)
             try c.encode(startsAt, forKey: .startsAt)

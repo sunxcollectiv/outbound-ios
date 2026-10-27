@@ -78,6 +78,20 @@ struct TripItemParticipantsTests {
         #expect(participants.first?["status"] == nil)
     }
 
+    @Test func requestsSendVisibility() throws {
+        let create = TripItemsAPI.CreateRequest(
+            kind: .activity, visibility: .closed, title: "Dinner", notes: nil,
+            startsAt: "2026-11-11T19:00:00", startTimezone: nil, endsAt: nil, endTimezone: nil,
+            placeId: nil, endPlaceId: nil
+        )
+        #expect(try encode(create)["visibility"] as? String == "closed")
+        let update = TripItemsAPI.UpdateRequest(
+            kind: .activity, visibility: .private, title: "Dinner", notes: nil, startsAt: "2026-11-11T19:00:00",
+            startTimezone: nil, endsAt: nil, endTimezone: nil, placeId: nil, endPlaceId: nil
+        )
+        #expect(try encode(update)["visibility"] as? String == "private")
+    }
+
     @Test func updateOmitsParticipantsWhenUnchanged() throws {
         let body = TripItemsAPI.UpdateRequest(
             kind: .activity, title: "Dinner", notes: nil, startsAt: "2026-11-11T19:00:00",

@@ -42,6 +42,8 @@ struct TripItemFormView: View {
     var onDeleted: () -> Void
 
     @State private var kind: TripItemKind
+    /// What people who aren't going see of the item.
+    @State private var visibility: TripItemVisibility
     /// Ids of the trip members this item is for, toggled in the popup. Nil until
     /// seeded on appear, once the signed-in user is known.
     @State private var selectedMemberIds: Set<String>?
@@ -104,6 +106,7 @@ struct TripItemFormView: View {
         self.onSaved = onSaved
         self.onDeleted = onDeleted
         _kind = State(initialValue: item?.kind ?? defaultKind)
+        _visibility = State(initialValue: item?.visibility ?? .open)
         _title = State(initialValue: item?.title ?? "")
         // Prefill the location fields with the existing place names (if the backend has
         // enriched them), leaving `startPlace`/`endPlace` nil so an untouched edit keeps
@@ -148,7 +151,20 @@ struct TripItemFormView: View {
                             .pickerStyle(.segmented)
                         }
 
-                        membersRow
+                        // Who it's for and who else sees it read as one group, so the
+                        // picker sits tight under the members row with no label of its own.
+                        VStack(alignment: .leading, spacing: 8) {
+                            membersRow
+                            Picker("Visibility", selection: $visibility) {
+                                ForEach(TripItemVisibility.allCases) { visibility in
+                                    Text(visibility.label).tag(visibility)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            Text(visibility.explanation)
+                                .font(.caption)
+                                .foregroundStyle(Color.appForeground.opacity(0.7))
+                        }
 
                         TextField("Title", text: $title)
                             .textInputAutocapitalization(.words)
@@ -471,6 +487,7 @@ struct TripItemFormView: View {
                     // participants when the member selection didn't change.
                     let body = TripItemsAPI.UpdateRequest(
                         kind: kind,
+                        visibility: visibility,
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startWall,
@@ -485,6 +502,7 @@ struct TripItemFormView: View {
                 } else {
                     let body = TripItemsAPI.CreateRequest(
                         kind: kind,
+                        visibility: visibility,
                         title: trimmedTitle,
                         notes: resolvedNotes,
                         startsAt: startWall,
