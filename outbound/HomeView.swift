@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 /// The main app screen, shown once the user is signed in: a list of the user's trips.
 /// Tapping a trip opens its itinerary; long-pressing one opens the edit form.
@@ -20,6 +21,7 @@ struct HomeView: View {
     @State private var editingTrip: Trip?
     @State private var isDrawerOpen = false
     @Environment(\.scenePhase) private var scenePhase
+    private var push = PushNotifications.shared
     /// Pairs each trip's tile with its itinerary for the zoom transition.
     @Namespace private var tripZoom
 
@@ -102,6 +104,20 @@ struct HomeView: View {
                 .task(id: scenePhase) {
                     if scenePhase == .active { await notifications.refreshUnreadCount() }
                 }
+                .task { await push.registerIfAllowed() }
+                .task(id: push.receivedCount) {
+                    // A push arrived or was tapped: the inbox has something new.
+                    guard push.receivedCount > 0 else { return }
+                    if showingNotifications {
+                        await notifications.load()
+                    } else {
+                        await notifications.refreshUnreadCount()
+                    }
+                }
+                .task(id: push.pendingTripId) { await openPendingTrip() }
+                .onChange(of: notifications.unreadCount) { _, count in
+                    Task { try? await UNUserNotificationCenter.current().setBadgeCount(count) }
+                }
         }
     }
 
@@ -111,6 +127,20 @@ struct HomeView: View {
         if let trip = store.trips.first(where: { $0.id == id }) { return trip }
         await store.load()
         return store.trips.first(where: { $0.id == id })
+    }
+
+    /// Opens the trip a tapped push is about, over whatever the trips screen shows.
+    private func openPendingTrip() async {
+        guard let id = push.pendingTripId else { return }
+        // Cleared only once the lookup is done: clearing restarts this task, which
+        // would cancel a trips load still in flight on a cold launch.
+        let found = await trip(id: id)
+        guard !Task.isCancelled else { return }
+        push.pendingTripId = nil
+        guard let trip = found else { return }
+        isDrawerOpen = false
+        showingNotifications = false
+        openedTripId = trip.id
     }
 
     @ViewBuilder

@@ -70,10 +70,16 @@ final class AuthStore {
     }
 
     func signOut() {
-        // Tell the server to end the session, but sign out locally regardless of the result.
-        if api.token != nil {
-            let api = api
-            Task { try? await api.send(AuthAPI.logout) }
+        // Tell the server to stop pushing here and end the session, but sign out
+        // locally regardless of the result. `clear()` drops the shared client's token
+        // right away, so these go through a client that keeps it.
+        if let token = api.token {
+            let client = APIClient()
+            client.token = token
+            Task {
+                await PushNotifications.shared.unregister(using: client)
+                try? await client.send(AuthAPI.logout)
+            }
         }
         clear()
     }
