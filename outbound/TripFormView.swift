@@ -33,6 +33,8 @@ struct TripFormView: View {
     /// the roster when it changed.
     private let originalMemberEmails: [String]
     @State private var showingMemberInvite = false
+    /// Whether saving an edit tells the trip's other members what changed.
+    @State private var notifyMembers = false
     @State private var activeField: DateField?
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -116,27 +118,73 @@ struct TripFormView: View {
                     .padding(24)
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .foregroundStyle(Color.appForeground)
             .navigationTitle(isEditing ? "Edit Trip" : "New Trip")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button(isEditing ? "Save" : "Add", action: save)
-                            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .accessibilityLabel("Close")
                     }
                 }
             }
         }
         .overlay { memberInvitePopup }
         .appTheme()
+    }
+
+    /// Only edits can notify (creating a trip can't), and only when someone else is on it.
+    private var canNotifyMembers: Bool { isEditing && !memberEmails.isEmpty }
+
+    /// The notify checkbox and Save, pinned under the form so they stay in reach however far it scrolls.
+    private var bottomBar: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if canNotifyMembers {
+                notifyMembersCheckbox
+            }
+            saveButton
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background(Color.appBackground.ignoresSafeArea())
+    }
+
+    private var notifyMembersCheckbox: some View {
+        Button {
+            notifyMembers.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: notifyMembers ? "checkmark.square.fill" : "square")
+                    .font(.title3)
+                Text("Notify members of changes")
+                    .font(.subheadline)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(notifyMembers ? .isSelected : [])
+    }
+
+    private var saveButton: some View {
+        Button(action: save) {
+            Group {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Text(isEditing ? "Save" : "Add Trip")
+                        .bold()
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 32)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.roundedRectangle(radius: appFieldCornerRadius))
+        .disabled(isSaving || title.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
     /// The `area_ids` to send: the final selection, without any chips marked for
@@ -291,7 +339,8 @@ struct TripFormView: View {
                     // Seed the trip's days with the device's zone on create; PATCH doesn't take it.
                     timezone: isEditing ? nil : TimeZone.current.identifier,
                     areaIds: areaIdsToSave,
-                    members: membersToSave
+                    members: membersToSave,
+                    notifyMembers: canNotifyMembers && notifyMembers ? true : nil
                 )
                 let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
                 let saved = try await api.send(endpoint, as: Trip.self)
