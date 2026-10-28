@@ -38,7 +38,7 @@ struct NotificationsView: View {
             }
             .navigationDestination(item: $openedTripId) { _ in
                 if let openedTrip {
-                    TripDetailView(trip: openedTrip)
+                    TripDetailView(trip: openedTrip) { openedTripId = nil }
                 }
             }
             .task { await store.load() }

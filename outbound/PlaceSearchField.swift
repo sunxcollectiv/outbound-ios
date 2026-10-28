@@ -42,11 +42,20 @@ struct PlaceSearchField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField(placeholder, text: $text)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-                .focused($isFocused)
-                .appField()
+            HStack(spacing: 8) {
+                TextField(placeholder, text: $text)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .focused($isFocused)
+                LocationPin()
+                    .fill(Color.black.opacity(0.4), style: FillStyle(eoFill: true))
+                    .frame(width: 14, height: 19)
+                    .accessibilityHidden(true)
+            }
+            .appField()
+            // The icon is part of the field: tapping it starts typing too.
+            .contentShape(Rectangle())
+            .onTapGesture { isFocused = true }
                 .onChange(of: text) { _, newValue in onTextChanged(newValue) }
 
             results
@@ -203,5 +212,27 @@ struct PlaceSearchField: View {
                 errorText = error.localizedDescription
             }
         }
+    }
+}
+
+/// A map marker: a round head tapering to a point at the bottom, with a hole in the
+/// middle. Fill it with `eoFill` so the hole stays clear.
+struct LocationPin: Shape {
+    func path(in rect: CGRect) -> Path {
+        let radius = rect.width / 2
+        let center = CGPoint(x: rect.midX, y: rect.minY + radius)
+        let tip = CGPoint(x: rect.midX, y: rect.maxY)
+        // Where the straight sides from the tip meet the head, either side of straight down.
+        let spread = Angle(radians: acos(radius / (tip.y - center.y)))
+
+        var path = Path()
+        path.move(to: tip)
+        path.addArc(center: center, radius: radius,
+                    startAngle: .degrees(90) - spread, endAngle: .degrees(90) + spread,
+                    clockwise: true)
+        path.closeSubpath()
+        path.addEllipse(in: CGRect(x: center.x - radius * 0.4, y: center.y - radius * 0.4,
+                                   width: radius * 0.8, height: radius * 0.8))
+        return path
     }
 }

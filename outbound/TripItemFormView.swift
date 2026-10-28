@@ -72,6 +72,11 @@ struct TripItemFormView: View {
     /// Showing the confirmation before an existing item is deleted.
     @State private var confirmingDelete = false
     @State private var isDeleting = false
+    /// Whether saving tells the trip's other members about the new or changed item.
+    @State private var notifyMembers = false
+    /// The sheet's bottom safe area (the home indicator's strip), measured so the
+    /// bottom bar can sit partway into it.
+    @State private var homeIndicatorInset: CGFloat = 0
     /// Bumped on every failed save so the error scrolls into view even when unchanged.
     @State private var errorScrollTrigger = 0
 
@@ -244,10 +249,6 @@ struct TripItemFormView: View {
                         TextField("Notes (optional)", text: $notes, axis: .vertical)
                             .lineLimit(3...6)
                             .appField()
-
-                        if isEditing {
-                            deleteButton
-                        }
                     }
                     .padding(24)
                 }
@@ -256,21 +257,17 @@ struct TripItemFormView: View {
                 }
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .foregroundStyle(Color.appForeground)
             .navigationTitle(isEditing ? "Edit Item" : "New Item")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.sheetBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button(isEditing ? "Save" : "Add", action: save)
-                            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || isDeleting)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .accessibilityLabel("Close")
                     }
                 }
             }
@@ -283,6 +280,7 @@ struct TripItemFormView: View {
             }
             .task { await prefillPlaceNames() }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { homeIndicatorInset = $0 }
         .overlay { memberPickerPopup }
         .overlay { timePickerPopup }
         .appTheme()
@@ -377,6 +375,72 @@ struct TripItemFormView: View {
         }
     }
 
+    /// Only offered when someone else on the trip has an account to be notified.
+    private var canNotifyMembers: Bool {
+        members.contains { $0.user != nil && $0.user?.id != auth.currentUser?.id }
+    }
+
+    /// Sent only when ticked, so saves work on servers that don't take it.
+    private var notifyMembersToSave: Bool? {
+        canNotifyMembers && notifyMembers ? true : nil
+    }
+
+    /// The notify checkbox, Save, and Delete under it when editing, pinned under the
+    /// form so they stay in reach however far it scrolls.
+    private var bottomBar: some View {
+        VStack(spacing: 4) {
+            if canNotifyMembers {
+                notifyMembersCheckbox
+                    .padding(.bottom, 8)
+            }
+            saveButton
+            if isEditing {
+                deleteButton
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+        // With Delete last, halfway into the home indicator's strip: closer to the edge,
+        // but nothing tappable reaches the strip the home swipe starts in. With Save
+        // last, a flat 50pt above the screen's bottom edge on every device.
+        .padding(.bottom, isEditing ? -homeIndicatorInset / 2 : 50 - homeIndicatorInset)
+        .background(Color.sheetBackground.ignoresSafeArea())
+    }
+
+    private var notifyMembersCheckbox: some View {
+        Button {
+            notifyMembers.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: notifyMembers ? "checkmark.square.fill" : "square")
+                    .font(.title3)
+                Text(isEditing ? "Notify members of changes" : "Notify members")
+                    .font(.subheadline)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(notifyMembers ? .isSelected : [])
+    }
+
+    private var saveButton: some View {
+        Button(action: save) {
+            Group {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Text(isEditing ? "Save" : "Add Item")
+                        .bold()
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 32)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.roundedRectangle(radius: appFieldCornerRadius))
+        .disabled(isSaving || isDeleting || title.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
     /// Deletes an existing item, after a confirmation since it can't be undone.
     private var deleteButton: some View {
         Button(role: .destructive) {
@@ -384,21 +448,18 @@ struct TripItemFormView: View {
         } label: {
             Group {
                 if isDeleting {
-                    ProgressView().tint(.white)
+                    ProgressView().tint(Color.appError)
                 } else {
-                    Label("Delete Item", systemImage: "trash")
+                    Text("Delete Item")
                 }
             }
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(14)
-                // The error banner's red: plain red text is hard to read on terracotta.
-                .background(Color.red.opacity(0.75), in: .rect(cornerRadius: appFieldCornerRadius))
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.appError)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isSaving || isDeleting)
-        .padding(.top, 12)
         .confirmationDialog("Delete this item?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive, action: delete)
         } message: {
@@ -572,7 +633,8 @@ struct TripItemFormView: View {
                         endTimezone: endZoneId,
                         placeId: startPlace?.id,
                         endPlaceId: endPlaceId,
-                        participants: participantsToSave
+                        participants: participantsToSave,
+                        notifyMembers: notifyMembersToSave
                     )
                     endpoint = TripItemsAPI.update(tripId: tripId, itemId: item.id, body)
                 } else {
@@ -587,7 +649,8 @@ struct TripItemFormView: View {
                         endTimezone: endZoneId,
                         placeId: startPlace?.id,
                         endPlaceId: endPlaceId,
-                        participants: participantsToSave
+                        participants: participantsToSave,
+                        notifyMembers: notifyMembersToSave
                     )
                     endpoint = TripItemsAPI.create(tripId: tripId, body)
                 }

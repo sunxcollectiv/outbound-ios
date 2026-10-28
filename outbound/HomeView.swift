@@ -89,11 +89,14 @@ struct HomeView: View {
                     TripFormView(onSaved: { store.add($0) })
                 }
                 .sheet(item: $editingTrip) { trip in
-                    TripFormView(trip: trip, onSaved: { store.update($0) })
+                    TripFormView(trip: trip, onSaved: { store.update($0) }, onDeleted: { store.remove(id: trip.id) })
                 }
                 .navigationDestination(item: $openedTripId) { id in
                     if let trip = store.trips.first(where: { $0.id == id }) {
-                        TripDetailView(trip: trip)
+                        TripDetailView(trip: trip) {
+                            openedTripId = nil
+                            store.remove(id: id)
+                        }
                             .navigationTransition(.zoom(sourceID: id, in: tripZoom))
                     }
                 }

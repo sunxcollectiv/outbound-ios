@@ -173,4 +173,9 @@ enum TripsAPI {
     static func update(id: String, _ body: CreateRequest) -> Endpoint {
         Endpoint(path: "/trips/\(id)", method: .patch, body: body)
     }
+
+    /// Owner only; deletes the trip with everything on it. 204.
+    static func delete(id: String) -> Endpoint {
+        Endpoint(path: "/trips/\(id)", method: .delete)
+    }
 }
