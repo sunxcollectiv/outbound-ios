@@ -11,12 +11,15 @@ struct HomeView: View {
     @Environment(AuthStore.self) private var auth
 
     @State private var store = TripStore()
+    @State private var notifications = NotificationStore()
+    @State private var showingNotifications = false
     @State private var showingAddTrip = false
     /// The trip whose itinerary is pushed, by id so the screen reads the latest copy.
     @State private var openedTripId: String?
     /// The trip being edited from a long press.
     @State private var editingTrip: Trip?
     @State private var isDrawerOpen = false
+    @Environment(\.scenePhase) private var scenePhase
     /// Pairs each trip's tile with its itinerary for the zoom transition.
     @Namespace private var tripZoom
 
@@ -26,7 +29,7 @@ struct HomeView: View {
     ]
 
     var body: some View {
-        LeadingDrawer(isOpen: $isDrawerOpen, edgeSwipeEnabled: openedTripId == nil) {
+        LeadingDrawer(isOpen: $isDrawerOpen, edgeSwipeEnabled: openedTripId == nil && !showingNotifications) {
             tripsStack
         } drawer: {
             ProfileDrawer(onSignOut: { isDrawerOpen = false })
@@ -69,6 +72,11 @@ struct HomeView: View {
                         }
                     }
                     AppToolbarButton(placement: .topBarTrailing) {
+                        showingNotifications = true
+                    } label: {
+                        NotificationBell(unreadCount: notifications.unreadCount)
+                    }
+                    AppToolbarButton(placement: .topBarTrailing) {
                         showingAddTrip = true
                     } label: {
                         Image(systemName: "plus")
@@ -87,8 +95,22 @@ struct HomeView: View {
                             .navigationTransition(.zoom(sourceID: id, in: tripZoom))
                     }
                 }
+                .navigationDestination(isPresented: $showingNotifications) {
+                    NotificationsView(store: notifications, trip: trip(id:))
+                }
                 .task { await store.load() }
+                .task(id: scenePhase) {
+                    if scenePhase == .active { await notifications.refreshUnreadCount() }
+                }
         }
+    }
+
+    /// A trip from the list for a notification to open, reloading the list first if
+    /// it isn't there (e.g. someone just added this user to it).
+    private func trip(id: String) async -> Trip? {
+        if let trip = store.trips.first(where: { $0.id == id }) { return trip }
+        await store.load()
+        return store.trips.first(where: { $0.id == id })
     }
 
     @ViewBuilder
