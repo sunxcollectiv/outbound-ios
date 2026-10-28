@@ -136,6 +136,26 @@ enum TripsAPI {
         var timezone: String?
         var areaIds: [String]?
         var members: [MemberRequest]?
+        /// PATCH only: tell the trip's other members what changed.
+        var notifyMembers: Bool?
+
+        private enum CodingKeys: String, CodingKey {
+            case title, description, startDate, endDate, timezone, areaIds, members, notifyMembers
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(title, forKey: .title)
+            // Always sent, so an edit that empties the description clears it rather
+            // than leaving the old one.
+            try c.encode(description, forKey: .description)
+            try c.encode(startDate, forKey: .startDate)
+            try c.encode(endDate, forKey: .endDate)
+            try c.encodeIfPresent(timezone, forKey: .timezone)
+            try c.encodeIfPresent(areaIds, forKey: .areaIds)
+            try c.encodeIfPresent(members, forKey: .members)
+            try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
+        }
     }
 
     /// `TripMemberCreate`. A nil `role` lets the server default to `member`.
