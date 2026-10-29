@@ -43,6 +43,11 @@ final class TripStore {
         refreshAreaPhotos(for: [trip])
     }
 
+    /// Drops a just-deleted trip so its card goes without a full reload.
+    func remove(id: String) {
+        trips.removeAll { $0.id == id }
+    }
+
     /// Inserts a just-created trip at the top so it shows without a full reload.
     func add(_ trip: Trip) {
         trips.insert(trip, at: 0)

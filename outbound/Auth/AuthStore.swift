@@ -42,12 +42,13 @@ final class AuthStore {
     var isSignedIn: Bool { currentUser != nil }
 
     private let api: APIClient
-    private let tokenKey = "auth.token"
+    /// Where the auth token is kept in the Keychain.
+    static let tokenKey = "auth.token"
     private let userKey = "auth.currentUser"
 
     init(api: APIClient = .shared) {
         self.api = api
-        if let token = Keychain.string(for: tokenKey),
+        if let token = Keychain.string(for: Self.tokenKey),
            let data = UserDefaults.standard.data(forKey: userKey),
            let user = try? JSONDecoder().decode(User.self, from: data) {
             api.token = token
@@ -70,10 +71,16 @@ final class AuthStore {
     }
 
     func signOut() {
-        // Tell the server to end the session, but sign out locally regardless of the result.
-        if api.token != nil {
-            let api = api
-            Task { try? await api.send(AuthAPI.logout) }
+        // Tell the server to stop pushing here and end the session, but sign out
+        // locally regardless of the result. `clear()` drops the shared client's token
+        // right away, so these go through a client that keeps it.
+        if let token = api.token {
+            let client = APIClient()
+            client.token = token
+            Task {
+                await PushNotifications.shared.unregister(using: client)
+                try? await client.send(AuthAPI.logout)
+            }
         }
         clear()
     }
@@ -100,13 +107,13 @@ final class AuthStore {
 
     private func save(_ session: AuthAPI.Session) {
         api.token = session.token
-        Keychain.set(session.token, for: tokenKey)
+        Keychain.set(session.token, for: Self.tokenKey)
         setUser(session.user)
     }
 
     private func clear() {
         api.token = nil
-        Keychain.set(nil, for: tokenKey)
+        Keychain.set(nil, for: Self.tokenKey)
         setUser(nil)
     }
 

@@ -36,6 +36,8 @@ struct TripDetailView: View {
     @State private var showingEditTrip = false
     /// Whether the dropdown under the header's more button is open.
     @State private var showingTripMenu = false
+    /// Showing the confirmation before the trip is deleted from its menu.
+    @State private var confirmingDeleteTrip = false
     /// The status pill above the day picker (an address copied, a screenshot uploading).
     @State private var toast: TripToast?
     /// Hides the current toast after a moment; replaced whenever a new toast shows.
@@ -93,7 +95,11 @@ struct TripDetailView: View {
     /// Coordinate space used to measure each card's position for the fade behind the picker.
     private static let detailSpace = "itineraryDetail"
 
-    init(trip: Trip, days: [ItineraryDay]? = nil) {
+    /// Called after the trip is deleted from its edit form; the presenter closes this screen.
+    private let onDeleted: () -> Void
+
+    init(trip: Trip, days: [ItineraryDay]? = nil, onDeleted: @escaping () -> Void = {}) {
+        self.onDeleted = onDeleted
         _trip = State(initialValue: trip)
         _days = State(initialValue: days)
         // Back on the day last viewed when the trip was opened within the hour; a day
@@ -185,11 +191,18 @@ struct TripDetailView: View {
                 removeItem(item.id)
             }
         }
+        .confirmationDialog("Delete this trip?", isPresented: $confirmingDeleteTrip, titleVisibility: .visible) {
+            Button("Delete", role: .destructive, action: deleteTrip)
+        } message: {
+            Text("Everything on it is deleted for everyone on the trip. This can't be undone.")
+        }
         .sheet(isPresented: $showingEditTrip) {
             TripFormView(trip: trip) { updated in
                 trip = updated
                 // Dates may have shifted, so rebuild the day-by-day itinerary.
                 Task { await load() }
+            } onDeleted: {
+                onDeleted()
             }
         }
         .sheet(item: $selectedItem) { item in
@@ -418,6 +431,18 @@ struct TripDetailView: View {
         }
     }
 
+    /// Deletes the trip from its menu, then leaves it for the presenter to close.
+    private func deleteTrip() {
+        Task {
+            do {
+                try await api.send(TripsAPI.delete(id: trip.id))
+                onDeleted()
+            } catch {
+                showToast(TripToast(text: "Couldn't delete the trip", systemImage: "exclamationmark.triangle.fill"))
+            }
+        }
+    }
+
     private func closeTripMenu() {
         withAnimation(.snappy(duration: 0.2)) { showingTripMenu = false }
     }
@@ -453,7 +478,10 @@ struct TripDetailView: View {
                         },
                         // Not built yet.
                         onShare: { closeTripMenu() },
-                        onDeleteTrip: { closeTripMenu() }
+                        onDeleteTrip: trip.ownerId == auth.currentUser?.id ? {
+                            closeTripMenu()
+                            confirmingDeleteTrip = true
+                        } : nil
                     )
                     .padding(.top, headerFrame.maxY + 6)
                     .padding(.trailing, max(proxy.size.width - headerFrame.maxX, 0))

@@ -189,6 +189,8 @@ enum TripItemsAPI {
         /// Exactly who the item is for; nobody is implied. Omitted when nil, which makes
         /// the item just for its creator.
         var participants: [ParticipantRequest]? = nil
+        /// Tell the trip's other members about the new item. Omitted unless true.
+        var notifyMembers: Bool? = nil
     }
 
     /// `ParticipantSet` — one member an item is for, by their trip-member id. A nil
@@ -215,10 +217,12 @@ enum TripItemsAPI {
         let placeId: String?
         let endPlaceId: String?
         var participants: [ParticipantRequest]? = nil
+        /// Tell the trip's other members what changed. Omitted unless true.
+        var notifyMembers: Bool? = nil
 
         private enum CodingKeys: String, CodingKey {
             case kind, visibility, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
-            case participants
+            case participants, notifyMembers
         }
 
         func encode(to encoder: Encoder) throws {
@@ -239,6 +243,7 @@ enum TripItemsAPI {
             try c.encodeIfPresent(placeId, forKey: .placeId)
             try c.encodeIfPresent(endPlaceId, forKey: .endPlaceId)
             try c.encodeIfPresent(participants, forKey: .participants)
+            try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
         }
     }
 

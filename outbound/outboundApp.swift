@@ -10,6 +10,7 @@ import SwiftData
 
 @main
 struct outboundApp: App {
+    @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @State private var auth = AuthStore()
 
     var sharedModelContainer: ModelContainer = {

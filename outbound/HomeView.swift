@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 /// The main app screen, shown once the user is signed in: a list of the user's trips.
 /// Tapping a trip opens its itinerary; long-pressing one opens the edit form.
@@ -11,12 +12,16 @@ struct HomeView: View {
     @Environment(AuthStore.self) private var auth
 
     @State private var store = TripStore()
+    @State private var notifications = NotificationStore()
+    @State private var showingNotifications = false
     @State private var showingAddTrip = false
     /// The trip whose itinerary is pushed, by id so the screen reads the latest copy.
     @State private var openedTripId: String?
     /// The trip being edited from a long press.
     @State private var editingTrip: Trip?
     @State private var isDrawerOpen = false
+    @Environment(\.scenePhase) private var scenePhase
+    private var push = PushNotifications.shared
     /// Pairs each trip's tile with its itinerary for the zoom transition.
     @Namespace private var tripZoom
 
@@ -26,7 +31,7 @@ struct HomeView: View {
     ]
 
     var body: some View {
-        LeadingDrawer(isOpen: $isDrawerOpen, edgeSwipeEnabled: openedTripId == nil) {
+        LeadingDrawer(isOpen: $isDrawerOpen, edgeSwipeEnabled: openedTripId == nil && !showingNotifications) {
             tripsStack
         } drawer: {
             ProfileDrawer(onSignOut: { isDrawerOpen = false })
@@ -69,6 +74,11 @@ struct HomeView: View {
                         }
                     }
                     AppToolbarButton(placement: .topBarTrailing) {
+                        showingNotifications = true
+                    } label: {
+                        NotificationBell(unreadCount: notifications.unreadCount)
+                    }
+                    AppToolbarButton(placement: .topBarTrailing) {
                         showingAddTrip = true
                     } label: {
                         Image(systemName: "plus")
@@ -79,16 +89,61 @@ struct HomeView: View {
                     TripFormView(onSaved: { store.add($0) })
                 }
                 .sheet(item: $editingTrip) { trip in
-                    TripFormView(trip: trip, onSaved: { store.update($0) })
+                    TripFormView(trip: trip, onSaved: { store.update($0) }, onDeleted: { store.remove(id: trip.id) })
                 }
                 .navigationDestination(item: $openedTripId) { id in
                     if let trip = store.trips.first(where: { $0.id == id }) {
-                        TripDetailView(trip: trip)
+                        TripDetailView(trip: trip) {
+                            openedTripId = nil
+                            store.remove(id: id)
+                        }
                             .navigationTransition(.zoom(sourceID: id, in: tripZoom))
                     }
                 }
+                .navigationDestination(isPresented: $showingNotifications) {
+                    NotificationsView(store: notifications, trip: trip(id:))
+                }
                 .task { await store.load() }
+                .task(id: scenePhase) {
+                    if scenePhase == .active { await notifications.refreshUnreadCount() }
+                }
+                .task { await push.registerIfAllowed() }
+                .task(id: push.receivedCount) {
+                    // A push arrived or was tapped: the inbox has something new.
+                    guard push.receivedCount > 0 else { return }
+                    if showingNotifications {
+                        await notifications.load()
+                    } else {
+                        await notifications.refreshUnreadCount()
+                    }
+                }
+                .task(id: push.pendingTripId) { await openPendingTrip() }
+                .onChange(of: notifications.unreadCount) { _, count in
+                    Task { try? await UNUserNotificationCenter.current().setBadgeCount(count) }
+                }
         }
+    }
+
+    /// A trip from the list for a notification to open, reloading the list first if
+    /// it isn't there (e.g. someone just added this user to it).
+    private func trip(id: String) async -> Trip? {
+        if let trip = store.trips.first(where: { $0.id == id }) { return trip }
+        await store.load()
+        return store.trips.first(where: { $0.id == id })
+    }
+
+    /// Opens the trip a tapped push is about, over whatever the trips screen shows.
+    private func openPendingTrip() async {
+        guard let id = push.pendingTripId else { return }
+        // Cleared only once the lookup is done: clearing restarts this task, which
+        // would cancel a trips load still in flight on a cold launch.
+        let found = await trip(id: id)
+        guard !Task.isCancelled else { return }
+        push.pendingTripId = nil
+        guard let trip = found else { return }
+        isDrawerOpen = false
+        showingNotifications = false
+        openedTripId = trip.id
     }
 
     @ViewBuilder

@@ -10,12 +10,15 @@ import SwiftUI
 /// items. Pass an existing `trip` to edit it; omit it to create a new one.
 struct TripFormView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var auth
 
     /// The trip being edited, or `nil` when creating a new one.
     private let trip: Trip?
 
     /// Called with the created or updated trip after a successful save.
     var onSaved: (Trip) -> Void
+    /// Called after the trip being edited is deleted.
+    var onDeleted: () -> Void
 
     @State private var title: String
     @State private var startDate: Date
@@ -33,8 +36,16 @@ struct TripFormView: View {
     /// the roster when it changed.
     private let originalMemberEmails: [String]
     @State private var showingMemberInvite = false
+    /// Whether saving an edit tells the trip's other members what changed.
+    @State private var notifyMembers = false
+    /// The sheet's bottom safe area (the home indicator's strip), measured so the
+    /// bottom bar can sit partway into it.
+    @State private var homeIndicatorInset: CGFloat = 0
     @State private var activeField: DateField?
     @State private var isSaving = false
+    /// Showing the confirmation before the trip is deleted.
+    @State private var confirmingDelete = false
+    @State private var isDeleting = false
     @State private var errorMessage: String?
 
     private enum DateField { case start, end }
@@ -43,9 +54,10 @@ struct TripFormView: View {
 
     private var isEditing: Bool { trip != nil }
 
-    init(trip: Trip? = nil, onSaved: @escaping (Trip) -> Void = { _ in }) {
+    init(trip: Trip? = nil, onSaved: @escaping (Trip) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
         self.trip = trip
         self.onSaved = onSaved
+        self.onDeleted = onDeleted
         _title = State(initialValue: trip?.title ?? "")
         _description = State(initialValue: trip?.description ?? "")
         _startDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.startDate) } ?? Date())
@@ -116,27 +128,130 @@ struct TripFormView: View {
                     .padding(24)
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .foregroundStyle(Color.appForeground)
             .navigationTitle(isEditing ? "Edit Trip" : "New Trip")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button(isEditing ? "Save" : "Add", action: save)
-                            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .accessibilityLabel("Close")
                     }
                 }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { homeIndicatorInset = $0 }
         .overlay { memberInvitePopup }
         .appTheme()
+    }
+
+    /// Only edits can notify (creating a trip can't), and only when someone else is on it.
+    private var canNotifyMembers: Bool { isEditing && !memberEmails.isEmpty }
+
+    /// Only the owner can delete a trip; organizers can edit it but not delete it.
+    private var canDelete: Bool {
+        guard let trip, let userId = auth.currentUser?.id else { return false }
+        return trip.ownerId == userId
+    }
+
+    /// The notify checkbox, Save, and Delete under it for the owner, pinned under the
+    /// form so they stay in reach however far it scrolls.
+    private var bottomBar: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if canNotifyMembers {
+                notifyMembersCheckbox
+            }
+            saveButton
+            if canDelete {
+                deleteButton
+                    .padding(.top, -8)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+        // With Delete last, halfway into the home indicator's strip: closer to the edge,
+        // but nothing tappable reaches the strip the home swipe starts in. With Save
+        // last, a flat 50pt above the screen's bottom edge on every device.
+        .padding(.bottom, canDelete ? -homeIndicatorInset / 2 : 50 - homeIndicatorInset)
+        .background(Color.appBackground.ignoresSafeArea())
+    }
+
+    private var notifyMembersCheckbox: some View {
+        Button {
+            notifyMembers.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: notifyMembers ? "checkmark.square.fill" : "square")
+                    .font(.title3)
+                Text("Notify members of changes")
+                    .font(.subheadline)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(notifyMembers ? .isSelected : [])
+    }
+
+    private var saveButton: some View {
+        Button(action: save) {
+            Group {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Text(isEditing ? "Save" : "Add Trip")
+                        .bold()
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 32)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.roundedRectangle(radius: appFieldCornerRadius))
+        .disabled(isSaving || isDeleting || title.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
+    /// Deletes the trip, after a confirmation since it can't be undone.
+    private var deleteButton: some View {
+        Button(role: .destructive) {
+            confirmingDelete = true
+        } label: {
+            Group {
+                if isDeleting {
+                    ProgressView().tint(Color.appError)
+                } else {
+                    Text("Delete Trip")
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.appError)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isSaving || isDeleting)
+        .confirmationDialog("Delete this trip?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive, action: delete)
+        } message: {
+            Text("Everything on it is deleted for everyone on the trip. This can't be undone.")
+        }
+    }
+
+    private func delete() {
+        guard let trip else { return }
+        errorMessage = nil
+        isDeleting = true
+        Task {
+            defer { isDeleting = false }
+            do {
+                try await api.send(TripsAPI.delete(id: trip.id))
+                onDeleted()
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     /// The `area_ids` to send: the final selection, without any chips marked for
@@ -291,7 +406,8 @@ struct TripFormView: View {
                     // Seed the trip's days with the device's zone on create; PATCH doesn't take it.
                     timezone: isEditing ? nil : TimeZone.current.identifier,
                     areaIds: areaIdsToSave,
-                    members: membersToSave
+                    members: membersToSave,
+                    notifyMembers: canNotifyMembers && notifyMembers ? true : nil
                 )
                 let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
                 let saved = try await api.send(endpoint, as: Trip.self)
@@ -315,4 +431,5 @@ struct TripFormView: View {
 
 #Preview {
     TripFormView()
+        .environment(AuthStore())
 }

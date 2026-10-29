@@ -16,7 +16,8 @@ struct TripMenu: View {
     let onCopyTripsEmail: () -> Void
     let onEditTrip: () -> Void
     let onShare: () -> Void
-    let onDeleteTrip: () -> Void
+    /// Nil hides the row, for anyone but the trip's owner.
+    let onDeleteTrip: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -42,8 +43,10 @@ struct TripMenu: View {
             divider
             row("Edit Trip", systemImage: "pencil", action: onEditTrip)
             row("Share", systemImage: "square.and.arrow.up", action: onShare)
-            divider
-            row("Delete Trip", systemImage: "trash", tint: Color(red: 1, green: 0.45, blue: 0.42), action: onDeleteTrip)
+            if let onDeleteTrip {
+                divider
+                row("Delete Trip", systemImage: "trash", tint: Color(red: 1, green: 0.45, blue: 0.42), action: onDeleteTrip)
+            }
         }
         .foregroundStyle(.white)
         .frame(width: 260)
