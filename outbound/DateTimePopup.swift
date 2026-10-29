@@ -20,7 +20,7 @@ struct DateTimePopup: View {
     /// Whether the end may be left out, noted as "(optional)" under its placeholder.
     let endIsOptional: Bool
     /// The hour (0–23) an empty end opens on, so picking a day sets it; nil opens
-    /// with no hour picked.
+    /// on an hour after the start instead.
     let defaultEndHour: Int?
     /// The trip's first through last day; nil when the trip's dates aren't known.
     let tripDates: ClosedRange<Date>?
@@ -126,7 +126,7 @@ struct DateTimePopup: View {
         let seed = Self.seed(
             date: field == .start ? start.wrappedValue : end.wrappedValue,
             zone: field == .start ? startZone.wrappedValue : endZone.wrappedValue,
-            defaultHour: field == .end ? defaultEndHour : nil,
+            defaultTime: field == .end ? Self.emptyEndTime(start: start.wrappedValue, defaultHour: defaultEndHour) : nil,
             tripStart: tripDates?.lowerBound
         )
         _selectedDay = State(initialValue: seed.day)
@@ -137,17 +137,24 @@ struct DateTimePopup: View {
     }
 
     /// The highlighted values for a side: its own date's day and time, else no day
-    /// and `defaultHour` (24-hour) on the hour, or no hour when that's nil too.
-    private static func seed(date: Date?, zone: TimeZone?, defaultHour: Int? = nil, tripStart: Date?)
+    /// (so one still has to be picked) and `defaultTime`, or no hour when that's nil too.
+    private static func seed(date: Date?, zone: TimeZone?, defaultTime: DateComponents? = nil, tripStart: Date?)
         -> (day: Date?, hour: Int?, minute: Int, isPM: Bool, zoneQuery: String) {
         let parts = date.map { Calendar.current.dateComponents([.hour, .minute], from: $0) }
-            ?? defaultHour.map { DateComponents(hour: $0, minute: 0) }
+            ?? defaultTime
         // Snap to the nearest quarter so an off-grid time still highlights a choice.
         let minute = parts?.minute ?? 0
         let snapped = minutes.min { abs($0 - minute) < abs($1 - minute) } ?? 0
         let day = date.map { Calendar.sundayFirst.startOfDay(for: $0) }
         let zoneQuery = zone.map { TimeZoneSearch.label($0, at: date ?? tripStart ?? .now) } ?? ""
         return (day, parts?.hour.map { $0 % 12 == 0 ? 12 : $0 % 12 }, snapped, (parts?.hour ?? 0) >= 12, zoneQuery)
+    }
+
+    /// The time an empty end opens on: `defaultHour` on the hour when given, else an
+    /// hour after the start; nil when there's neither.
+    private static func emptyEndTime(start: Date?, defaultHour: Int?) -> DateComponents? {
+        if let defaultHour { return DateComponents(hour: defaultHour, minute: 0) }
+        return start.map { Calendar.current.dateComponents([.hour, .minute], from: $0.addingTimeInterval(3600)) }
     }
 
     /// The active side's date and zone, read and written through its binding.
@@ -167,7 +174,7 @@ struct DateTimePopup: View {
         let seed = Self.seed(
             date: field == .start ? start : end,
             zone: field == .start ? startZone : endZone,
-            defaultHour: field == .end ? defaultEndHour : nil,
+            defaultTime: field == .end ? Self.emptyEndTime(start: start, defaultHour: defaultEndHour) : nil,
             tripStart: tripDates?.lowerBound
         )
         // Set the direction first and let the outgoing pane pick it up, so it leaves

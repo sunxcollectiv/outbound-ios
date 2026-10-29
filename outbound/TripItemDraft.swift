@@ -320,8 +320,8 @@ final class TripItemDraft {
         kind == .lodging ? 15 : 12
     }
 
-    /// The hour an empty end opens on in the picker, so picking a day is enough:
-    /// check-out time for a stay. Nil leaves the hour to be picked.
+    /// The hour an empty end opens on in the picker: check-out time for a stay. Nil
+    /// opens on an hour after the start.
     var defaultEndHour: Int? {
         kind == .lodging ? 11 : nil
     }
