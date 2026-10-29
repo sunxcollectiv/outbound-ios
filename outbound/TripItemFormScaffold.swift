@@ -13,6 +13,8 @@ struct TripItemTimeLabels {
     let missingStart: String
     /// Whether the date popup lets the end be left empty.
     var endIsOptional = false
+    /// Whether the date popup offers setting the end as a duration after the start.
+    var offersEndDurations = false
 }
 
 /// The layout every trip item form shares: who it's for and who sees it, the title
@@ -204,6 +206,7 @@ struct TripItemFormScaffold<Places: View>: View {
                     endPlaceholder: timeLabels.end,
                     endIsOptional: timeLabels.endIsOptional,
                     defaultEndHour: draft.defaultEndHour,
+                    offersEndDurations: timeLabels.offersEndDurations,
                     tripDates: draft.tripDates,
                     start: $draft.startsAt,
                     end: $draft.endsAt,

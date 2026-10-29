@@ -14,7 +14,10 @@ struct ActivityFormView: View {
     var body: some View {
         TripItemFormScaffold(
             draft: draft,
-            timeLabels: TripItemTimeLabels(start: "Starts", end: "Ends", missingStart: "Add a start time.", endIsOptional: true),
+            timeLabels: TripItemTimeLabels(
+                start: "Starts", end: "Ends", missingStart: "Add a start time.",
+                endIsOptional: true, offersEndDurations: true
+            ),
             onSaved: onSaved,
             onDeleted: onDeleted
         ) {
