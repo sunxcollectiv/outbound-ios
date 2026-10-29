@@ -86,13 +86,19 @@ final class TripItemDraft {
     /// Whether this kind has a destination as well as a place (transit's origin → destination).
     var hasEndPlace: Bool { kind == .transit }
 
+    /// Whether a title or a place is enough to save this kind, the server calling it
+    /// by its place's name when it has no title. An edit then sends both, nulls
+    /// included, so removing either one clears it.
+    var titleOrPlace: Bool { kind == .lodging || kind == .activity }
+
     /// Whether this kind is named by its place search alone: a picked place, or a
     /// name taken as typed (`typedName`), never both. A lodging is called what the
     /// hotel is, so its form leaves out the title field.
-    var titleOrPlace: Bool { kind == .lodging }
+    var namedByPlaceSearch: Bool { kind == .lodging }
 
-    /// For `titleOrPlace` kinds, the name taken as typed in the place search, with no
-    /// place behind it; saved as the title. Nil while a place is picked or nothing is.
+    /// For `namedByPlaceSearch` kinds, the name taken as typed in the place search,
+    /// with no place behind it; saved as the title. Nil while a place is picked or
+    /// nothing is.
     var typedName: String?
 
     init(tripId: String, kind: TripItemKind, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil) {
@@ -109,12 +115,13 @@ final class TripItemDraft {
         // the current places. Names that are still null get filled from Google on appear.
         startPlaceText = item?.place?.name ?? ""
         endPlaceText = item?.endPlace?.name ?? ""
-        if self.kind == .lodging {
-            // A lodging is its place or its typed name. Its place counts as picked, so
-            // an untouched edit still has one; with no place, the title is the name.
-            if let place = item?.place {
-                startPlace = place
-            } else if let title = item?.title, !title.isEmpty {
+        // (Kind checks spelled out: computed properties can't be read mid-init.)
+        if self.kind == .lodging || self.kind == .activity {
+            // The item's place counts as picked, so an untouched edit still has one
+            // (an edit sends it, and a missing one clears it).
+            startPlace = item?.place
+            // A lodging with no place goes by its title, shown as the typed name.
+            if self.kind == .lodging, item?.place == nil, let title = item?.title, !title.isEmpty {
                 typedName = title
                 startPlaceText = title
             }
@@ -132,10 +139,10 @@ final class TripItemDraft {
         endZone = item?.endTimezone
     }
 
-    /// The title to save: the typed name for `titleOrPlace` kinds (nil when they
-    /// have a place instead), else the title field.
+    /// The title to save: the typed name for `namedByPlaceSearch` kinds (nil when
+    /// they have a place instead), else the title field.
     private var titleToSave: String? {
-        let name = (titleOrPlace ? typedName ?? "" : title).trimmingCharacters(in: .whitespaces)
+        let name = (namedByPlaceSearch ? typedName ?? "" : title).trimmingCharacters(in: .whitespaces)
         return name.isEmpty ? nil : name
     }
 

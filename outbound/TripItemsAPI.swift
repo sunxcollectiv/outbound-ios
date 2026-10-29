@@ -228,8 +228,8 @@ enum TripItemsAPI {
         /// Tell the trip's other members what changed. Omitted unless true.
         var notifyMembers: Bool? = nil
         /// Send a nil title or place id as an explicit `null`, clearing it, rather than
-        /// omitting it. For a lodging, which has a title or a place but not both, so
-        /// choosing one has to clear the other.
+        /// omitting it. For kinds that go by a title or a place (a lodging, an
+        /// activity), so removing either one clears it.
         var nullsTitleAndPlace = false
 
         private enum CodingKeys: String, CodingKey {

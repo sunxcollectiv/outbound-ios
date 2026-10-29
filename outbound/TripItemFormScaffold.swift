@@ -81,7 +81,7 @@ struct TripItemFormScaffold<Places: View>: View {
                                 .foregroundStyle(Color.appForeground.opacity(0.7))
                         }
 
-                        if !draft.titleOrPlace {
+                        if !draft.namedByPlaceSearch {
                             TextField("Title", text: $draft.title)
                                 .textInputAutocapitalization(.never)
                                 .appField()
