@@ -63,6 +63,26 @@ struct TripItemParticipantsTests {
         #expect(item.participants.isEmpty)
     }
 
+    @Test func itemDecodesDisplayTitle() throws {
+        let item = try decodeItem(#", "display_title": "Dinner at Lilia""#)
+        #expect(item.title == "Dinner")
+        #expect(item.displayTitle == "Dinner at Lilia")
+    }
+
+    @Test func untitledItemDecodes() throws {
+        let json = """
+        {"id": "item", "trip_id": "t", "kind": "lodging", "title": null, "display_title": "Ace Hotel",
+         "starts_at": "2026-11-11T15:00:00", "created_at": "2026-10-01T00:00:00Z",
+         "updated_at": "2026-10-01T00:00:00Z"}
+        """
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        let item = try decoder.decode(TripItem.self, from: Data(json.utf8))
+        #expect(item.title == nil)
+        #expect(item.displayTitle == "Ace Hotel")
+    }
+
     @Test func createSendsParticipantsByMemberId() throws {
         let body = TripItemsAPI.CreateRequest(
             kind: .activity, title: "Dinner", notes: nil,
@@ -90,6 +110,32 @@ struct TripItemParticipantsTests {
             startTimezone: nil, endsAt: nil, endTimezone: nil, placeId: nil, endPlaceId: nil
         )
         #expect(try encode(update)["visibility"] as? String == "private")
+    }
+
+    @Test func createOmitsMissingTitle() throws {
+        let body = TripItemsAPI.CreateRequest(
+            kind: .lodging, title: nil, notes: nil,
+            startsAt: "2026-11-11T15:00:00", startTimezone: nil, endsAt: nil, endTimezone: nil,
+            placeId: "p1", endPlaceId: nil
+        )
+        let object = try encode(body)
+        #expect(object.keys.contains("title") == false)
+        #expect(object["place_id"] as? String == "p1")
+    }
+
+    @Test func updateNullsTitleOrPlaceWhenAsked() throws {
+        let create = TripItemsAPI.CreateRequest(
+            kind: .lodging, title: "Grandma's", notes: nil,
+            startsAt: "2026-11-11T15:00:00", startTimezone: nil, endsAt: nil, endTimezone: nil,
+            placeId: nil, endPlaceId: nil
+        )
+        let lodging = try encode(TripItemsAPI.UpdateRequest(create, nullsTitleAndPlace: true))
+        #expect(lodging["title"] as? String == "Grandma's")
+        // Present as null, so the server clears the place the name replaces.
+        #expect(lodging["place_id"] is NSNull)
+
+        let other = try encode(TripItemsAPI.UpdateRequest(create))
+        #expect(other.keys.contains("place_id") == false)
     }
 
     @Test func updateOmitsParticipantsWhenUnchanged() throws {

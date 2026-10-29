@@ -5,7 +5,8 @@
 
 import SwiftUI
 
-/// The form for adding or editing a lodging: where you're staying, check-in and check-out.
+/// The form for adding or editing a lodging: where you're staying, as a picked place
+/// or a name taken as typed (which becomes its title), then check-in and check-out.
 struct LodgingFormView: View {
     @Bindable var draft: TripItemDraft
     var onSaved: (TripItem) -> Void = { _ in }
@@ -22,7 +23,8 @@ struct LodgingFormView: View {
                 placeholder: "Search a place",
                 text: $draft.startPlaceText,
                 place: $draft.startPlace,
-                timeZone: $draft.startPlaceZone
+                timeZone: $draft.startPlaceZone,
+                typedEntry: $draft.typedName
             )
         }
     }

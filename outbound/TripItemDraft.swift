@@ -86,6 +86,15 @@ final class TripItemDraft {
     /// Whether this kind has a destination as well as a place (transit's origin → destination).
     var hasEndPlace: Bool { kind == .transit }
 
+    /// Whether this kind is named by its place search alone: a picked place, or a
+    /// name taken as typed (`typedName`), never both. A lodging is called what the
+    /// hotel is, so its form leaves out the title field.
+    var titleOrPlace: Bool { kind == .lodging }
+
+    /// For `titleOrPlace` kinds, the name taken as typed in the place search, with no
+    /// place behind it; saved as the title. Nil while a place is picked or nothing is.
+    var typedName: String?
+
     init(tripId: String, kind: TripItemKind, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil) {
         self.tripId = tripId
         self.kind = item?.kind ?? kind
@@ -100,6 +109,16 @@ final class TripItemDraft {
         // the current places. Names that are still null get filled from Google on appear.
         startPlaceText = item?.place?.name ?? ""
         endPlaceText = item?.endPlace?.name ?? ""
+        if self.kind == .lodging {
+            // A lodging is its place or its typed name. Its place counts as picked, so
+            // an untouched edit still has one; with no place, the title is the name.
+            if let place = item?.place {
+                startPlace = place
+            } else if let title = item?.title, !title.isEmpty {
+                typedName = title
+                startPlaceText = title
+            }
+        }
         notes = item?.notes ?? ""
         // Load the item's wall clock onto the device-zone canvas (so the rows show
         // the same numbers), or for a new item start on the day being viewed at the
@@ -113,7 +132,18 @@ final class TripItemDraft {
         endZone = item?.endTimezone
     }
 
-    var hasTitle: Bool { !title.trimmingCharacters(in: .whitespaces).isEmpty }
+    /// The title to save: the typed name for `titleOrPlace` kinds (nil when they
+    /// have a place instead), else the title field.
+    private var titleToSave: String? {
+        let name = (titleOrPlace ? typedName ?? "" : title).trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? nil : name
+    }
+
+    /// Whether the item is named enough to save: a title, or for `titleOrPlace`
+    /// kinds, a picked place instead.
+    var hasName: Bool {
+        titleToSave != nil || (titleOrPlace && startPlace != nil)
+    }
 
     // MARK: - Members
 
@@ -148,8 +178,7 @@ final class TripItemDraft {
     /// when validation fails or the request errors, with `errorMessage` set.
     /// `missingStartMessage` is shown when there's no start, which the API requires.
     func save(currentUserId: String?, missingStartMessage: String) async -> TripItem? {
-        let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
-        guard !trimmedTitle.isEmpty else { return nil }
+        guard hasName else { return nil }
         guard let startsAt else {
             fail(missingStartMessage)
             return nil
@@ -179,7 +208,7 @@ final class TripItemDraft {
         let body = TripItemsAPI.CreateRequest(
             kind: kind,
             visibility: visibility,
-            title: trimmedTitle,
+            title: titleToSave,
             notes: resolvedNotes,
             startsAt: startWall,
             startTimezone: startZoneId,
@@ -192,9 +221,10 @@ final class TripItemDraft {
         )
         // On an edit, place ids are omitted when nil, so not touching the place search
         // leaves the existing places unchanged; same for participants when the member
-        // selection didn't change.
+        // selection didn't change. A `titleOrPlace` kind sends both, nulls included,
+        // so whichever it has replaces the other.
         let endpoint = if let item {
-            TripItemsAPI.update(tripId: tripId, itemId: item.id, TripItemsAPI.UpdateRequest(body))
+            TripItemsAPI.update(tripId: tripId, itemId: item.id, TripItemsAPI.UpdateRequest(body, nullsTitleAndPlace: titleOrPlace))
         } else {
             TripItemsAPI.create(tripId: tripId, body)
         }

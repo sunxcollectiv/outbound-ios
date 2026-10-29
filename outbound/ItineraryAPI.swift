@@ -331,7 +331,7 @@ extension ItineraryDay {
             let date = floating.date(from: components) ?? Date(timeIntervalSince1970: 0)
             return ItineraryEntry(item: TripItem(
                 id: "\(title)", tripId: "sample", kind: kind,
-                title: title, notes: notes, tags: tags, startsAtLocal: date, startsAtUtc: nil, startTimezone: nil,
+                title: title, displayTitle: title, notes: notes, tags: tags, startsAtLocal: date, startsAtUtc: nil, startTimezone: nil,
                 endsAtLocal: nil, endsAtUtc: nil, endTimezone: nil, imageUrl: image, createdAt: date, updatedAt: date)
             )
         }

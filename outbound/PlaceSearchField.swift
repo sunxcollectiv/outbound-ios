@@ -22,6 +22,10 @@ struct PlaceSearchField: View {
     /// uses of this field don't have to supply a binding). Preferred from Google, with
     /// the backend place's zone as a fallback; cleared whenever the selection clears.
     var resolvedTimeZone: Binding<TimeZone?>? = nil
+    /// When supplied, the suggestions open with a row for taking the text exactly as
+    /// typed, with no place behind it; choosing it sets this to that text. Cleared,
+    /// like `resolvedPlace`, as soon as the user types again.
+    var typedEntry: Binding<String?>? = nil
 
     @State private var suggestions: [PlaceSuggestion] = []
     @State private var isSearching = false
@@ -29,6 +33,8 @@ struct PlaceSearchField: View {
     @State private var selected: PlaceSuggestion?
     @State private var isResolving = false
     @State private var errorText: String?
+    /// Whether the "use as typed" row is up: from typing until a row is chosen.
+    @State private var offeringTypedEntry = false
     /// Set when we fill the text from a suggestion, so the resulting change doesn't
     /// immediately kick off another search.
     @State private var isFillingFromSuggestion = false
@@ -66,8 +72,15 @@ struct PlaceSearchField: View {
     /// The autocomplete suggestions list shown beneath the field.
     @ViewBuilder
     private var results: some View {
-        if isSearching || !suggestions.isEmpty {
+        if isSearching || !suggestions.isEmpty || showsTypedEntryRow {
             VStack(spacing: 0) {
+                if showsTypedEntryRow {
+                    typedEntryRow
+                    if isSearching || !suggestions.isEmpty {
+                        Divider().overlay(Color.appForeground.opacity(0.15))
+                    }
+                }
+
                 if isSearching && suggestions.isEmpty {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -103,14 +116,58 @@ struct PlaceSearchField: View {
                     }
                 }
             }
-            .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+            .background(Color.appForeground.opacity(0.08))
+            // Clipped so a row's own background keeps to the rounded corners.
+            .clipShape(.rect(cornerRadius: appFieldCornerRadius))
         }
+    }
+
+    private var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var showsTypedEntryRow: Bool {
+        typedEntry != nil && offeringTypedEntry && !trimmedText.isEmpty
+    }
+
+    /// Takes the text as typed instead of a suggestion, e.g. for a place Google
+    /// doesn't know or a name that's no place at all.
+    private var typedEntryRow: some View {
+        Button(action: useTypedEntry) {
+            // One wrapping line, with only the typed text at full strength.
+            Text("Use \(Text(trimmedText).foregroundStyle(Color.appForeground)) without map location")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.appForeground.opacity(0.5))
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            // A shade lighter than the suggestions, to set it apart from the places.
+            .background(Color.appForeground.opacity(0.06))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func useTypedEntry() {
+        searchTask?.cancel()
+        let entry = trimmedText
+        // Only when trimming changes the text: an unchanged text fires no change to
+        // consume the flag, which would then swallow the next keystroke.
+        if text != entry {
+            isFillingFromSuggestion = true
+            text = entry
+        }
+        typedEntry?.wrappedValue = entry
+        offeringTypedEntry = false
+        suggestions = []
+        isSearching = false
+        isFocused = false
     }
 
     /// Small confirmation row reflecting the result of saving the picked place.
     @ViewBuilder
     private var status: some View {
-        if isResolving {
+        if typedEntry?.wrappedValue != nil {
+            statusLabel("No map location", systemImage: "character.cursor.ibeam", tint: Color.appForeground.opacity(0.8))
+        } else if isResolving {
             statusLabel("Saving place…", systemImage: "mappin.and.ellipse", tint: Color.appForeground.opacity(0.7))
         } else if resolvedPlace != nil {
             statusLabel(
@@ -146,6 +203,8 @@ struct PlaceSearchField: View {
         selected = nil
         resolvedPlace = nil
         resolvedTimeZone?.wrappedValue = nil
+        typedEntry?.wrappedValue = nil
+        offeringTypedEntry = true
         errorText = nil
 
         searchTask?.cancel()
@@ -180,6 +239,7 @@ struct PlaceSearchField: View {
         isFillingFromSuggestion = true
         text = suggestion.mainText
         selected = suggestion
+        offeringTypedEntry = false
         suggestions = []
         isSearching = false
         resolve(suggestion)

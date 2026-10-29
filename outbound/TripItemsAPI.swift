@@ -51,7 +51,11 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     /// True when the caller isn't a participant on a closed item: only its kind, title
     /// and times come through, and the other details are blanked.
     var redacted = false
-    var title: String
+    /// As written; nil when the item goes by its place (a lodging can).
+    var title: String?
+    /// What to call the item: its title, else its place's name, else its kind. The
+    /// server works it out, and leaves out the place on a redacted item.
+    var displayTitle: String
     var notes: String?
     var tags: [String]
     var startsAtLocal: Date
@@ -131,7 +135,7 @@ struct TransitSegment: Identifiable, Equatable, Decodable, WallClockSpan {
 
 extension TripItem: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case id, tripId, kind, visibility, redacted, title, notes, tags
+        case id, tripId, kind, visibility, redacted, title, displayTitle, notes, tags
         case startTimezone, endTimezone
         case startsAt, endsAt, startsAtUtc, endsAtUtc
         case imageUrl, place, endPlace, createdAt, updatedAt, segments, createdBy, participants
@@ -144,7 +148,7 @@ extension TripItem: Decodable {
         kind = try c.decode(TripItemKind.self, forKey: .kind)
         visibility = try c.decodeIfPresent(TripItemVisibility.self, forKey: .visibility) ?? .open
         redacted = try c.decodeIfPresent(Bool.self, forKey: .redacted) ?? false
-        title = try c.decode(String.self, forKey: .title)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         startsAtLocal = try c.decodeWallClock(forKey: .startsAt)
@@ -162,6 +166,8 @@ extension TripItem: Decodable {
             .sorted { $0.position < $1.position }
         createdBy = try c.decodeIfPresent(User.self, forKey: .createdBy)
         participants = try c.decodeIfPresent([TripItemParticipant].self, forKey: .participants) ?? []
+        displayTitle = try c.decodeIfPresent(String.self, forKey: .displayTitle)
+            ?? title ?? place?.name ?? kind.label
     }
 }
 
@@ -174,11 +180,12 @@ enum TripItemsAPI {
     /// `TripItemCreate` — body for `POST /trips/{id}/items`. Times are naive ISO 8601
     /// wall clocks (no offset or `Z`) paired with an optional IANA zone; a nil zone
     /// makes a zoneless item. `placeId`/`endPlaceId` are internal place UUIDs (from
-    /// `POST /places`); nil values are omitted from the JSON.
+    /// `POST /places`); nil values are omitted from the JSON. A lodging may go
+    /// without a title when it has a place.
     struct CreateRequest: Encodable {
         let kind: TripItemKind
         var visibility: TripItemVisibility? = nil
-        let title: String
+        let title: String?
         let notes: String?
         let startsAt: String
         let startTimezone: String?
@@ -205,10 +212,11 @@ enum TripItemsAPI {
     /// untouched. A nil `endsAt` is sent as an explicit `null` to clear the end time;
     /// the server drops the end zone with it. `participants` is omitted when nil; when
     /// sent it replaces who the item is for (listed members keep their answers).
+    /// A nil title is omitted too, unless `nullsTitleAndPlace`.
     struct UpdateRequest: Encodable {
         let kind: TripItemKind
         var visibility: TripItemVisibility? = nil
-        let title: String
+        let title: String?
         let notes: String?
         let startsAt: String
         let startTimezone: String?
@@ -219,6 +227,10 @@ enum TripItemsAPI {
         var participants: [ParticipantRequest]? = nil
         /// Tell the trip's other members what changed. Omitted unless true.
         var notifyMembers: Bool? = nil
+        /// Send a nil title or place id as an explicit `null`, clearing it, rather than
+        /// omitting it. For a lodging, which has a title or a place but not both, so
+        /// choosing one has to clear the other.
+        var nullsTitleAndPlace = false
 
         private enum CodingKeys: String, CodingKey {
             case kind, visibility, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
@@ -229,7 +241,7 @@ enum TripItemsAPI {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(kind, forKey: .kind)
             try c.encodeIfPresent(visibility, forKey: .visibility)
-            try c.encode(title, forKey: .title)
+            try encode(title, forKey: .title, in: &c)
             try c.encodeIfPresent(notes, forKey: .notes)
             try c.encode(startsAt, forKey: .startsAt)
             try c.encodeIfPresent(startTimezone, forKey: .startTimezone)
@@ -240,10 +252,19 @@ enum TripItemsAPI {
                 // Clear the end explicitly; `ends_at: null` also clears the end zone.
                 try c.encodeNil(forKey: .endsAt)
             }
-            try c.encodeIfPresent(placeId, forKey: .placeId)
+            try encode(placeId, forKey: .placeId, in: &c)
             try c.encodeIfPresent(endPlaceId, forKey: .endPlaceId)
             try c.encodeIfPresent(participants, forKey: .participants)
             try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
+        }
+
+        /// A nil `value` as `null` when `nullsTitleAndPlace`, else left out.
+        private func encode(_ value: String?, forKey key: CodingKeys, in c: inout KeyedEncodingContainer<CodingKeys>) throws {
+            if let value {
+                try c.encode(value, forKey: key)
+            } else if nullsTitleAndPlace {
+                try c.encodeNil(forKey: key)
+            }
         }
     }
 
@@ -267,7 +288,7 @@ enum TripItemsAPI {
 extension TripItemsAPI.UpdateRequest {
     /// An update carrying the same fields as `create`, so a form can build its body
     /// once for both. Kept in an extension to leave the memberwise init in place.
-    init(_ create: TripItemsAPI.CreateRequest) {
+    init(_ create: TripItemsAPI.CreateRequest, nullsTitleAndPlace: Bool = false) {
         self.init(
             kind: create.kind,
             visibility: create.visibility,
@@ -280,7 +301,8 @@ extension TripItemsAPI.UpdateRequest {
             placeId: create.placeId,
             endPlaceId: create.endPlaceId,
             participants: create.participants,
-            notifyMembers: create.notifyMembers
+            notifyMembers: create.notifyMembers,
+            nullsTitleAndPlace: nullsTitleAndPlace
         )
     }
 }
@@ -292,6 +314,7 @@ extension TripItem {
         tripId: "sample",
         kind: .activity,
         title: "Land at HND",
+        displayTitle: "Land at HND",
         notes: "Terminal 3",
         tags: [],
         startsAtLocal: .now,

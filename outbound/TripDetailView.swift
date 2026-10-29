@@ -748,7 +748,7 @@ struct TripDetailView: View {
 
     private func lodgingName(_ item: TripItem) -> String {
         let place = places.current(item.place)
-        return place?.googlePlaceId.flatMap { placeDetails[$0] }?.name ?? place?.name ?? item.title
+        return place?.googlePlaceId.flatMap { placeDetails[$0] }?.name ?? place?.name ?? item.displayTitle
     }
 
     private func showLodgingPopup(_ item: TripItem) {

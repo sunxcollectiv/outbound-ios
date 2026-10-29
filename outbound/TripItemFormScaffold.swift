@@ -15,9 +15,10 @@ struct TripItemTimeLabels {
     var endIsOptional = false
 }
 
-/// The layout every trip item form shares: who it's for and who sees it, the title,
-/// the kind's own place fields (`places`), the start/end times, notes, and the
-/// pinned Save/Delete bar. The per-kind forms supply their places and time labels.
+/// The layout every trip item form shares: who it's for and who sees it, the title
+/// (left out for kinds named by their place search), the kind's own place fields
+/// (`places`), the start/end times, notes, and the pinned Save/Delete bar. The
+/// per-kind forms supply their places and time labels.
 struct TripItemFormScaffold<Places: View>: View {
     @Bindable var draft: TripItemDraft
     let timeLabels: TripItemTimeLabels
@@ -80,9 +81,11 @@ struct TripItemFormScaffold<Places: View>: View {
                                 .foregroundStyle(Color.appForeground.opacity(0.7))
                         }
 
-                        TextField("Title", text: $draft.title)
-                            .textInputAutocapitalization(.never)
-                            .appField()
+                        if !draft.titleOrPlace {
+                            TextField("Title", text: $draft.title)
+                                .textInputAutocapitalization(.never)
+                                .appField()
+                        }
 
                         places()
 
@@ -221,7 +224,7 @@ struct TripItemFormScaffold<Places: View>: View {
                 : nil,
             notifyMembers: $draft.notifyMembers,
             saveTitle: draft.isEditing ? "Save" : "Add \(draft.kind.label)",
-            canSave: draft.hasTitle,
+            canSave: draft.hasName,
             isSaving: draft.isSaving,
             onSave: save,
             delete: draft.isEditing
@@ -263,6 +266,8 @@ struct TripItemPlaceField: View {
     @Binding var text: String
     @Binding var place: Place?
     @Binding var timeZone: TimeZone?
+    /// Offers taking the text as typed, with no place; see `PlaceSearchField.typedEntry`.
+    var typedEntry: Binding<String?>? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -275,7 +280,8 @@ struct TripItemPlaceField: View {
                 placeholder: placeholder,
                 text: $text,
                 resolvedPlace: $place,
-                resolvedTimeZone: $timeZone
+                resolvedTimeZone: $timeZone,
+                typedEntry: typedEntry
             )
         }
     }

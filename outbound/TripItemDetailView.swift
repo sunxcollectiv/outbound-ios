@@ -67,7 +67,7 @@ struct TripItemDetailView: View {
             .foregroundStyle(sheetForeground)
             .tint(Color.appAccent)
             .task(id: placeTaskKey) { await loadPlaceDetails() }
-            .navigationTitle(item.title)
+            .navigationTitle(item.displayTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(sheetBackground, for: .navigationBar)
             .toolbarColorScheme(.light, for: .navigationBar)
@@ -222,7 +222,7 @@ struct TripItemDetailView: View {
 
         detailSection(title: title) {
             VStack(alignment: .leading, spacing: 10) {
-                if let name, name != item.title {
+                if let name, name != item.displayTitle {
                     Text(name).font(.body.weight(.semibold))
                 }
 
@@ -255,7 +255,7 @@ struct TripItemDetailView: View {
                 contactLinks(details)
 
                 if let coordinate = coordinate(place: place, details: details) {
-                    placeMap(coordinate: coordinate, name: name ?? place.name ?? item.title)
+                    placeMap(coordinate: coordinate, name: name ?? place.name ?? item.displayTitle)
                 }
             }
         }
