@@ -179,7 +179,7 @@ struct TripDetailView: View {
             Task { await importScreenshot(item) }
         }
         .sheet(item: $addItemRequest) { request in
-            TripItemFormView(tripId: trip.id, members: trip.members ?? [], tripDates: trip.dateRange, defaultDate: request.date, defaultKind: request.kind, onSaved: { saved in
+            TripItemFormView(tripId: trip.id, kind: request.kind, members: trip.members ?? [], tripDates: trip.dateRange, defaultDate: request.date, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
         }
@@ -460,9 +460,9 @@ struct TripDetailView: View {
                         .accessibilityHidden(true)
                     TripMenu(
                         trip: trip,
-                        onAddItem: {
+                        onAddItem: { kind in
                             closeTripMenu()
-                            addItemRequest = AddItemRequest(date: selectedDay?.calendarDate)
+                            addItemRequest = AddItemRequest(date: selectedDay?.calendarDate, kind: kind)
                         },
                         onImportScreenshot: {
                             closeTripMenu()

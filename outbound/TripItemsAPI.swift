@@ -264,6 +264,27 @@ enum TripItemsAPI {
     }
 }
 
+extension TripItemsAPI.UpdateRequest {
+    /// An update carrying the same fields as `create`, so a form can build its body
+    /// once for both. Kept in an extension to leave the memberwise init in place.
+    init(_ create: TripItemsAPI.CreateRequest) {
+        self.init(
+            kind: create.kind,
+            visibility: create.visibility,
+            title: create.title,
+            notes: create.notes,
+            startsAt: create.startsAt,
+            startTimezone: create.startTimezone,
+            endsAt: create.endsAt,
+            endTimezone: create.endTimezone,
+            placeId: create.placeId,
+            endPlaceId: create.endPlaceId,
+            participants: create.participants,
+            notifyMembers: create.notifyMembers
+        )
+    }
+}
+
 #if DEBUG
 extension TripItem {
     static let sample = TripItem(

@@ -43,8 +43,6 @@ struct TripFormView: View {
     @State private var homeIndicatorInset: CGFloat = 0
     @State private var activeField: DateField?
     @State private var isSaving = false
-    /// Showing the confirmation before the trip is deleted.
-    @State private var confirmingDelete = false
     @State private var isDeleting = false
     @State private var errorMessage: String?
 
@@ -157,85 +155,26 @@ struct TripFormView: View {
         return trip.ownerId == userId
     }
 
-    /// The notify checkbox, Save, and Delete under it for the owner, pinned under the
-    /// form so they stay in reach however far it scrolls.
     private var bottomBar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if canNotifyMembers {
-                notifyMembersCheckbox
-            }
-            saveButton
-            if canDelete {
-                deleteButton
-                    .padding(.top, -8)
-            }
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 12)
-        // With Delete last, halfway into the home indicator's strip: closer to the edge,
-        // but nothing tappable reaches the strip the home swipe starts in. With Save
-        // last, a flat 50pt above the screen's bottom edge on every device.
-        .padding(.bottom, canDelete ? -homeIndicatorInset / 2 : 50 - homeIndicatorInset)
-        .background(Color.appBackground.ignoresSafeArea())
-    }
-
-    private var notifyMembersCheckbox: some View {
-        Button {
-            notifyMembers.toggle()
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: notifyMembers ? "checkmark.square.fill" : "square")
-                    .font(.title3)
-                Text("Notify members of changes")
-                    .font(.subheadline)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(notifyMembers ? .isSelected : [])
-    }
-
-    private var saveButton: some View {
-        Button(action: save) {
-            Group {
-                if isSaving {
-                    ProgressView()
-                } else {
-                    Text(isEditing ? "Save" : "Add Trip")
-                        .bold()
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 32)
-        }
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.roundedRectangle(radius: appFieldCornerRadius))
-        .disabled(isSaving || isDeleting || title.trimmingCharacters(in: .whitespaces).isEmpty)
-    }
-
-    /// Deletes the trip, after a confirmation since it can't be undone.
-    private var deleteButton: some View {
-        Button(role: .destructive) {
-            confirmingDelete = true
-        } label: {
-            Group {
-                if isDeleting {
-                    ProgressView().tint(Color.appError)
-                } else {
-                    Text("Delete Trip")
-                }
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.appError)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isSaving || isDeleting)
-        .confirmationDialog("Delete this trip?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive, action: delete)
-        } message: {
-            Text("Everything on it is deleted for everyone on the trip. This can't be undone.")
-        }
+        FormBottomBar(
+            notifyLabel: canNotifyMembers ? "Notify members of changes" : nil,
+            notifyMembers: $notifyMembers,
+            saveTitle: isEditing ? "Save" : "Add Trip",
+            canSave: !title.trimmingCharacters(in: .whitespaces).isEmpty,
+            isSaving: isSaving,
+            onSave: save,
+            delete: canDelete
+                ? FormBottomBar.Delete(
+                    title: "Delete Trip",
+                    confirmation: "Delete this trip?",
+                    message: "Everything on it is deleted for everyone on the trip. This can't be undone.",
+                    action: delete
+                )
+                : nil,
+            isDeleting: isDeleting,
+            homeIndicatorInset: homeIndicatorInset,
+            background: .appBackground
+        )
     }
 
     private func delete() {
