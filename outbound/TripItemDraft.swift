@@ -125,7 +125,7 @@ final class TripItemDraft {
         // current time-of-day (falling back to "now" when no day was supplied).
         // `startsAtLocal` is a floating UTC date, so reading it in UTC gives the wall clock.
         startsAt = Self.wallClock(of: item?.startsAtLocal, in: .gmt)
-            ?? Self.canvasStart(onDay: defaultDate)
+            ?? Self.canvasStart(onDay: defaultDate, hour: Self.defaultStartHour(for: self.kind))
             ?? Self.roundedToMinuteInterval(Date())
         endsAt = Self.wallClock(of: item?.endsAtLocal, in: .gmt)
         startZone = item?.startTimezone
@@ -298,14 +298,25 @@ final class TripItemDraft {
 
     /// A new item's default canvas start: `day`'s calendar date at 12:00 PM. Returns
     /// nil when no day is given, so callers can fall back to now.
-    private static func canvasStart(onDay day: Date?) -> Date? {
+    private static func canvasStart(onDay day: Date?, hour: Int) -> Date? {
         guard let day else { return nil }
         var canvas = Calendar(identifier: .gregorian)
         canvas.timeZone = .current
         var parts = canvas.dateComponents([.year, .month, .day], from: day)
-        parts.hour = 12
+        parts.hour = hour
         parts.minute = 0
         return canvas.date(from: parts)
+    }
+
+    /// The hour a new item starts at on its day: check-in time for a stay, else noon.
+    private static func defaultStartHour(for kind: TripItemKind) -> Int {
+        kind == .lodging ? 15 : 12
+    }
+
+    /// The hour an empty end opens on in the picker, so picking a day is enough:
+    /// check-out time for a stay. Nil leaves the hour to be picked.
+    var defaultEndHour: Int? {
+        kind == .lodging ? 11 : nil
     }
 
     /// Minute step of the start/end time pickers.

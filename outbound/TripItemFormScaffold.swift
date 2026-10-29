@@ -203,6 +203,7 @@ struct TripItemFormScaffold<Places: View>: View {
                     startPlaceholder: timeLabels.start,
                     endPlaceholder: timeLabels.end,
                     endIsOptional: timeLabels.endIsOptional,
+                    defaultEndHour: draft.defaultEndHour,
                     tripDates: draft.tripDates,
                     start: $draft.startsAt,
                     end: $draft.endsAt,
