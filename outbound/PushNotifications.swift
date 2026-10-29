@@ -4,6 +4,7 @@
 //
 
 import Observation
+import OSLog
 import UIKit
 import UserNotifications
 
@@ -42,10 +43,38 @@ enum PushDevicesAPI {
 ///     { "aps": { "alert": { "title": "…", "body": "…" }, "badge": 3 },
 ///       "notification_id": "…", "trip_id": "…", "trip_item_id": "…" }
 ///
-/// All three ids are optional.
+/// All three ids are optional. A push about a trip also carries `trip_title`, and
+/// `"category": "TRIP_ACTIVITY"` in `aps` to get the expanded card from the
+/// NotificationContent extension and the Mark as Read / Dismiss actions.
 @Observable
 final class PushNotifications {
     static let shared = PushNotifications()
+
+    private static let log = Logger(subsystem: "earth.outbound", category: "push")
+
+    /// The category trip pushes are sent with; must match the extension's Info.plist.
+    static let tripActivityCategory = "TRIP_ACTIVITY"
+
+    private enum Action {
+        static let markRead = "MARK_READ"
+        static let dismiss = "DISMISS"
+    }
+
+    /// The actions offered under an expanded trip push. Register before the first push
+    /// can arrive, i.e. at launch.
+    static func registerCategories() {
+        let tripActivity = UNNotificationCategory(
+            identifier: tripActivityCategory,
+            actions: [
+                UNNotificationAction(identifier: Action.markRead, title: "Mark as Read",
+                                     icon: UNNotificationActionIcon(systemImageName: "envelope.open")),
+                UNNotificationAction(identifier: Action.dismiss, title: "Dismiss", options: .destructive,
+                                     icon: UNNotificationActionIcon(systemImageName: "xmark")),
+            ],
+            intentIdentifiers: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([tripActivity])
+    }
 
     /// The trip a tapped push is about, waiting for the trips screen to open it.
     var pendingTripId: String?
@@ -103,6 +132,35 @@ final class PushNotifications {
         receivedCount += 1
     }
 
+    /// The user picked Mark as Read or Dismiss on an expanded push. Runs without
+    /// opening the app, which may have been launched in the background just for this,
+    /// so it waits for the request and updates the badge before returning.
+    func didChoose(action: String, _ userInfo: [AnyHashable: Any]) async {
+        Self.log.info("Push action \(action, privacy: .public)")
+        guard let id = userInfo["notification_id"] as? String else { return }
+        // A background launch may not have restored the session yet.
+        if api.token == nil {
+            api.token = Keychain.string(for: AuthStore.tokenKey)
+        }
+        do {
+            switch action {
+            case Action.markRead:
+                _ = try await api.send(NotificationsAPI.markRead(id: id), as: AppNotification.self)
+            case Action.dismiss:
+                try await api.send(NotificationsAPI.dismiss(id: id))
+            default:
+                return
+            }
+        } catch {
+            Self.log.error("Push action \(action, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        receivedCount += 1
+        if let unread = try? await api.send(NotificationsAPI.unreadCount, as: NotificationsAPI.UnreadCount.self) {
+            try? await UNUserNotificationCenter.current().setBadgeCount(unread.count)
+        }
+    }
+
     /// The user tapped a push: mark its inbox entry read and open its trip.
     func didOpen(_ userInfo: [AnyHashable: Any]) {
         receivedCount += 1
@@ -123,6 +181,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        PushNotifications.registerCategories()
         return true
     }
 
@@ -144,6 +203,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        PushNotifications.shared.didOpen(response.notification.request.content.userInfo)
+        let userInfo = response.notification.request.content.userInfo
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            PushNotifications.shared.didOpen(userInfo)
+        } else {
+            await PushNotifications.shared.didChoose(action: response.actionIdentifier, userInfo)
+        }
     }
 }

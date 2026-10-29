@@ -159,6 +159,15 @@ final class APIClient {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request, delegate: onBodySent.map(BodySentDelegate.init))
+        } catch URLError.networkConnectionLost {
+            // A kept-alive connection the server closed while the app was suspended
+            // (e.g. woken for a push action); the request never went out, so try once
+            // more on a fresh connection.
+            do {
+                (data, response) = try await session.data(for: request, delegate: onBodySent.map(BodySentDelegate.init))
+            } catch {
+                throw APIError.network(error)
+            }
         } catch {
             throw APIError.network(error)
         }
