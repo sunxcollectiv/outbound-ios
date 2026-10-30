@@ -550,24 +550,26 @@ struct TripDetailView: View {
                 // Centered between faint rules that run out to the content's edges.
                 HStack(spacing: 12) {
                     addActivityRule
-                    Button {
-                        addItemRequest = AddItemRequest(date: day.calendarDate)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plus")
-                            Text("ADD ACTIVITY")
-                                .tracking(1.5)
-                        }
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.appForeground.opacity(0.6))
+                    // One plus for both: "+ ACTIVITY | TRANSIT", each word its own button.
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus")
+                            .accessibilityHidden(true)
+                        addItemButton("Activity", kind: .activity, on: day.calendarDate)
+                        Rectangle()
+                            .fill(Color.appForeground.opacity(0.3))
+                            .frame(width: 1, height: 10)
+                            .accessibilityHidden(true)
+                        addItemButton("Transit", kind: .transit, on: day.calendarDate)
                     }
-                    .buttonStyle(.plain)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.appForeground.opacity(0.6))
                     // Keep the label on one line; the rules take whatever width is left.
                     .fixedSize()
                     addActivityRule
                 }
-                .padding(.top, 14)
-                .padding(.bottom, 10)
+                // Less the buttons' own 6pt above and below.
+                .padding(.top, 8)
+                .padding(.bottom, 4)
                 .revealIn(hasRevealed, delay: Self.cardRevealDelay(day.entries.count) + 0.05)
 
                 // Clear the bottom day-picker bar.
@@ -859,6 +861,21 @@ struct TripDetailView: View {
             .foregroundStyle(Color(white: 0.15))
             .frame(width: 16, height: 16)
             .background(Color.appForeground, in: .circle)
+    }
+
+    /// One word of the add line under a day's items, adding that kind on the day.
+    private func addItemButton(_ label: String, kind: TripItemKind, on date: Date?) -> some View {
+        Button {
+            addItemRequest = AddItemRequest(date: date, kind: kind)
+        } label: {
+            Text(label.uppercased())
+                .tracking(1.5)
+                // A taller target than the caption's own line.
+                .padding(.vertical, 6)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add \(label)")
     }
 
     /// A faint hairline flanking the Add Activity button.
