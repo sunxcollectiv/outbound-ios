@@ -142,6 +142,8 @@ struct TransitSegment: Identifiable, Equatable, Decodable, WallClockSpan {
     var endPlace: Place?
     var carrier: String?
     var flightNumber: String?
+    var transitMode: TransitMode?
+    var confirmationNumber: String?
 
     /// The leg's label from its carrier and flight number, e.g. "Qantas QF 12"; nil
     /// when it has neither.
@@ -153,6 +155,7 @@ struct TransitSegment: Identifiable, Equatable, Decodable, WallClockSpan {
     private enum CodingKeys: String, CodingKey {
         case id, position, startsAt, startsAtUtc, startTimezone
         case endsAt, endsAtUtc, endTimezone, place, endPlace, carrier, flightNumber
+        case transitMode, confirmationNumber
     }
 
     init(from decoder: Decoder) throws {
@@ -169,6 +172,8 @@ struct TransitSegment: Identifiable, Equatable, Decodable, WallClockSpan {
         endPlace = try c.decodeIfPresent(Place.self, forKey: .endPlace)
         carrier = try c.decodeIfPresent(String.self, forKey: .carrier)
         flightNumber = try c.decodeIfPresent(String.self, forKey: .flightNumber)
+        transitMode = (try? c.decodeIfPresent(String.self, forKey: .transitMode)).flatMap { $0.flatMap(TransitMode.init) }
+        confirmationNumber = try c.decodeIfPresent(String.self, forKey: .confirmationNumber)
     }
 }
 
@@ -229,7 +234,9 @@ enum TripItemsAPI {
         var visibility: TripItemVisibility? = nil
         let title: String?
         let notes: String?
-        let startsAt: String
+        /// The item's own start; nil for a transit sent as `segments`, whose span the
+        /// server takes from its legs.
+        let startsAt: String?
         let startTimezone: String?
         let endsAt: String?
         let endTimezone: String?
@@ -237,11 +244,30 @@ enum TripItemsAPI {
         let endPlaceId: String?
         /// Transit only; omitted when nil. Never `mixed`, which the server derives.
         var transitMode: TransitMode? = nil
+        /// A transit's legs, in order. When set, the item's own times, places and mode
+        /// are left out: the server takes them from the legs.
+        var segments: [SegmentRequest]? = nil
         /// Exactly who the item is for; nobody is implied. Omitted when nil, which makes
         /// the item just for its creator.
         var participants: [ParticipantRequest]? = nil
         /// Tell the trip's other members about the new item. Omitted unless true.
         var notifyMembers: Bool? = nil
+    }
+
+    /// `TransitSegmentCreate` — one leg of a transit, with its own times, zones,
+    /// places and mode; nil values are omitted. Every leg is sent on each save (they
+    /// replace the old ones), so the booking details are carried along too.
+    struct SegmentRequest: Encodable, Equatable {
+        let startsAt: String
+        let startTimezone: String?
+        let endsAt: String?
+        let endTimezone: String?
+        let placeId: String?
+        let endPlaceId: String?
+        let transitMode: TransitMode?
+        var carrier: String? = nil
+        var flightNumber: String? = nil
+        var confirmationNumber: String? = nil
     }
 
     /// `ParticipantSet` — one member an item is for, by their trip-member id. A nil
@@ -262,7 +288,9 @@ enum TripItemsAPI {
         var visibility: TripItemVisibility? = nil
         let title: String?
         let notes: String?
-        let startsAt: String
+        /// The item's own start; nil for a transit sent as `segments`, whose span the
+        /// server takes from its legs.
+        let startsAt: String?
         let startTimezone: String?
         let endsAt: String?
         let endTimezone: String?
@@ -270,6 +298,8 @@ enum TripItemsAPI {
         let endPlaceId: String?
         /// Omitted when nil, keeping the current mode.
         var transitMode: TransitMode? = nil
+        /// Replaces a transit's legs; see `CreateRequest.segments`.
+        var segments: [SegmentRequest]? = nil
         var participants: [ParticipantRequest]? = nil
         /// Tell the trip's other members what changed. Omitted unless true.
         var notifyMembers: Bool? = nil
@@ -280,7 +310,7 @@ enum TripItemsAPI {
 
         private enum CodingKeys: String, CodingKey {
             case kind, visibility, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
-            case transitMode, participants, notifyMembers
+            case transitMode, segments, participants, notifyMembers
         }
 
         func encode(to encoder: Encoder) throws {
@@ -289,18 +319,23 @@ enum TripItemsAPI {
             try c.encodeIfPresent(visibility, forKey: .visibility)
             try encode(title, forKey: .title, in: &c)
             try c.encodeIfPresent(notes, forKey: .notes)
-            try c.encode(startsAt, forKey: .startsAt)
-            try c.encodeIfPresent(startTimezone, forKey: .startTimezone)
-            if let endsAt {
-                try c.encode(endsAt, forKey: .endsAt)
-                try c.encodeIfPresent(endTimezone, forKey: .endTimezone)
+            if let segments {
+                // The server rejects the item's own span alongside its legs.
+                try c.encode(segments, forKey: .segments)
             } else {
-                // Clear the end explicitly; `ends_at: null` also clears the end zone.
-                try c.encodeNil(forKey: .endsAt)
+                try c.encodeIfPresent(startsAt, forKey: .startsAt)
+                try c.encodeIfPresent(startTimezone, forKey: .startTimezone)
+                if let endsAt {
+                    try c.encode(endsAt, forKey: .endsAt)
+                    try c.encodeIfPresent(endTimezone, forKey: .endTimezone)
+                } else {
+                    // Clear the end explicitly; `ends_at: null` also clears the end zone.
+                    try c.encodeNil(forKey: .endsAt)
+                }
+                try encode(placeId, forKey: .placeId, in: &c)
+                try c.encodeIfPresent(endPlaceId, forKey: .endPlaceId)
+                try c.encodeIfPresent(transitMode, forKey: .transitMode)
             }
-            try encode(placeId, forKey: .placeId, in: &c)
-            try c.encodeIfPresent(endPlaceId, forKey: .endPlaceId)
-            try c.encodeIfPresent(transitMode, forKey: .transitMode)
             try c.encodeIfPresent(participants, forKey: .participants)
             try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
         }
@@ -348,6 +383,7 @@ extension TripItemsAPI.UpdateRequest {
             placeId: create.placeId,
             endPlaceId: create.endPlaceId,
             transitMode: create.transitMode,
+            segments: create.segments,
             participants: create.participants,
             notifyMembers: create.notifyMembers,
             nullsTitleAndPlace: nullsTitleAndPlace

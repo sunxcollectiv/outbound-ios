@@ -19,8 +19,9 @@ struct TripItemTimeLabels {
 
 /// The layout every trip item form shares: who it's for and who sees it, the title
 /// (left out for kinds named by their place search or by the server), the kind's own
-/// place fields (`places`), the start/end times, notes, and the pinned Save/Delete
-/// bar. The per-kind forms supply their places and time labels.
+/// place fields (`places`), the start/end times (a transit's legs show their own),
+/// notes, and the pinned Save/Delete bar. The per-kind forms supply their places and
+/// time labels.
 struct TripItemFormScaffold<Places: View>: View {
     @Bindable var draft: TripItemDraft
     let timeLabels: TripItemTimeLabels
@@ -93,12 +94,15 @@ struct TripItemFormScaffold<Places: View>: View {
                             // Above the blocks below, so floating suggestions cover them.
                             .zIndex(1)
 
-                        HStack(spacing: 8) {
-                            TripItemTimeBlock(title: timeLabels.start, placeholder: "Add start", date: $draft.startsAt, zone: $draft.startZone) {
-                                openTimePicker(.start)
-                            }
-                            TripItemTimeBlock(title: timeLabels.end, placeholder: "Add end", date: $draft.endsAt, zone: $draft.endZone) {
-                                openTimePicker(.end)
+                        // A transit's legs show their own times, within `places`.
+                        if !draft.hasLegs {
+                            HStack(spacing: 8) {
+                                TripItemTimeBlock(title: timeLabels.start, placeholder: "Add start", date: $draft.startsAt, zone: $draft.startZone) {
+                                    openTimePicker(.start)
+                                }
+                                TripItemTimeBlock(title: timeLabels.end, placeholder: "Add end", date: $draft.endsAt, zone: $draft.endZone) {
+                                    openTimePicker(.end)
+                                }
                             }
                         }
 
@@ -356,7 +360,7 @@ struct TripItemBlock<Content: View>: View {
 /// One of the side-by-side start/end blocks: the date (or a placeholder) and the time
 /// with its zone's short code. The time line always keeps its space, so both blocks
 /// stay the same height whether or not they're set. Tapping the block calls `onTap`.
-private struct TripItemTimeBlock: View {
+struct TripItemTimeBlock: View {
     let title: String
     let placeholder: String
     @Binding var date: Date?

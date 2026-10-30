@@ -64,14 +64,9 @@ final class TripItemDraft {
     var startPlaceZone: TimeZone? {
         didSet { if let startPlaceZone { startZone = startPlaceZone } }
     }
-    /// The destination place, for kinds that have one → sent as `end_place_id`. The
-    /// text it searches on is kept separately since it isn't the item's title.
-    var endPlace: Place?
-    var endPlaceText: String
-    /// The destination place's time zone from Google; a picked place's zone becomes `endZone`.
-    var endPlaceZone: TimeZone? {
-        didSet { if let endPlaceZone { endZone = endPlaceZone } }
-    }
+    /// A transit's legs, in order; empty for other kinds. Each has its own places,
+    /// times and mode, and the item's own start, end and place fields go unused.
+    var legs: [TransitLeg] = []
 
     private(set) var isSaving = false
     private(set) var isDeleting = false
@@ -83,8 +78,8 @@ final class TripItemDraft {
 
     var isEditing: Bool { item != nil }
 
-    /// Whether this kind has a destination as well as a place (transit's origin → destination).
-    var hasEndPlace: Bool { kind == .transit }
+    /// Whether this kind is made of legs, each with its own places and times (a transit).
+    var hasLegs: Bool { kind == .transit }
 
     /// Whether a title or a place is enough to save this kind, the server calling it
     /// by its place's name when it has no title. An edit then sends both, nulls
@@ -108,10 +103,6 @@ final class TripItemDraft {
     /// nothing is.
     var typedName: String?
 
-    /// How a transit moves; nil until one's picked. A `mixed` one from the server
-    /// shows nothing picked and is never sent back.
-    var transitMode: TransitMode?
-
     init(tripId: String, kind: TripItemKind, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil) {
         self.tripId = tripId
         self.kind = item?.kind ?? kind
@@ -122,10 +113,9 @@ final class TripItemDraft {
         visibility = item?.visibility ?? .open
         title = item?.title ?? ""
         // Prefill the location fields with the existing place names (if the backend has
-        // enriched them), leaving `startPlace`/`endPlace` nil so an untouched edit keeps
+        // enriched them), leaving `startPlace` nil so an untouched edit keeps
         // the current places. Names that are still null get filled from Google on appear.
         startPlaceText = item?.place?.name ?? ""
-        endPlaceText = item?.endPlace?.name ?? ""
         // (Kind checks spelled out: computed properties can't be read mid-init.)
         if self.kind == .lodging || self.kind == .activity {
             // The item's place counts as picked, so an untouched edit still has one
@@ -138,7 +128,6 @@ final class TripItemDraft {
             }
         }
         notes = item?.notes ?? ""
-        transitMode = item?.transitMode
         // Load the item's wall clock onto the device-zone canvas (so the rows show
         // the same numbers), or for a new item start on the day being viewed at the
         // current time-of-day (falling back to "now" when no day was supplied).
@@ -149,6 +138,39 @@ final class TripItemDraft {
         endsAt = Self.wallClock(of: item?.endsAtLocal, in: .gmt)
         startZone = item?.startTimezone
         endZone = item?.endTimezone
+
+        if self.kind == .transit {
+            if let segments = item?.segments, !segments.isEmpty {
+                legs = segments.map(TransitLeg.init)
+            } else {
+                // A new transit (or one saved without legs) starts as one leg from the
+                // item's own ends.
+                legs = [TransitLeg(
+                    transitMode: item?.transitMode == .mixed ? nil : item?.transitMode,
+                    startPlace: item?.place,
+                    startPlaceText: item?.place?.name ?? "",
+                    endPlace: item?.endPlace,
+                    endPlaceText: item?.endPlace?.name ?? "",
+                    startsAt: startsAt,
+                    endsAt: endsAt,
+                    startZone: startZone,
+                    endZone: endZone
+                )]
+            }
+        }
+    }
+
+    // MARK: - Legs
+
+    /// Adds a leg after the last, picking up where it arrives.
+    func addLeg() {
+        legs.append(legs.last?.next() ?? TransitLeg(startsAt: startsAt))
+    }
+
+    /// Removes a leg, as long as another is left.
+    func removeLeg(_ leg: TransitLeg) {
+        guard legs.count > 1 else { return }
+        legs.removeAll { $0.id == leg.id }
     }
 
     /// The title to save: the typed name for `namedByPlaceSearch` kinds (nil when
@@ -200,16 +222,23 @@ final class TripItemDraft {
     /// `missingStartMessage` is shown when there's no start, which the API requires.
     func save(currentUserId: String?, missingStartMessage: String) async -> TripItem? {
         guard hasName else { return nil }
-        guard let startsAt else {
-            fail(missingStartMessage)
-            return nil
-        }
-        // Validate ordering on instants, not wall clocks, so cross-zone legs are allowed.
-        if let endsAt,
-           // An end without a zone is taken to be in the start's zone, just for this check.
-           Self.instant(of: endsAt, in: endZone ?? startZone ?? .gmt) < Self.instant(of: startsAt, in: startZone ?? .gmt) {
-            fail("End time can't be before the start time.")
-            return nil
+        // A transit's legs carry its times; other kinds have their own.
+        var segments: [TripItemsAPI.SegmentRequest]?
+        if hasLegs {
+            guard let requests = legRequests(missingStartMessage: missingStartMessage) else { return nil }
+            segments = requests
+        } else {
+            guard let startsAt else {
+                fail(missingStartMessage)
+                return nil
+            }
+            // Validate ordering on instants, not wall clocks, so cross-zone items are allowed.
+            if let endsAt,
+               // An end without a zone is taken to be in the start's zone, just for this check.
+               Self.instant(of: endsAt, in: endZone ?? startZone ?? .gmt) < Self.instant(of: startsAt, in: startZone ?? .gmt) {
+                fail("End time can't be before the start time.")
+                return nil
+            }
         }
         errorMessage = nil
         isSaving = true
@@ -217,11 +246,12 @@ final class TripItemDraft {
 
         let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedNotes = trimmedNotes.isEmpty ? nil : trimmedNotes
-        let startWall = Self.naiveString(from: startsAt)
-        let endWall = endsAt.map(Self.naiveString(from:))
-        let startZoneId = startZone?.identifier
-        let endZoneId = endsAt != nil ? endZone?.identifier : nil
-        let endPlaceId = hasEndPlace ? endPlace?.id : nil
+        // Left out alongside legs, whose span the server takes as the item's.
+        let span = segments == nil
+        let startWall = span ? startsAt.map(Self.naiveString(from:)) : nil
+        let endWall = span ? endsAt.map(Self.naiveString(from:)) : nil
+        let startZoneId = span ? startZone?.identifier : nil
+        let endZoneId = span && endsAt != nil ? endZone?.identifier : nil
         let participants = participantsToSave(currentUserId: currentUserId)
         // Sent only when ticked, so saves work on servers that don't take it.
         let notify: Bool? = canNotifyMembers(currentUserId: currentUserId) && notifyMembers ? true : nil
@@ -235,9 +265,9 @@ final class TripItemDraft {
             startTimezone: startZoneId,
             endsAt: endWall,
             endTimezone: endZoneId,
-            placeId: startPlace?.id,
-            endPlaceId: endPlaceId,
-            transitMode: kind == .transit && transitMode != .mixed ? transitMode : nil,
+            placeId: span ? startPlace?.id : nil,
+            endPlaceId: nil,
+            segments: segments,
             participants: participants,
             notifyMembers: notify
         )
@@ -256,6 +286,26 @@ final class TripItemDraft {
             fail(error.localizedDescription)
             return nil
         }
+    }
+
+    /// Every leg as sent, or nil (with `errorMessage` set) when one has no departure
+    /// or arrives before it departs. With one leg, the messages don't number it.
+    private func legRequests(missingStartMessage: String) -> [TripItemsAPI.SegmentRequest]? {
+        var requests: [TripItemsAPI.SegmentRequest] = []
+        for (index, leg) in legs.enumerated() {
+            let segment = legs.count > 1 ? "segment \(index + 1)" : nil
+            guard let request = leg.request else {
+                fail(segment.map { "Add a departure time for \($0)." } ?? missingStartMessage)
+                return nil
+            }
+            if leg.endsBeforeStart {
+                fail(segment.map { "The arrival for \($0) can't be before its departure." }
+                    ?? "End time can't be before the start time.")
+                return nil
+            }
+            requests.append(request)
+        }
+        return requests
     }
 
     /// Deletes the item being edited, returning whether it worked (with
@@ -285,14 +335,22 @@ final class TripItemDraft {
     /// left empty by the backend, and leaves it untouched on failure. Safe against
     /// re-triggering a search: the fields aren't focused when this runs.
     func prefillPlaceNames() async {
-        if startPlaceText.isEmpty, let gid = item?.place?.googlePlaceId,
-           let name = try? await GooglePlacesClient.shared.placeDetails(placeId: gid).name {
+        if !hasLegs, startPlaceText.isEmpty, let name = await Self.googleName(of: item?.place) {
             startPlaceText = name
         }
-        if hasEndPlace, endPlaceText.isEmpty, let gid = item?.endPlace?.googlePlaceId,
-           let name = try? await GooglePlacesClient.shared.placeDetails(placeId: gid).name {
-            endPlaceText = name
+        for leg in legs {
+            if leg.startPlaceText.isEmpty, let name = await Self.googleName(of: leg.startPlace) {
+                leg.startPlaceText = name
+            }
+            if leg.endPlaceText.isEmpty, let name = await Self.googleName(of: leg.endPlace) {
+                leg.endPlaceText = name
+            }
         }
+    }
+
+    private static func googleName(of place: Place?) async -> String? {
+        guard let gid = place?.googlePlaceId else { return nil }
+        return try? await GooglePlacesClient.shared.placeDetails(placeId: gid).name
     }
 
     // MARK: - Wall-clock helpers
@@ -314,7 +372,7 @@ final class TripItemDraft {
     private static let canvasComponents: Set<Calendar.Component> = [.year, .month, .day, .hour, .minute, .second]
 
     /// Naive wall clock (no offset) for a canvas date, e.g. "2026-04-08T16:00:00".
-    private static func naiveString(from canvasDate: Date) -> String {
+    static func naiveString(from canvasDate: Date) -> String {
         naiveFormatter.string(from: canvasDate)
     }
 
@@ -353,7 +411,7 @@ final class TripItemDraft {
 
     /// Places an item's wall clock (its instant read in `zone`) onto the device-zone
     /// canvas, so a picker bound to the result shows the same numbers.
-    private static func wallClock(of instant: Date?, in zone: TimeZone?) -> Date? {
+    static func wallClock(of instant: Date?, in zone: TimeZone?) -> Date? {
         guard let instant, let zone else { return nil }
         var source = Calendar(identifier: .gregorian)
         source.timeZone = zone
@@ -364,7 +422,7 @@ final class TripItemDraft {
     }
 
     /// The true instant for a canvas wall clock reinterpreted in `zone`.
-    private static func instant(of canvasDate: Date, in zone: TimeZone) -> Date {
+    static func instant(of canvasDate: Date, in zone: TimeZone) -> Date {
         var canvas = Calendar(identifier: .gregorian)
         canvas.timeZone = .current
         let components = canvas.dateComponents(canvasComponents, from: canvasDate)
