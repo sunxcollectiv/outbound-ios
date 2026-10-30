@@ -3,16 +3,17 @@
 //  outbound
 //
 
+import CryptoKit
 import Foundation
 
 /// Keeps the last good response of selected GET requests on disk (the trip list and
-/// each itinerary), so trips can be opened with no connection: in airplane mode, or
-/// somewhere with no signal.
+/// each itinerary), plus the area photos on their covers, so trips can be opened with
+/// no connection: in airplane mode, or somewhere with no signal.
 ///
-/// Stored as the server's raw JSON, so it decodes exactly like a live response. Kept
-/// in Application Support rather than Caches, which the system may purge right when a
-/// traveler needs it, and excluded from backups. Holds one user's data, so it's
-/// cleared on sign-out.
+/// Responses are stored as the server's raw JSON, so they decode exactly like a live
+/// one. Kept in Application Support rather than Caches, which the system may purge
+/// right when a traveler needs it, and excluded from backups. Holds one user's data,
+/// so it's cleared on sign-out.
 final class ResponseCache {
     static let shared = ResponseCache()
 
@@ -55,10 +56,14 @@ final class ResponseCache {
         try? fileManager.removeItem(at: directory)
     }
 
-    /// A file per key, named after it with anything but letters and digits replaced,
-    /// e.g. "/trips/abc/itinerary" -> "_trips_abc_itinerary.json".
+    /// A file per key, named after it with anything but letters, digits and dashes
+    /// replaced, e.g. "/trips/abc/itinerary" -> "_trips_abc_itinerary". Keys too long
+    /// for a file name (photo URLs) are hashed instead.
     private func fileURL(for key: String) -> URL {
-        let name = String(key.map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "_" })
-        return directory.appending(path: "\(name).json")
+        var name = String(key.map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "_" })
+        if name.count > 120 {
+            name = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+        }
+        return directory.appending(path: name)
     }
 }
