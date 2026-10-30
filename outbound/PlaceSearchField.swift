@@ -26,6 +26,18 @@ struct PlaceSearchField: View {
     /// typed, with no place behind it; choosing it sets this to that text. Cleared,
     /// like `resolvedPlace`, as soon as the user types again.
     var typedEntry: Binding<String?>? = nil
+    /// When set, the suggestions float over the content below while the field is
+    /// focused, instead of pushing it down.
+    var floatingResults: FloatingResults? = nil
+
+    /// How floating suggestions are laid out.
+    struct FloatingResults {
+        /// The list's width; nil for the field's own. Wider lets a narrow field (say,
+        /// half a row) open a list as wide as its row.
+        var width: CGFloat? = nil
+        /// The field edge a wider list lines up with.
+        var edge: HorizontalEdge = .leading
+    }
 
     @State private var suggestions: [PlaceSuggestion] = []
     @State private var isSearching = false
@@ -35,6 +47,8 @@ struct PlaceSearchField: View {
     @State private var errorText: String?
     /// Whether the "use as typed" row is up: from typing until a row is chosen.
     @State private var offeringTypedEntry = false
+    /// The field's height, to hang floating results just below it.
+    @State private var fieldHeight: CGFloat = 0
     /// Set when we fill the text from a suggestion, so the resulting change doesn't
     /// immediately kick off another search.
     @State private var isFillingFromSuggestion = false
@@ -63,8 +77,21 @@ struct PlaceSearchField: View {
             .contentShape(Rectangle())
             .onTapGesture { isFocused = true }
                 .onChange(of: text) { _, newValue in onTextChanged(newValue) }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fieldHeight = $0 }
+            // Hung 8pt below the field, so it covers what's below.
+            .overlay(alignment: floatingResults?.edge == .trailing ? .topTrailing : .topLeading) {
+                if let floatingResults, isFocused {
+                    results
+                        // Its own height, not the field's that the overlay offers.
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: floatingResults.width)
+                        .offset(y: fieldHeight + 8)
+                }
+            }
 
-            results
+            if floatingResults == nil {
+                results
+            }
             status
         }
     }
@@ -117,8 +144,11 @@ struct PlaceSearchField: View {
                 }
             }
             .background(Color.appForeground.opacity(0.08))
+            // Opaque when floating, so the form doesn't show through.
+            .background(floatingResults == nil ? Color.clear : Color.sheetBackground)
             // Clipped so a row's own background keeps to the rounded corners.
             .clipShape(.rect(cornerRadius: appFieldCornerRadius))
+            .shadow(color: .black.opacity(floatingResults == nil ? 0 : 0.35), radius: 16, y: 6)
         }
     }
 
@@ -184,6 +214,8 @@ struct PlaceSearchField: View {
         Label(text, systemImage: systemImage)
             .font(.caption)
             .foregroundStyle(tint)
+            // One line beside a neighboring field, so the two stay level.
+            .lineLimit(floatingResults == nil ? nil : 1)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -242,6 +274,8 @@ struct PlaceSearchField: View {
         offeringTypedEntry = false
         suggestions = []
         isSearching = false
+        // A narrow floating field would stay scrolled to the name's end while focused.
+        if floatingResults != nil { isFocused = false }
         resolve(suggestion)
     }
 

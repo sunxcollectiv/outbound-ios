@@ -90,6 +90,8 @@ struct TripItemFormScaffold<Places: View>: View {
                         }
 
                         places()
+                            // Above the blocks below, so floating suggestions cover them.
+                            .zIndex(1)
 
                         HStack(spacing: 8) {
                             TripItemTimeBlock(title: timeLabels.start, placeholder: "Add start", date: $draft.startsAt, zone: $draft.startZone) {
@@ -272,6 +274,8 @@ struct TripItemPlaceField: View {
     @Binding var timeZone: TimeZone?
     /// Offers taking the text as typed, with no place; see `PlaceSearchField.typedEntry`.
     var typedEntry: Binding<String?>? = nil
+    /// Floats the suggestions over the form; see `PlaceSearchField.floatingResults`.
+    var floatingResults: PlaceSearchField.FloatingResults? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -285,27 +289,28 @@ struct TripItemPlaceField: View {
                 text: $text,
                 resolvedPlace: $place,
                 resolvedTimeZone: $timeZone,
-                typedEntry: typedEntry
+                typedEntry: typedEntry,
+                floatingResults: floatingResults
             )
         }
     }
 }
 
-/// One of the side-by-side start/end blocks: the label on top with a clear button
-/// once there's a value, then the date (or a placeholder) and the time with its
-/// zone's short code. The time line always keeps its space, so both blocks stay the
-/// same height whether or not they're set. Tapping the block calls `onTap`.
-private struct TripItemTimeBlock: View {
+/// The frame shared by the side-by-side blocks (a start and end time, a transit's
+/// origin and destination): the label on top with a clear button once there's a
+/// value, a thin rule, then the block's content. Tapping the block calls `onTap`.
+struct TripItemBlock<Content: View>: View {
     let title: String
-    let placeholder: String
-    @Binding var date: Date?
-    @Binding var zone: TimeZone?
+    /// Whether the block holds a value, showing the clear button and a lighter fill.
+    let isSet: Bool
+    let onClear: () -> Void
     let onTap: () -> Void
+    @ViewBuilder let content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // The label and clear button sit in their own header above a thin rule,
-            // a little tighter than the date and time below.
+            // a little tighter than the content below.
             HStack {
                 Text(title)
                     .font(.caption.weight(.semibold))
@@ -313,13 +318,9 @@ private struct TripItemTimeBlock: View {
                     .tracking(1)
                     .foregroundStyle(Color.appForeground.opacity(0.7))
                 Spacer(minLength: 4)
-                if date != nil {
+                if isSet {
                     Button {
-                        // Clearing a time clears everything about it, its zone included.
-                        withAnimation {
-                            date = nil
-                            zone = nil
-                        }
+                        withAnimation { onClear() }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(Color.appForeground.opacity(0.5))
@@ -338,6 +339,41 @@ private struct TripItemTimeBlock: View {
                 .fill(Color.appForeground.opacity(0.12))
                 .frame(height: 1)
 
+            content()
+                .padding(14)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // A shade darker while empty, so an unset block reads as a slot to fill.
+        .background(Color.appForeground.opacity(isSet ? 0.08 : 0.04), in: .rect(cornerRadius: appFieldCornerRadius))
+        // A tap gesture rather than a Button, so the clear button inside stays its own
+        // target instead of nesting a button in a button.
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// One of the side-by-side start/end blocks: the date (or a placeholder) and the time
+/// with its zone's short code. The time line always keeps its space, so both blocks
+/// stay the same height whether or not they're set. Tapping the block calls `onTap`.
+private struct TripItemTimeBlock: View {
+    let title: String
+    let placeholder: String
+    @Binding var date: Date?
+    @Binding var zone: TimeZone?
+    let onTap: () -> Void
+
+    var body: some View {
+        TripItemBlock(
+            title: title,
+            isSet: date != nil,
+            // Clearing a time clears everything about it, its zone included.
+            onClear: {
+                date = nil
+                zone = nil
+            },
+            onTap: onTap
+        ) {
             VStack(alignment: .leading, spacing: 2) {
                 Group {
                     if let date {
@@ -370,15 +406,6 @@ private struct TripItemTimeBlock: View {
                 }
                 .lineLimit(1)
             }
-            .padding(14)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // A shade darker while empty, so an unset time reads as a slot to fill.
-        .background(Color.appForeground.opacity(date == nil ? 0.04 : 0.08), in: .rect(cornerRadius: appFieldCornerRadius))
-        // A tap gesture rather than a Button, so the clear button inside stays its own
-        // target instead of nesting a button in a button.
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
-        .accessibilityAddTraits(.isButton)
     }
 }

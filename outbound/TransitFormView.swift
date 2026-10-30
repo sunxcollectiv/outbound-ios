@@ -13,6 +13,9 @@ struct TransitFormView: View {
     var onSaved: (TripItem) -> Void = { _ in }
     var onDeleted: () -> Void = {}
 
+    /// Width of the origin/destination row, so each field's suggestions can span it.
+    @State private var rowWidth: CGFloat?
+
     var body: some View {
         TripItemFormScaffold(
             draft: draft,
@@ -20,20 +23,27 @@ struct TransitFormView: View {
             onSaved: onSaved,
             onDeleted: onDeleted
         ) {
-            TripItemPlaceField(
-                label: "Origin",
-                placeholder: "Search origin",
-                text: $draft.startPlaceText,
-                place: $draft.startPlace,
-                timeZone: $draft.startPlaceZone
-            )
-            TripItemPlaceField(
-                label: "Destination",
-                placeholder: "Search destination",
-                text: $draft.endPlaceText,
-                place: $draft.endPlace,
-                timeZone: $draft.endPlaceZone
-            )
+            // Side by side, with suggestions floating over the form across the whole row
+            // (from the origin's left edge, or the destination's right).
+            HStack(alignment: .top, spacing: 8) {
+                TripItemPlaceField(
+                    label: "Origin",
+                    placeholder: "Search",
+                    text: $draft.startPlaceText,
+                    place: $draft.startPlace,
+                    timeZone: $draft.startPlaceZone,
+                    floatingResults: .init(width: rowWidth, edge: .leading)
+                )
+                TripItemPlaceField(
+                    label: "Destination",
+                    placeholder: "Search",
+                    text: $draft.endPlaceText,
+                    place: $draft.endPlace,
+                    timeZone: $draft.endPlaceZone,
+                    floatingResults: .init(width: rowWidth, edge: .trailing)
+                )
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
         }
     }
 }
