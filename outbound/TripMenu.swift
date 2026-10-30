@@ -6,12 +6,13 @@
 import SwiftUI
 
 /// The dropdown under the itinerary header's more button: the trip's dates up top, then
-/// adding an item (by hand or from a screenshot), then the trip's actions. Drawn by hand
-/// rather than as a system `Menu`, so it can take the app's styling and grow richer rows
-/// than a menu allows.
+/// adding items (by hand, one row per kind, or from a screenshot), then the trip's
+/// actions. Drawn by hand rather than as a system `Menu`, so it can take the app's
+/// styling and grow richer rows than a menu allows.
 struct TripMenu: View {
     let trip: Trip
-    let onAddItem: () -> Void
+    /// Adds an item by hand, opening the form for the kind picked.
+    let onAddItem: (TripItemKind) -> Void
     let onImportScreenshot: () -> Void
     let onCopyTripsEmail: () -> Void
     let onEditTrip: () -> Void
@@ -34,7 +35,9 @@ struct TripMenu: View {
 
             divider
             sectionHeading("Itinerary")
-            row("Add Item", systemImage: "plus", action: onAddItem)
+            row("Add Activity", systemImage: "plus") { onAddItem(.activity) }
+            row("Add Lodging", systemImage: "bed.double") { onAddItem(.lodging) }
+            row("Add Transit", systemImage: "airplane") { onAddItem(.transit) }
             row("Import from Screenshot", systemImage: "photo", action: onImportScreenshot)
             // Dotted rather than solid: forwarding is another way into the itinerary, so
             // it stays grouped with the rows above.
@@ -156,7 +159,7 @@ private struct TripMenuRowStyle: ButtonStyle {
 #Preview {
     ZStack(alignment: .topTrailing) {
         Color.black.ignoresSafeArea()
-        TripMenu(trip: .sample, onAddItem: {}, onImportScreenshot: {}, onCopyTripsEmail: {}, onEditTrip: {}, onShare: {}, onDeleteTrip: {})
+        TripMenu(trip: .sample, onAddItem: { _ in }, onImportScreenshot: {}, onCopyTripsEmail: {}, onEditTrip: {}, onShare: {}, onDeleteTrip: {})
             .padding()
     }
 }

@@ -54,7 +54,7 @@ struct ItineraryEntryCard: View {
             if isCondensed {
                 condensedCard
             } else if item.kind == .transit {
-                compactCard(badge: badge, title: item.title, detail: transitDetail, place: place, showsMembers: true)
+                compactCard(badge: badge, title: item.displayTitle, detail: transitDetail, place: place, showsMembers: true)
             } else if let photo = place?.coverPhoto {
                 coverCard(photo)
             } else {
@@ -81,7 +81,7 @@ struct ItineraryEntryCard: View {
             // spaces the title down.
             VStack(alignment: .leading, spacing: membersSummary == nil ? 30 : 12) {
                 timeAndBadge()
-                Text(item.title)
+                Text(item.displayTitle)
                     .font(.title3.weight(.bold))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -125,7 +125,7 @@ struct ItineraryEntryCard: View {
                         .padding(14)
                 }
 
-                Text(item.title)
+                Text(item.displayTitle)
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                     .padding(14)
@@ -168,14 +168,14 @@ struct ItineraryEntryCard: View {
     /// Whether a full-width card has an info strip: always while it holds the avatar,
     /// else only when there's a location to show.
     private var showsInfoStrip: Bool {
-        membersSummary == nil || hasLocation(place, hidingName: item.title)
+        membersSummary == nil || hasLocation(place, hidingName: item.displayTitle)
     }
 
     /// The bottom of a full-width card: the location, and an assignee avatar when the
     /// members box isn't standing in for it.
     private var infoStrip: some View {
         HStack {
-            locationLabel(place, hidingName: item.title)
+            locationLabel(place, hidingName: item.displayTitle)
             Spacer()
             if membersSummary == nil {
                 assigneeAvatar()
@@ -193,7 +193,7 @@ struct ItineraryEntryCard: View {
     /// the title (or its kind, if it has none) and the members, in white on a mostly
     /// see-through card with a white border.
     private var condensedCard: some View {
-        let title = item.title.trimmingCharacters(in: .whitespaces)
+        let title = item.displayTitle.trimmingCharacters(in: .whitespaces)
         return HStack(spacing: 10) {
             Text(time)
                 .font(.caption.weight(.bold))
@@ -221,11 +221,11 @@ struct ItineraryEntryCard: View {
     /// when the name just repeats the place. A stay without a place falls back to its
     /// own name (that's where you're leaving).
     private var derivedCard: some View {
-        let name = placeName(place) ?? (item.kind == .lodging ? item.title : nil)
+        let name = placeName(place) ?? (item.kind == .lodging ? item.displayTitle : nil)
         let phase = entry.phase?.label ?? item.kind.label
         // You arrive at a place but check out from one.
         let preposition = entry.phase == .checkOut ? "from" : "at"
-        let reference = item.title == name ? item.kind.label : item.title
+        let reference = item.displayTitle == name ? item.kind.label : item.displayTitle
         return compactCard(
             badge: reference.uppercased(),
             title: name.map { "\(phase) \(preposition) \($0)" } ?? phase,
