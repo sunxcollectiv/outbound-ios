@@ -96,6 +96,13 @@ final class TripItemDraft {
     /// hotel is, so its form leaves out the title field.
     var namedByPlaceSearch: Bool { kind == .lodging }
 
+    /// Whether the server names this kind itself (a transit, from its route), so its
+    /// form has no title field and saving needs no name.
+    var namedByServer: Bool { kind == .transit }
+
+    /// Whether the form has a title field to type a name in.
+    var hasTitleField: Bool { !namedByPlaceSearch && !namedByServer }
+
     /// For `namedByPlaceSearch` kinds, the name taken as typed in the place search,
     /// with no place behind it; saved as the title. Nil while a place is picked or
     /// nothing is.
@@ -140,16 +147,18 @@ final class TripItemDraft {
     }
 
     /// The title to save: the typed name for `namedByPlaceSearch` kinds (nil when
-    /// they have a place instead), else the title field.
+    /// they have a place instead), the title field for kinds that have one, else nil
+    /// (left out, so an edit keeps the server's name).
     private var titleToSave: String? {
-        let name = (namedByPlaceSearch ? typedName ?? "" : title).trimmingCharacters(in: .whitespaces)
+        let name = (namedByPlaceSearch ? typedName ?? "" : hasTitleField ? title : "")
+            .trimmingCharacters(in: .whitespaces)
         return name.isEmpty ? nil : name
     }
 
     /// Whether the item is named enough to save: a title, or for `titleOrPlace`
-    /// kinds, a picked place instead.
+    /// kinds, a picked place instead. Kinds the server names need neither.
     var hasName: Bool {
-        titleToSave != nil || (titleOrPlace && startPlace != nil)
+        namedByServer || titleToSave != nil || (titleOrPlace && startPlace != nil)
     }
 
     // MARK: - Members

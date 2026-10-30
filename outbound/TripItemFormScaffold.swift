@@ -18,9 +18,9 @@ struct TripItemTimeLabels {
 }
 
 /// The layout every trip item form shares: who it's for and who sees it, the title
-/// (left out for kinds named by their place search), the kind's own place fields
-/// (`places`), the start/end times, notes, and the pinned Save/Delete bar. The
-/// per-kind forms supply their places and time labels.
+/// (left out for kinds named by their place search or by the server), the kind's own
+/// place fields (`places`), the start/end times, notes, and the pinned Save/Delete
+/// bar. The per-kind forms supply their places and time labels.
 struct TripItemFormScaffold<Places: View>: View {
     @Bindable var draft: TripItemDraft
     let timeLabels: TripItemTimeLabels
@@ -83,7 +83,7 @@ struct TripItemFormScaffold<Places: View>: View {
                                 .foregroundStyle(Color.appForeground.opacity(0.7))
                         }
 
-                        if !draft.namedByPlaceSearch {
+                        if draft.hasTitleField {
                             TextField("Title", text: $draft.title)
                                 .textInputAutocapitalization(.never)
                                 .appField()

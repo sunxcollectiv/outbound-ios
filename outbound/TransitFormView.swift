@@ -6,7 +6,8 @@
 import SwiftUI
 
 /// The form for adding or editing transit: an origin and a destination, each with its
-/// own zone, so a leg can depart in one time zone and arrive in another.
+/// own zone, so a leg can depart in one time zone and arrive in another. No title:
+/// the server names it from its route.
 struct TransitFormView: View {
     @Bindable var draft: TripItemDraft
     var onSaved: (TripItem) -> Void = { _ in }
