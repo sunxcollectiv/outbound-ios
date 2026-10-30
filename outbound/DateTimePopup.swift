@@ -61,8 +61,13 @@ struct DateTimePopup: View {
     @State private var dayCellSize: CGFloat = 44
     /// The highlighted hour on a 12-hour clock (1–12), if any.
     @State private var selectedHour: Int?
-    /// The highlighted minute, one of `minutes`.
+    /// The highlighted minute: one of `minutes`, or any minute in 1-minute steps.
     @State private var selectedMinute: Int
+    /// Whether minutes go in 1-minute steps rather than quarter hours. On by itself
+    /// for a time that's off the quarter, so it shows as it is.
+    @State private var usesMinuteSteps: Bool
+    /// The minute row's width, split into its columns.
+    @State private var minuteRowWidth: CGFloat?
     /// Whether the selected time is PM rather than AM.
     @State private var isPM: Bool
 
@@ -86,6 +91,11 @@ struct DateTimePopup: View {
     private static let hourCycles = 100
     private static let middleCycle = hourCycles / 2
     private static let minutes = [0, 15, 30, 45]
+    /// Width of each minute in the 1-minute strip.
+    private static let minuteStripCellWidth: CGFloat = 40
+    /// The minute step toggle's width, with room either side of the dial to set
+    /// AM/PM apart from the minutes.
+    private static let minuteStepToggleWidth: CGFloat = 48
     /// How far the dark fade reaches in from each end of the hour row.
     private static let hourFadeWidth: CGFloat = 100
     /// How dark the fade gets at the very ends, so edge hours stay faintly visible.
@@ -136,6 +146,7 @@ struct DateTimePopup: View {
         _selectedDay = State(initialValue: seed.day)
         _selectedHour = State(initialValue: seed.hour)
         _selectedMinute = State(initialValue: seed.minute)
+        _usesMinuteSteps = State(initialValue: !Self.minutes.contains(seed.minute))
         _isPM = State(initialValue: seed.isPM)
         _zoneQuery = State(initialValue: seed.zoneQuery)
     }
@@ -146,12 +157,11 @@ struct DateTimePopup: View {
         -> (day: Date?, hour: Int?, minute: Int, isPM: Bool, zoneQuery: String) {
         let parts = date.map { Calendar.current.dateComponents([.hour, .minute], from: $0) }
             ?? defaultTime
-        // Snap to the nearest quarter so an off-grid time still highlights a choice.
+        // As is: an off-quarter minute opens the picker in 1-minute steps.
         let minute = parts?.minute ?? 0
-        let snapped = minutes.min { abs($0 - minute) < abs($1 - minute) } ?? 0
         let day = date.map { Calendar.sundayFirst.startOfDay(for: $0) }
         let zoneQuery = zone.map { TimeZoneSearch.label($0, at: date ?? tripStart ?? .now) } ?? ""
-        return (day, parts?.hour.map { $0 % 12 == 0 ? 12 : $0 % 12 }, snapped, (parts?.hour ?? 0) >= 12, zoneQuery)
+        return (day, parts?.hour.map { $0 % 12 == 0 ? 12 : $0 % 12 }, minute, (parts?.hour ?? 0) >= 12, zoneQuery)
     }
 
     /// The time an empty end opens on: `defaultHour` on the hour when given, else an
@@ -190,6 +200,7 @@ struct DateTimePopup: View {
                 selectedDay = seed.day
                 selectedHour = seed.hour
                 selectedMinute = seed.minute
+                if !Self.minutes.contains(seed.minute) { usesMinuteSteps = true }
                 isPM = seed.isPM
                 zoneQuery = seed.zoneQuery
             }
@@ -316,6 +327,7 @@ struct DateTimePopup: View {
             selectedDay = seed.day
             selectedHour = seed.hour
             selectedMinute = seed.minute
+            if !Self.minutes.contains(seed.minute) { usesMinuteSteps = true }
             isPM = seed.isPM
         }
     }
@@ -686,23 +698,95 @@ struct DateTimePopup: View {
         }
     }
 
-    /// The quarter-hour minutes, then AM/PM after a thin divider, as plain text spread
-    /// across the row: the selected choices in full white, the rest at half opacity.
+    /// The minutes, then AM/PM after the step toggle, as plain text across the row:
+    /// the selected choices in full white, the rest at half opacity. Quarter hours
+    /// spread out, or every minute in a scrolling strip.
     private var minuteRow: some View {
-        HStack(spacing: 0) {
-            ForEach(Self.minutes, id: \.self) { minute in
-                textChoice(String(format: "%02d", minute), isSelected: selectedMinute == minute) {
-                    selectedMinute = minute
+        // Six equal columns around the toggle: four for the minutes either way, so
+        // switching steps doesn't move AM/PM.
+        let column = minuteRowWidth.map { max(($0 - Self.minuteStepToggleWidth) / 6, 0) }
+        return HStack(spacing: 0) {
+            Group {
+                if usesMinuteSteps {
+                    everyMinuteStrip
+                } else {
+                    HStack(spacing: 0) {
+                        ForEach(Self.minutes, id: \.self) { minute in
+                            textChoice(String(format: "%02d", minute), isSelected: selectedMinute == minute) {
+                                selectedMinute = minute
+                            }
+                            .accessibilityLabel("\(minute) minutes")
+                        }
+                    }
                 }
-                .accessibilityLabel("\(minute) minutes")
             }
-            Rectangle()
-                .fill(Color.appForeground.opacity(0.3))
-                .frame(width: 1, height: 20)
-                // On top of the columns' own centering gap, to set AM/PM further apart.
-                .padding(.horizontal, 16)
-            textChoice("AM", isSelected: !isPM) { isPM = false }
-            textChoice("PM", isSelected: isPM) { isPM = true }
+            .frame(width: column.map { $0 * 4 })
+            minuteStepToggle
+            Group {
+                textChoice("AM", isSelected: !isPM) { isPM = false }
+                textChoice("PM", isSelected: isPM) { isPM = true }
+            }
+            .frame(width: column)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { minuteRowWidth = $0 }
+    }
+
+    /// Switches the minutes between quarter hours and single minutes: a dial whose
+    /// ticks get finer, lit while on. Back to quarters, the minute snaps to the nearest.
+    private var minuteStepToggle: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.2)) {
+                usesMinuteSteps.toggle()
+                if !usesMinuteSteps {
+                    // The nearest quarter within the hour, so :53 goes to :45.
+                    selectedMinute = Self.minutes.min { abs($0 - selectedMinute) < abs($1 - selectedMinute) } ?? 0
+                }
+            }
+        } label: {
+            Image(systemName: usesMinuteSteps ? "dial.high.fill" : "dial.low")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(usesMinuteSteps ? 1 : 0.5))
+                .frame(width: Self.minuteStepToggleWidth, height: 36)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("1-minute steps")
+        .accessibilityAddTraits(usesMinuteSteps ? .isSelected : [])
+    }
+
+    /// Every minute, 00–59, in a strip that scrolls sideways and opens on the selected
+    /// one in the middle; tapping one centers it. The ends fade like the hour row's.
+    private var everyMinuteStrip: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 0) {
+                    ForEach(0..<60, id: \.self) { minute in
+                        textChoice(String(format: "%02d", minute), isSelected: selectedMinute == minute) {
+                            selectedMinute = minute
+                            withAnimation(.snappy(duration: 0.3)) { proxy.scrollTo(minute, anchor: .center) }
+                        }
+                        .frame(width: Self.minuteStripCellWidth)
+                        .accessibilityLabel("\(minute) minutes")
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByFew))
+            // Fixed, since a sideways scroll view otherwise fills the height it's offered.
+            .frame(height: 36)
+            .mask {
+                HStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: 24)
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 24)
+                }
+            }
+            .onAppear { proxy.scrollTo(selectedMinute, anchor: .center) }
+            // A new side or a duration shortcut can move the minute from outside.
+            .onChange(of: selectedMinute) { _, minute in
+                withAnimation(.snappy(duration: 0.3)) { proxy.scrollTo(minute, anchor: .center) }
+            }
         }
     }
 
