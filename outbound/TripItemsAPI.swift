@@ -15,6 +15,43 @@ enum TripItemKind: String, Codable, CaseIterable, Identifiable {
     var label: String { rawValue.capitalized }
 }
 
+/// How a transit moves, matching the server's `TransitMode`. `mixed` only comes
+/// back from the server, for a booking whose legs differ; it's never sent.
+enum TransitMode: String, Codable, CaseIterable, Identifiable {
+    case flight, train, bus, ferry
+    case carRental = "car_rental"
+    case other, mixed
+
+    var id: String { rawValue }
+
+    /// The modes a person can pick.
+    static let pickable: [TransitMode] = [.flight, .train, .bus, .ferry, .carRental, .other]
+
+    var label: String {
+        switch self {
+        case .flight: "Flight"
+        case .train: "Train"
+        case .bus: "Bus"
+        case .ferry: "Ferry"
+        case .carRental: "Car rental"
+        case .other: "Other"
+        case .mixed: "Mixed"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .flight: "airplane"
+        case .train: "tram.fill"
+        case .bus: "bus.fill"
+        case .ferry: "ferry.fill"
+        case .carRental: "car.fill"
+        case .other: "ellipsis"
+        case .mixed: "arrow.triangle.swap"
+        }
+    }
+}
+
 /// What people on the trip who aren't participants see of an item, matching
 /// `TripItemVisibility`. Participants always see all of it.
 enum TripItemVisibility: String, Codable, CaseIterable, Identifiable {
@@ -76,6 +113,8 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     var createdBy: User? = nil
     /// Who the item is for, each with an optional RSVP-style answer.
     var participants: [TripItemParticipant] = []
+    /// How a transit moves; nil when unknown or for other kinds.
+    var transitMode: TransitMode? = nil
 }
 
 enum RsvpStatus: String, Codable {
@@ -139,6 +178,7 @@ extension TripItem: Decodable {
         case startTimezone, endTimezone
         case startsAt, endsAt, startsAtUtc, endsAtUtc
         case imageUrl, place, endPlace, createdAt, updatedAt, segments, createdBy, participants
+        case transitMode
     }
 
     init(from decoder: Decoder) throws {
@@ -166,6 +206,8 @@ extension TripItem: Decodable {
             .sorted { $0.position < $1.position }
         createdBy = try c.decodeIfPresent(User.self, forKey: .createdBy)
         participants = try c.decodeIfPresent([TripItemParticipant].self, forKey: .participants) ?? []
+        // Leniently, so a mode added on the server doesn't break the whole item.
+        transitMode = (try? c.decodeIfPresent(String.self, forKey: .transitMode)).flatMap { $0.flatMap(TransitMode.init) }
         displayTitle = try c.decodeIfPresent(String.self, forKey: .displayTitle)
             ?? title ?? place?.name ?? kind.label
     }
@@ -193,6 +235,8 @@ enum TripItemsAPI {
         let endTimezone: String?
         let placeId: String?
         let endPlaceId: String?
+        /// Transit only; omitted when nil. Never `mixed`, which the server derives.
+        var transitMode: TransitMode? = nil
         /// Exactly who the item is for; nobody is implied. Omitted when nil, which makes
         /// the item just for its creator.
         var participants: [ParticipantRequest]? = nil
@@ -224,6 +268,8 @@ enum TripItemsAPI {
         let endTimezone: String?
         let placeId: String?
         let endPlaceId: String?
+        /// Omitted when nil, keeping the current mode.
+        var transitMode: TransitMode? = nil
         var participants: [ParticipantRequest]? = nil
         /// Tell the trip's other members what changed. Omitted unless true.
         var notifyMembers: Bool? = nil
@@ -234,7 +280,7 @@ enum TripItemsAPI {
 
         private enum CodingKeys: String, CodingKey {
             case kind, visibility, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
-            case participants, notifyMembers
+            case transitMode, participants, notifyMembers
         }
 
         func encode(to encoder: Encoder) throws {
@@ -254,6 +300,7 @@ enum TripItemsAPI {
             }
             try encode(placeId, forKey: .placeId, in: &c)
             try c.encodeIfPresent(endPlaceId, forKey: .endPlaceId)
+            try c.encodeIfPresent(transitMode, forKey: .transitMode)
             try c.encodeIfPresent(participants, forKey: .participants)
             try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
         }
@@ -300,6 +347,7 @@ extension TripItemsAPI.UpdateRequest {
             endTimezone: create.endTimezone,
             placeId: create.placeId,
             endPlaceId: create.endPlaceId,
+            transitMode: create.transitMode,
             participants: create.participants,
             notifyMembers: create.notifyMembers,
             nullsTitleAndPlace: nullsTitleAndPlace

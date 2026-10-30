@@ -83,6 +83,31 @@ struct TripItemParticipantsTests {
         #expect(item.displayTitle == "Ace Hotel")
     }
 
+    @Test func itemDecodesTransitMode() throws {
+        #expect(try decodeItem(#", "transit_mode": "car_rental""#).transitMode == .carRental)
+        // An unknown mode leaves it unset rather than failing the item.
+        #expect(try decodeItem(#", "transit_mode": "hovercraft""#).transitMode == nil)
+        #expect(try decodeItem("").transitMode == nil)
+    }
+
+    @Test func requestsSendTransitModeOnlyWhenSet() throws {
+        let create = TripItemsAPI.CreateRequest(
+            kind: .transit, title: nil, notes: nil,
+            startsAt: "2026-11-11T09:00:00", startTimezone: nil, endsAt: nil, endTimezone: nil,
+            placeId: "p1", endPlaceId: "p2", transitMode: .train
+        )
+        #expect(try encode(create)["transit_mode"] as? String == "train")
+        #expect(try encode(TripItemsAPI.UpdateRequest(create))["transit_mode"] as? String == "train")
+
+        let unset = TripItemsAPI.CreateRequest(
+            kind: .transit, title: nil, notes: nil,
+            startsAt: "2026-11-11T09:00:00", startTimezone: nil, endsAt: nil, endTimezone: nil,
+            placeId: "p1", endPlaceId: "p2"
+        )
+        #expect(try encode(unset).keys.contains("transit_mode") == false)
+        #expect(try encode(TripItemsAPI.UpdateRequest(unset)).keys.contains("transit_mode") == false)
+    }
+
     @Test func createSendsParticipantsByMemberId() throws {
         let body = TripItemsAPI.CreateRequest(
             kind: .activity, title: "Dinner", notes: nil,

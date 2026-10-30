@@ -23,27 +23,56 @@ struct TransitFormView: View {
             onSaved: onSaved,
             onDeleted: onDeleted
         ) {
-            // Side by side, with suggestions floating over the form across the whole row
-            // (from the origin's left edge, or the destination's right).
-            HStack(alignment: .top, spacing: 8) {
-                TripItemPlaceField(
-                    label: "Origin",
-                    placeholder: "Search",
-                    text: $draft.startPlaceText,
-                    place: $draft.startPlace,
-                    timeZone: $draft.startPlaceZone,
-                    floatingResults: .init(width: rowWidth, edge: .leading)
-                )
-                TripItemPlaceField(
-                    label: "Destination",
-                    placeholder: "Search",
-                    text: $draft.endPlaceText,
-                    place: $draft.endPlace,
-                    timeZone: $draft.endPlaceZone,
-                    floatingResults: .init(width: rowWidth, edge: .trailing)
-                )
+            VStack(alignment: .leading, spacing: 16) {
+                modePicker
+
+                // Side by side, with suggestions floating over the form across the whole
+                // row (from the origin's left edge, or the destination's right).
+                HStack(alignment: .top, spacing: 8) {
+                    TripItemPlaceField(
+                        label: "Origin",
+                        placeholder: "Search",
+                        text: $draft.startPlaceText,
+                        place: $draft.startPlace,
+                        timeZone: $draft.startPlaceZone,
+                        floatingResults: .init(width: rowWidth, edge: .leading)
+                    )
+                    TripItemPlaceField(
+                        label: "Destination",
+                        placeholder: "Search",
+                        text: $draft.endPlaceText,
+                        place: $draft.endPlace,
+                        timeZone: $draft.endPlaceZone,
+                        floatingResults: .init(width: rowWidth, edge: .trailing)
+                    )
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
+        }
+    }
+
+    /// A row of icons, one per way to travel; the picked one is lit.
+    private var modePicker: some View {
+        HStack(spacing: 8) {
+            ForEach(TransitMode.pickable) { mode in
+                let isPicked = draft.transitMode == mode
+                Button {
+                    withAnimation(.snappy(duration: 0.15)) { draft.transitMode = mode }
+                } label: {
+                    Image(systemName: mode.systemImage)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(isPicked ? Color.black : Color.appForeground.opacity(0.8))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(
+                            isPicked ? Color.appForeground : Color.appForeground.opacity(0.08),
+                            in: .rect(cornerRadius: appFieldCornerRadius)
+                        )
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(mode.label)
+                .accessibilityAddTraits(isPicked ? .isSelected : [])
+            }
         }
     }
 }

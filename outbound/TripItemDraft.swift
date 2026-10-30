@@ -108,6 +108,10 @@ final class TripItemDraft {
     /// nothing is.
     var typedName: String?
 
+    /// How a transit moves; nil until one's picked. A `mixed` one from the server
+    /// shows nothing picked and is never sent back.
+    var transitMode: TransitMode?
+
     init(tripId: String, kind: TripItemKind, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil) {
         self.tripId = tripId
         self.kind = item?.kind ?? kind
@@ -134,6 +138,7 @@ final class TripItemDraft {
             }
         }
         notes = item?.notes ?? ""
+        transitMode = item?.transitMode
         // Load the item's wall clock onto the device-zone canvas (so the rows show
         // the same numbers), or for a new item start on the day being viewed at the
         // current time-of-day (falling back to "now" when no day was supplied).
@@ -232,6 +237,7 @@ final class TripItemDraft {
             endTimezone: endZoneId,
             placeId: startPlace?.id,
             endPlaceId: endPlaceId,
+            transitMode: kind == .transit && transitMode != .mixed ? transitMode : nil,
             participants: participants,
             notifyMembers: notify
         )
