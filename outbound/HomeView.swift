@@ -22,6 +22,7 @@ struct HomeView: View {
     @State private var isDrawerOpen = false
     @Environment(\.scenePhase) private var scenePhase
     private var push = PushNotifications.shared
+    private var connectivity = Connectivity.shared
     /// Pairs each trip's tile with its itinerary for the zoom transition.
     @Namespace private var tripZoom
 
@@ -104,6 +105,12 @@ struct HomeView: View {
                     NotificationsView(store: notifications, trip: trip(id:))
                 }
                 .task { await store.load() }
+                .onChange(of: connectivity.isOnline) { _, isOnline in
+                    // Back online: swap the saved copy for the server's.
+                    if isOnline, store.isShowingSavedCopy { Task { await store.load() } }
+                }
+                .overlay(alignment: .bottom) { offlinePill }
+                .animation(.snappy, value: !connectivity.isOnline || store.isShowingSavedCopy)
                 .task(id: scenePhase) {
                     if scenePhase == .active { await notifications.refreshUnreadCount() }
                 }
@@ -146,6 +153,17 @@ struct HomeView: View {
         openedTripId = trip.id
     }
 
+    /// Says the list is the saved copy when there's no connection, or the server
+    /// couldn't be reached to refresh it.
+    @ViewBuilder
+    private var offlinePill: some View {
+        if !connectivity.isOnline || store.isShowingSavedCopy {
+            OfflinePill(savedDate: store.isShowingSavedCopy ? store.savedDate : nil)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
         if store.isLoading && store.trips.isEmpty {
@@ -165,6 +183,9 @@ struct HomeView: View {
                     tripSection("Past", trips: past, emptyText: "No past trips")
                         .padding()
                         .padding(.top, 4)
+                        // Room for the offline pill over the bottom, whether or not it's
+                        // showing, so the list's end never shifts.
+                        .padding(.bottom, 48)
                         .background(alignment: .top) { pastBackground }
                 }
             }

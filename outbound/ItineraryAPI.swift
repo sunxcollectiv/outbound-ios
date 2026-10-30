@@ -313,7 +313,7 @@ enum LodgingPhase: String, Decodable {
 
 extension TripsAPI {
     static func itinerary(tripId: String) -> Endpoint {
-        Endpoint(path: "/trips/\(tripId)/itinerary")
+        Endpoint(path: "/trips/\(tripId)/itinerary", cachesResponse: true)
     }
 }
 

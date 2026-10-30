@@ -35,6 +35,14 @@ struct Endpoint {
     /// How long to wait for the response; nil uses the session's default.
     var timeout: TimeInterval?
     var requiresAuth = true
+    /// Keep the last successful response on disk, so it can still be shown offline
+    /// (read back with `APIClient.cached(_:as:)`). For GETs only.
+    var cachesResponse = false
+
+    /// What a cached response is saved under.
+    var cacheKey: String {
+        query.isEmpty ? path : path + "?" + query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
+    }
 }
 
 /// A `multipart/form-data` body carrying one file, as FastAPI's `UploadFile` expects.
@@ -101,6 +109,7 @@ final class APIClient {
 
     private let baseURL: URL
     private let session: URLSession
+    private let cache: ResponseCache
 
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -128,9 +137,10 @@ final class APIClient {
         return decoder
     }()
 
-    init(baseURL: URL = APIConfig.baseURL, session: URLSession = .shared) {
+    init(baseURL: URL = APIConfig.baseURL, session: URLSession = .shared, cache: ResponseCache = .shared) {
         self.baseURL = baseURL
         self.session = session
+        self.cache = cache
     }
 
     /// Sends a request and decodes the JSON response. `onBodySent` is called once the
@@ -152,8 +162,28 @@ final class APIClient {
         _ = try await perform(endpoint)
     }
 
+    /// The last successful response to a `cachesResponse` endpoint, decoded, or nil if
+    /// none was saved (or it no longer decodes).
+    func cached<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type = Response.self) -> Response? {
+        guard let data = cache.data(for: endpoint.cacheKey) else { return nil }
+        return try? decoder.decode(Response.self, from: data)
+    }
+
+    /// When the cached response to `endpoint` was saved.
+    func cachedDate(for endpoint: Endpoint) -> Date? {
+        cache.savedDate(for: endpoint.cacheKey)
+    }
+
+    /// Saves `value` as the cached response to `endpoint`, for a copy changed locally
+    /// (e.g. a trip edited in place) so it's what shows offline.
+    func storeCached(_ value: some Encodable, for endpoint: Endpoint) {
+        guard let data = try? encoder.encode(value) else { return }
+        cache.store(data, for: endpoint.cacheKey)
+    }
+
     private func perform(_ endpoint: Endpoint, onBodySent: (@Sendable () -> Void)? = nil) async throws -> Data {
         let request = try makeRequest(for: endpoint)
+        let sentToken = token
 
         let data: Data
         let response: URLResponse
@@ -176,6 +206,11 @@ final class APIClient {
 
         switch http.statusCode {
         case 200..<300:
+            // Unless the user signed out while this was in flight, leaving the cache
+            // cleared for whoever signs in next.
+            if endpoint.cachesResponse, endpoint.method == .get, token == sentToken {
+                cache.store(data, for: endpoint.cacheKey)
+            }
             return data
         case 401 where endpoint.requiresAuth:
             // An authenticated request was rejected: the token is missing or expired.

@@ -29,6 +29,12 @@ struct TripDetailView: View {
     @State private var places = ItineraryPlaces()
     @State private var selection: Int
     @State private var errorMessage: String?
+    /// When the itinerary showing is the copy saved by an earlier load (opened before
+    /// this load finished, or with no connection), the time that copy was saved; nil
+    /// once a load succeeds.
+    @State private var savedCopyDate: Date?
+    /// Whether the last load couldn't reach the server, leaving the saved copy showing.
+    @State private var loadFailed = false
     /// A pending add-item sheet, carrying the day that was shown when add was tapped.
     /// Presented via `.sheet(item:)` so the form receives the value directly; with
     /// `.sheet(isPresented:)` the content closure could capture a stale date.
@@ -91,6 +97,7 @@ struct TripDetailView: View {
     @Environment(AuthStore.self) private var auth
 
     private let api = APIClient.shared
+    private var connectivity = Connectivity.shared
 
     /// Coordinate space used to measure each card's position for the fade behind the picker.
     private static let detailSpace = "itineraryDetail"
@@ -101,10 +108,23 @@ struct TripDetailView: View {
     init(trip: Trip, days: [ItineraryDay]? = nil, onDeleted: @escaping () -> Void = {}) {
         self.onDeleted = onDeleted
         _trip = State(initialValue: trip)
-        _days = State(initialValue: days)
+        // Without days given, start from the itinerary saved by an earlier load (or the
+        // trip list's background save), so it shows at once, and offline; the load
+        // then replaces it.
+        let endpoint = TripsAPI.itinerary(tripId: trip.id)
+        let saved = days == nil ? APIClient.shared.cached(endpoint, as: Itinerary.self) : nil
+        _days = State(initialValue: days ?? saved?.days)
+        _places = State(initialValue: saved.map { ItineraryPlaces(days: $0.days) } ?? ItineraryPlaces())
+        _savedCopyDate = State(initialValue: saved == nil ? nil : APIClient.shared.cachedDate(for: endpoint))
         // Back on the day last viewed when the trip was opened within the hour; a day
         // that no longer exists falls back to the first once the itinerary loads.
         _selection = State(initialValue: days?.first?.dayNumber ?? LastVisitedDay.dayNumber(for: trip.id) ?? 1)
+    }
+
+    /// Whether to say the itinerary may be out of date: there's no connection, or
+    /// the saved copy is showing because the server couldn't be reached.
+    private var isOffline: Bool {
+        !connectivity.isOnline || (savedCopyDate != nil && loadFailed)
     }
 
     var body: some View {
@@ -167,6 +187,7 @@ struct TripDetailView: View {
             .revealIn(hasRevealed || days == nil)
         }
         .overlay { tripMenu }
+        .overlay(alignment: .bottom) { offlinePill }
         .overlay(alignment: .bottom) { toastView }
         .overlay(alignment: .bottom) { importProgressPill }
         .overlay { lodgingPopup }
@@ -212,7 +233,11 @@ struct TripDetailView: View {
                 removeItem(item.id)
             }
         }
-        .task { if days == nil { await load() } }
+        .task { if days == nil || savedCopyDate != nil { await load() } }
+        .onChange(of: connectivity.isOnline) { _, isOnline in
+            // Back online: swap the saved copy (or the error) for the server's.
+            if isOnline, loadFailed { Task { await load() } }
+        }
         .onDisappear {
             if days != nil { LastVisitedDay.record(selection, for: trip.id) }
         }
@@ -401,6 +426,20 @@ struct TripDetailView: View {
         }
     }
 
+    /// Stays just above the day picker while offline, saying how old the saved copy
+    /// is. Steps aside while a toast or the import pill has the spot.
+    private var offlinePill: some View {
+        let isShowing = isOffline && toast == nil && importStep == nil
+        return ZStack {
+            if isShowing {
+                OfflinePill(savedDate: loadFailed ? savedCopyDate : nil)
+                    .padding(.bottom, 72)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy, value: isShowing)
+    }
+
     /// A small pill above the day picker: a spinner or icon, then the message.
     @ViewBuilder
     private var toastView: some View {
@@ -572,8 +611,9 @@ struct TripDetailView: View {
                 .padding(.bottom, 4)
                 .revealIn(hasRevealed, delay: Self.cardRevealDelay(day.entries.count) + 0.05)
 
-                // Clear the bottom day-picker bar.
-                Color.clear.frame(height: 120)
+                // Clear the bottom day-picker bar and the offline pill just above it,
+                // whether or not the pill is showing, so the end of the day never shifts.
+                Color.clear.frame(height: 168)
             }
             .padding(.horizontal)
             .padding(.top, 8)
@@ -967,13 +1007,17 @@ struct TripDetailView: View {
             places = ItineraryPlaces(days: itinerary.days)
             selection = resolveSelection(in: itinerary.days, focusItemId: focusItemId)
             errorMessage = nil
+            savedCopyDate = nil
+            loadFailed = false
             // The itinerary is already on screen; stale places refresh alongside the
             // Google details and patch their cards when they land.
             async let refresh: Void = refreshStalePlaces(itinerary.stalePlaceIds)
             await loadPlaceDetails(for: itinerary.days)
             await refresh
         } catch {
+            // With a saved copy showing, this just marks it as possibly out of date.
             errorMessage = error.localizedDescription
+            loadFailed = true
         }
         // The day zones are a best-effort join for the add-item picker; a failure here
         // shouldn't block the itinerary, so it's loaded separately and ignored on error.
