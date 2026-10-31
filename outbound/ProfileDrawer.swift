@@ -5,12 +5,15 @@
 
 import SwiftUI
 
-/// The account drawer on the trips screen: who's signed in, and signing out.
+/// The account drawer on the trips screen: who's signed in, their credits, and
+/// signing out.
 struct ProfileDrawer: View {
     @Environment(AuthStore.self) private var auth
 
     /// Called before signing out, so the drawer can close first.
     var onSignOut: () -> Void = {}
+    /// Opens the credits page; the drawer closes as it does.
+    var onOpenCredits: () -> Void = {}
 
     @State private var confirmingSignOut = false
 
@@ -26,6 +29,24 @@ struct ProfileDrawer: View {
                     .foregroundStyle(Color.appForeground.opacity(0.7))
                     .padding(.bottom, 32)
             }
+
+            Button(action: onOpenCredits) {
+                HStack {
+                    Label("Credits", systemImage: "creditcard")
+                        .font(.body.weight(.semibold))
+                    Spacer()
+                    Text(formatCredits(cents: CreditLedgerEntry.balanceCents(of: CreditLedgerEntry.samples)))
+                        .font(.subheadline)
+                        .monospacedDigit()
+                        .foregroundStyle(Color.appForeground.opacity(0.7))
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color.appForeground.opacity(0.5))
+                }
+                .contentShape(.rect)
+            }
+            .foregroundStyle(Color.appForeground)
+            .padding(.bottom, 24)
 
             Button {
                 confirmingSignOut = true

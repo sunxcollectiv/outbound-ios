@@ -14,6 +14,7 @@ struct HomeView: View {
     @State private var store = TripStore()
     @State private var notifications = NotificationStore()
     @State private var showingNotifications = false
+    @State private var showingCredits = false
     @State private var showingAddTrip = false
     /// The trip whose itinerary is pushed, by id so the screen reads the latest copy.
     @State private var openedTripId: String?
@@ -32,10 +33,13 @@ struct HomeView: View {
     ]
 
     var body: some View {
-        LeadingDrawer(isOpen: $isDrawerOpen, edgeSwipeEnabled: openedTripId == nil && !showingNotifications) {
+        LeadingDrawer(isOpen: $isDrawerOpen, edgeSwipeEnabled: openedTripId == nil && !showingNotifications && !showingCredits) {
             tripsStack
         } drawer: {
-            ProfileDrawer(onSignOut: { isDrawerOpen = false })
+            ProfileDrawer(onSignOut: { isDrawerOpen = false }, onOpenCredits: {
+                withAnimation(.snappy(duration: 0.3)) { isDrawerOpen = false }
+                showingCredits = true
+            })
         }
         // Behind the whole stack, over the app's terracotta, so a trip zooming in or out
         // shows this at its rounded corners.
@@ -104,6 +108,9 @@ struct HomeView: View {
                 .navigationDestination(isPresented: $showingNotifications) {
                     NotificationsView(store: notifications, trip: trip(id:))
                 }
+                .navigationDestination(isPresented: $showingCredits) {
+                    CreditsView()
+                }
                 .task { await store.load() }
                 .onChange(of: connectivity.isConnected) { _, isConnected in
                     // Back online: swap the saved copy for the server's.
@@ -153,6 +160,7 @@ struct HomeView: View {
         guard let trip = found else { return }
         isDrawerOpen = false
         showingNotifications = false
+        showingCredits = false
         openedTripId = trip.id
     }
 
