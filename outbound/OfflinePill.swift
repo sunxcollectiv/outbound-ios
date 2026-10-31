@@ -78,11 +78,15 @@ final class OfflinePillCenter {
     /// In the order the screens appeared; the last is the one on top.
     private(set) var placements: [(id: UUID, placement: Placement)] = []
 
-    /// The top screen's placement, with what the pill says taken from the first
-    /// screen below that has its own say, if the top one only moves it.
-    var current: Placement? {
-        guard var top = placements.last?.placement else { return nil }
-        if top.keepsScreenBelow, let below = placements.dropLast().last(where: { !$0.placement.keepsScreenBelow })?.placement {
+    var current: Placement? { current(skipping: { _ in false }) }
+
+    /// The top screen's placement, leaving out those `isLeaving` says are on their
+    /// way out, with what the pill says taken from the first screen below that has
+    /// its own say, if the top one only moves it.
+    func current(skipping isLeaving: (Placement) -> Bool) -> Placement? {
+        let placements = placements.map(\.placement).filter { !isLeaving($0) }
+        guard var top = placements.last else { return nil }
+        if top.keepsScreenBelow, let below = placements.dropLast().last(where: { !$0.keepsScreenBelow }) {
             top.isForm = below.isForm
             top.savedDate = below.savedDate
             top.showsWhenOnline = below.showsWhenOnline
@@ -114,9 +118,10 @@ extension View {
         savedDate: Date? = nil,
         showsWhenOnline: Bool = false,
         isHidden: Bool = false,
-        keepsScreenBelow: Bool = false
+        keepsScreenBelow: Bool = false,
+        isActive: Bool = true
     ) -> some View {
-        modifier(OfflinePillAnchor(spacing: spacing, isForm: isForm, savedDate: savedDate, showsWhenOnline: showsWhenOnline, isHidden: isHidden, keepsScreenBelow: keepsScreenBelow))
+        modifier(OfflinePillAnchor(spacing: spacing, isForm: isForm, savedDate: savedDate, showsWhenOnline: showsWhenOnline, isHidden: isHidden, keepsScreenBelow: keepsScreenBelow, isActive: isActive))
     }
 }
 
@@ -125,11 +130,16 @@ extension View {
     /// keyboard) while this view is on display, keeping what the screen below says,
     /// for things that cover a screen without a place of their own for it, like
     /// popups and detail sheets. Apply it to a view filling the screen.
-    func offlinePillNearBottom() -> some View {
+    ///
+    /// For a popup, apply it to the screen showing it, with `isActive` saying whether
+    /// the popup is open, rather than inside the popup: the pill then moves back as
+    /// soon as the popup starts closing. From inside, it would wait until SwiftUI is
+    /// done removing the popup, which comes well after it looks gone.
+    func offlinePillNearBottom(isActive: Bool = true) -> some View {
         overlay {
             Color.clear
                 .frame(height: 0)
-                .offlinePillAnchor(spacing: 50, keepsScreenBelow: true)
+                .offlinePillAnchor(spacing: 50, keepsScreenBelow: true, isActive: isActive)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .allowsHitTesting(false)
@@ -144,6 +154,7 @@ private struct OfflinePillAnchor: ViewModifier {
     let showsWhenOnline: Bool
     let isHidden: Bool
     let keepsScreenBelow: Bool
+    let isActive: Bool
 
     @State private var id = UUID()
     @State private var top: CGFloat?
@@ -159,9 +170,11 @@ private struct OfflinePillAnchor: ViewModifier {
             .onAppear { isOnScreen = true; update() }
             .onDisappear { isOnScreen = false; OfflinePillCenter.shared.remove(id) }
             .onChange(of: placement) { update() }
+            .onChange(of: isActive) { update() }
     }
 
     private func update() {
+        guard isActive else { return OfflinePillCenter.shared.remove(id) }
         guard isOnScreen, let placement else { return }
         OfflinePillCenter.shared.set(placement, for: id)
     }
@@ -192,6 +205,14 @@ private struct OfflinePillOverlay: View {
     /// bottom safe area.
     private var lowestGap: CGFloat { bottomInset + 8 }
 
+    /// Where the pill should be. A screen whose spot is lower than any the pill rests
+    /// in is on its way out, e.g. a sheet that has started sliding off the bottom,
+    /// so the pill heads for the screen below right away instead of once it's gone.
+    private var target: OfflinePillCenter.Placement? {
+        guard screenHeight > 0 else { return center.current }
+        return center.current { screenHeight - $0.bottomY < lowestGap - 1 }
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let isShowing = placement.map { !$0.isHidden && (!connectivity.isConnected || $0.showsWhenOnline) } ?? false
@@ -211,15 +232,9 @@ private struct OfflinePillOverlay: View {
         .background {
             Color.clear.onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
         }
-        .onChange(of: center.current, initial: true) { _, current in
+        .onChange(of: target, initial: true) { _, current in
             clearTask?.cancel()
-            if var current {
-                // A spot lower than any the pill rests in means the screen is on its
-                // way out, e.g. a sheet sliding off the bottom: stay put until it's
-                // gone and the pill moves to the screen below.
-                if let placement, screenHeight - current.bottomY < lowestGap - 1 {
-                    current.bottomY = placement.bottomY
-                }
+            if let current {
                 if placement != nil, placement?.bottomY != current.bottomY {
                     movesInFlight += 1
                     withAnimation(.snappy) {

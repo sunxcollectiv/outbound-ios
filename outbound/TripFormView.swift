@@ -143,6 +143,7 @@ struct TripFormView: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { homeIndicatorInset = $0 }
         .overlay { memberInvitePopup }
+        .offlinePillNearBottom(isActive: showingMemberInvite)
         .appTheme()
     }
 

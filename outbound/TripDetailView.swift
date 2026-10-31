@@ -186,6 +186,7 @@ struct TripDetailView: View {
         .overlay(alignment: .bottom) { importProgressPill }
         .overlay { lodgingPopup }
         .overlay { addLodgingPopup }
+        .offlinePillNearBottom(isActive: popupLodging != nil || addLodgingDay != nil)
         .photosPicker(isPresented: $showingBookingImagePicker, selection: $bookingImageSelection, matching: .images)
         .onChange(of: bookingImageSelection) { _, item in
             guard let item else { return }

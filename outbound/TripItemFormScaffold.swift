@@ -148,6 +148,7 @@ struct TripItemFormScaffold<Places: View>: View {
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { homeIndicatorInset = $0 }
         .overlay { memberPickerPopup }
         .overlay { timePickerPopup }
+        .offlinePillNearBottom(isActive: showingMemberPicker || editingTimeField != nil)
         .appTheme()
         .onAppear { draft.seedSelectedMembers(currentUserId: currentUserId) }
     }
