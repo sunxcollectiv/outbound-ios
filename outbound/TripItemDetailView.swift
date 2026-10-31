@@ -64,6 +64,7 @@ struct TripItemDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+            .offlinePillNearBottom()
             .foregroundStyle(sheetForeground)
             .tint(Color.appAccent)
             .task(id: placeTaskKey) { await loadPlaceDetails() }

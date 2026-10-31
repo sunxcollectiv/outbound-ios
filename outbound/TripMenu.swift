@@ -19,6 +19,7 @@ struct TripMenu: View {
     let onShare: () -> Void
     /// Nil hides the row, for anyone but the trip's owner.
     let onDeleteTrip: (() -> Void)?
+    @State private var connectivity = Connectivity.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -38,7 +39,9 @@ struct TripMenu: View {
             row("Add Activity", systemImage: "plus") { onAddItem(.activity) }
             row("Add Lodging", systemImage: "bed.double") { onAddItem(.lodging) }
             row("Add Transit", systemImage: "airplane") { onAddItem(.transit) }
-            row("Import from Screenshot", systemImage: "photo", action: onImportScreenshot)
+            // Offline, rows that save straight away are disabled; the forms the others open
+            // stay editable and only block saving.
+            row("Import from Screenshot", systemImage: "photo", isEnabled: connectivity.isConnected, action: onImportScreenshot)
             // Dotted rather than solid: forwarding is another way into the itinerary, so
             // it stays grouped with the rows above.
             dottedDivider
@@ -48,7 +51,7 @@ struct TripMenu: View {
             row("Share", systemImage: "square.and.arrow.up", action: onShare)
             if let onDeleteTrip {
                 divider
-                row("Delete Trip", systemImage: "trash", tint: Color(red: 1, green: 0.45, blue: 0.42), action: onDeleteTrip)
+                row("Delete Trip", systemImage: "trash", tint: Color(red: 1, green: 0.45, blue: 0.42), isEnabled: connectivity.isConnected, action: onDeleteTrip)
             }
         }
         .foregroundStyle(.white)
@@ -120,7 +123,7 @@ struct TripMenu: View {
             .padding(.horizontal, 14)
     }
 
-    private func row(_ title: String, systemImage: String, tint: Color = .white, action: @escaping () -> Void) -> some View {
+    private func row(_ title: String, systemImage: String, tint: Color = .white, isEnabled: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
@@ -135,6 +138,8 @@ struct TripMenu: View {
             .contentShape(.rect)
         }
         .buttonStyle(TripMenuRowStyle())
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.4)
     }
 }
 

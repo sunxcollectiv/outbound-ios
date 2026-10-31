@@ -105,12 +105,21 @@ struct HomeView: View {
                     NotificationsView(store: notifications, trip: trip(id:))
                 }
                 .task { await store.load() }
-                .onChange(of: connectivity.isOnline) { _, isOnline in
+                .onChange(of: connectivity.isConnected) { _, isConnected in
                     // Back online: swap the saved copy for the server's.
-                    if isOnline, store.isShowingSavedCopy { Task { await store.load() } }
+                    if isConnected, store.isShowingSavedCopy { Task { await store.load() } }
                 }
-                .overlay(alignment: .bottom) { offlinePill }
-                .animation(.snappy, value: !connectivity.isOnline || store.isShowingSavedCopy)
+                .overlay(alignment: .bottom) {
+                    // Puts the offline pill 8pt over the bottom safe area.
+                    Color.clear
+                        .frame(height: 8)
+                        .offlinePillAnchor(
+                            savedDate: store.isShowingSavedCopy ? store.savedDate : nil,
+                            showsWhenOnline: store.isShowingSavedCopy
+                        )
+                        .allowsHitTesting(false)
+                }
+                .task { OfflinePillWindow.install() }
                 .task(id: scenePhase) {
                     if scenePhase == .active { await notifications.refreshUnreadCount() }
                 }
@@ -151,17 +160,6 @@ struct HomeView: View {
         isDrawerOpen = false
         showingNotifications = false
         openedTripId = trip.id
-    }
-
-    /// Says the list is the saved copy when there's no connection, or the server
-    /// couldn't be reached to refresh it.
-    @ViewBuilder
-    private var offlinePill: some View {
-        if !connectivity.isOnline || store.isShowingSavedCopy {
-            OfflinePill(savedDate: store.isShowingSavedCopy ? store.savedDate : nil)
-                .padding(.bottom, 8)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
     }
 
     @ViewBuilder

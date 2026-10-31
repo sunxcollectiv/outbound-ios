@@ -51,6 +51,14 @@ struct AreaPickerSheet: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
+            .overlay(alignment: .bottom) {
+                // Part of the trip form, so the offline pill keeps the form's wording,
+                // 8pt over the bottom safe area (or the keyboard).
+                Color.clear
+                    .frame(height: 8)
+                    .offlinePillAnchor(isForm: true)
+                    .allowsHitTesting(false)
+            }
             .foregroundStyle(Color.appForeground)
             .navigationTitle("Add Area")
             .navigationBarTitleDisplayMode(.inline)

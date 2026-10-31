@@ -81,6 +81,8 @@ struct DimmedPopup<Card: View>: View {
             .transition(.scale(scale: 0.94).combined(with: .opacity))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Clear of the card.
+        .offlinePillNearBottom()
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { visibleHeight = $0 }
         .coordinateSpace(Self.space)
         .environment(\.popupVisibleHeight, visibleHeight)

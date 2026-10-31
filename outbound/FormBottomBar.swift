@@ -8,6 +8,8 @@ import SwiftUI
 /// The bar pinned under the trip and trip item forms, so it stays in reach however far
 /// the form scrolls: an optional notify checkbox, Save, and Delete under it when
 /// there's something to delete (after a confirmation, since it can't be undone).
+/// Offline, Save and Delete are disabled but the form stays editable, since the
+/// connection is often back in a moment; a pill above the bar says why.
 struct FormBottomBar: View {
     /// What deleting is called and confirmed with, and what it does.
     struct Delete {
@@ -37,6 +39,9 @@ struct FormBottomBar: View {
 
     /// Showing the confirmation before deleting.
     @State private var confirmingDelete = false
+    @State private var connectivity = Connectivity.shared
+
+    private var isOffline: Bool { !connectivity.isConnected }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -56,6 +61,9 @@ struct FormBottomBar: View {
         // last, a flat 50pt above the screen's bottom edge on every device.
         .padding(.bottom, delete != nil ? -homeIndicatorInset / 2 : 50 - homeIndicatorInset)
         .background(background.ignoresSafeArea())
+        // Just above the bar, over the end of the form, and over anything the form
+        // opens on top.
+        .offlinePillAnchor(spacing: 12, isForm: true)
     }
 
     private func notifyMembersCheckbox(_ label: String) -> some View {
@@ -89,7 +97,7 @@ struct FormBottomBar: View {
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.roundedRectangle(radius: appFieldCornerRadius))
-        .disabled(isSaving || isDeleting || !canSave)
+        .disabled(isSaving || isDeleting || !canSave || isOffline)
     }
 
     private func deleteButton(_ delete: Delete) -> some View {
@@ -109,7 +117,8 @@ struct FormBottomBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isSaving || isDeleting)
+        .disabled(isSaving || isDeleting || isOffline)
+        .opacity(isOffline ? 0.4 : 1)
         .confirmationDialog(delete.confirmation, isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive, action: delete.action)
         } message: {

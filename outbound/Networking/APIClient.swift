@@ -103,7 +103,7 @@ private extension ISO8601DateFormatter {
 /// Swift properties automatically. When a token is set, it's sent as
 /// `Authorization: Bearer <token>`.
 final class APIClient {
-    static let shared = APIClient()
+    static let shared = APIClient(connectivity: .shared)
 
     var token: String?
 
@@ -137,10 +137,15 @@ final class APIClient {
         return decoder
     }()
 
-    init(baseURL: URL = APIConfig.baseURL, session: URLSession = .shared, cache: ResponseCache = .shared) {
+    /// Told whether requests reach the server; nil for clients that shouldn't affect
+    /// the app's offline state, e.g. in tests.
+    private let connectivity: Connectivity?
+
+    init(baseURL: URL = APIConfig.baseURL, session: URLSession = .shared, cache: ResponseCache = .shared, connectivity: Connectivity? = nil) {
         self.baseURL = baseURL
         self.session = session
         self.cache = cache
+        self.connectivity = connectivity
     }
 
     /// Sends a request and decodes the JSON response. `onBodySent` is called once the
@@ -196,13 +201,19 @@ final class APIClient {
             do {
                 (data, response) = try await session.data(for: request, delegate: onBodySent.map(BodySentDelegate.init))
             } catch {
-                throw APIError.network(error)
+                throw networkError(error)
             }
         } catch {
-            throw APIError.network(error)
+            throw networkError(error)
         }
 
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        // A gateway answering for a server that's down counts as not reaching it.
+        if Connectivity.gatewayStatuses.contains(http.statusCode) {
+            connectivity?.serverUnreachable()
+        } else {
+            connectivity?.serverResponded()
+        }
 
         switch http.statusCode {
         case 200..<300:
@@ -219,6 +230,19 @@ final class APIClient {
             // Includes a 401 from login (wrong credentials) — surface the server's message.
             throw APIError.server(status: http.statusCode, message: errorMessage(from: data))
         }
+    }
+
+    /// Wraps a failed request's error, and tells `connectivity` when it means the
+    /// server can't be reached (rather than, say, a cancelled request).
+    private func networkError(_ error: Error) -> APIError {
+        let unreachable: [URLError.Code] = [
+            .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .timedOut,
+            .networkConnectionLost, .dnsLookupFailed, .internationalRoamingOff, .dataNotAllowed,
+        ]
+        if let code = (error as? URLError)?.code, unreachable.contains(code) {
+            connectivity?.serverUnreachable()
+        }
+        return .network(error)
     }
 
     private func makeRequest(for endpoint: Endpoint) throws -> URLRequest {

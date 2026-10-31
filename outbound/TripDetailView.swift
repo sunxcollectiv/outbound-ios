@@ -121,12 +121,6 @@ struct TripDetailView: View {
         _selection = State(initialValue: days?.first?.dayNumber ?? LastVisitedDay.dayNumber(for: trip.id) ?? 1)
     }
 
-    /// Whether to say the itinerary may be out of date: there's no connection, or
-    /// the saved copy is showing because the server couldn't be reached.
-    private var isOffline: Bool {
-        !connectivity.isOnline || (savedCopyDate != nil && loadFailed)
-    }
-
     var body: some View {
         ZStack(alignment: .bottom) {
             background
@@ -187,7 +181,7 @@ struct TripDetailView: View {
             .revealIn(hasRevealed || days == nil)
         }
         .overlay { tripMenu }
-        .overlay(alignment: .bottom) { offlinePill }
+        .overlay(alignment: .bottom) { offlinePillAnchor }
         .overlay(alignment: .bottom) { toastView }
         .overlay(alignment: .bottom) { importProgressPill }
         .overlay { lodgingPopup }
@@ -234,9 +228,9 @@ struct TripDetailView: View {
             }
         }
         .task { if days == nil || savedCopyDate != nil { await load() } }
-        .onChange(of: connectivity.isOnline) { _, isOnline in
+        .onChange(of: connectivity.isConnected) { _, isConnected in
             // Back online: swap the saved copy (or the error) for the server's.
-            if isOnline, loadFailed { Task { await load() } }
+            if isConnected, loadFailed { Task { await load() } }
         }
         .onDisappear {
             if days != nil { LastVisitedDay.record(selection, for: trip.id) }
@@ -426,18 +420,18 @@ struct TripDetailView: View {
         }
     }
 
-    /// Stays just above the day picker while offline, saying how old the saved copy
-    /// is. Steps aside while a toast or the import pill has the spot.
-    private var offlinePill: some View {
-        let isShowing = isOffline && toast == nil && importStep == nil
-        return ZStack {
-            if isShowing {
-                OfflinePill(savedDate: loadFailed ? savedCopyDate : nil)
-                    .padding(.bottom, 72)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.snappy, value: isShowing)
+    /// Places the offline pill just above the day picker, saying how old the saved
+    /// copy is. Steps aside while a toast or the import pill has the spot.
+    private var offlinePillAnchor: some View {
+        Color.clear
+            .frame(height: 72)
+            .offlinePillAnchor(
+                savedDate: loadFailed ? savedCopyDate : nil,
+                // With a connection too, while the server can't be reached.
+                showsWhenOnline: savedCopyDate != nil && loadFailed,
+                isHidden: toast != nil || importStep != nil
+            )
+            .allowsHitTesting(false)
     }
 
     /// A small pill above the day picker: a spinner or icon, then the message.
