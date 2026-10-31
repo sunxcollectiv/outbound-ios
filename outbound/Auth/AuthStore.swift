@@ -114,6 +114,8 @@ final class AuthStore {
     private func clear() {
         api.token = nil
         Keychain.set(nil, for: Self.tokenKey)
+        // Saved trips belong to this user; the next one to sign in starts fresh.
+        ResponseCache.shared.removeAll()
         setUser(nil)
     }
 

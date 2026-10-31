@@ -35,6 +35,14 @@ struct Endpoint {
     /// How long to wait for the response; nil uses the session's default.
     var timeout: TimeInterval?
     var requiresAuth = true
+    /// Keep the last successful response on disk, so it can still be shown offline
+    /// (read back with `APIClient.cached(_:as:)`). For GETs only.
+    var cachesResponse = false
+
+    /// What a cached response is saved under.
+    var cacheKey: String {
+        query.isEmpty ? path : path + "?" + query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
+    }
 }
 
 /// A `multipart/form-data` body carrying one file, as FastAPI's `UploadFile` expects.
@@ -95,12 +103,13 @@ private extension ISO8601DateFormatter {
 /// Swift properties automatically. When a token is set, it's sent as
 /// `Authorization: Bearer <token>`.
 final class APIClient {
-    static let shared = APIClient()
+    static let shared = APIClient(connectivity: .shared)
 
     var token: String?
 
     private let baseURL: URL
     private let session: URLSession
+    private let cache: ResponseCache
 
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -128,9 +137,15 @@ final class APIClient {
         return decoder
     }()
 
-    init(baseURL: URL = APIConfig.baseURL, session: URLSession = .shared) {
+    /// Told whether requests reach the server; nil for clients that shouldn't affect
+    /// the app's offline state, e.g. in tests.
+    private let connectivity: Connectivity?
+
+    init(baseURL: URL = APIConfig.baseURL, session: URLSession = .shared, cache: ResponseCache = .shared, connectivity: Connectivity? = nil) {
         self.baseURL = baseURL
         self.session = session
+        self.cache = cache
+        self.connectivity = connectivity
     }
 
     /// Sends a request and decodes the JSON response. `onBodySent` is called once the
@@ -152,8 +167,28 @@ final class APIClient {
         _ = try await perform(endpoint)
     }
 
+    /// The last successful response to a `cachesResponse` endpoint, decoded, or nil if
+    /// none was saved (or it no longer decodes).
+    func cached<Response: Decodable>(_ endpoint: Endpoint, as type: Response.Type = Response.self) -> Response? {
+        guard let data = cache.data(for: endpoint.cacheKey) else { return nil }
+        return try? decoder.decode(Response.self, from: data)
+    }
+
+    /// When the cached response to `endpoint` was saved.
+    func cachedDate(for endpoint: Endpoint) -> Date? {
+        cache.savedDate(for: endpoint.cacheKey)
+    }
+
+    /// Saves `value` as the cached response to `endpoint`, for a copy changed locally
+    /// (e.g. a trip edited in place) so it's what shows offline.
+    func storeCached(_ value: some Encodable, for endpoint: Endpoint) {
+        guard let data = try? encoder.encode(value) else { return }
+        cache.store(data, for: endpoint.cacheKey)
+    }
+
     private func perform(_ endpoint: Endpoint, onBodySent: (@Sendable () -> Void)? = nil) async throws -> Data {
         let request = try makeRequest(for: endpoint)
+        let sentToken = token
 
         let data: Data
         let response: URLResponse
@@ -166,16 +201,27 @@ final class APIClient {
             do {
                 (data, response) = try await session.data(for: request, delegate: onBodySent.map(BodySentDelegate.init))
             } catch {
-                throw APIError.network(error)
+                throw networkError(error)
             }
         } catch {
-            throw APIError.network(error)
+            throw networkError(error)
         }
 
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        // A gateway answering for a server that's down counts as not reaching it.
+        if Connectivity.gatewayStatuses.contains(http.statusCode) {
+            connectivity?.serverUnreachable()
+        } else {
+            connectivity?.serverResponded()
+        }
 
         switch http.statusCode {
         case 200..<300:
+            // Unless the user signed out while this was in flight, leaving the cache
+            // cleared for whoever signs in next.
+            if endpoint.cachesResponse, endpoint.method == .get, token == sentToken {
+                cache.store(data, for: endpoint.cacheKey)
+            }
             return data
         case 401 where endpoint.requiresAuth:
             // An authenticated request was rejected: the token is missing or expired.
@@ -184,6 +230,19 @@ final class APIClient {
             // Includes a 401 from login (wrong credentials) — surface the server's message.
             throw APIError.server(status: http.statusCode, message: errorMessage(from: data))
         }
+    }
+
+    /// Wraps a failed request's error, and tells `connectivity` when it means the
+    /// server can't be reached (rather than, say, a cancelled request).
+    private func networkError(_ error: Error) -> APIError {
+        let unreachable: [URLError.Code] = [
+            .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .timedOut,
+            .networkConnectionLost, .dnsLookupFailed, .internationalRoamingOff, .dataNotAllowed,
+        ]
+        if let code = (error as? URLError)?.code, unreachable.contains(code) {
+            connectivity?.serverUnreachable()
+        }
+        return .network(error)
     }
 
     private func makeRequest(for endpoint: Endpoint) throws -> URLRequest {

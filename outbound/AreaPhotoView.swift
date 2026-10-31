@@ -13,8 +13,9 @@ import SwiftUI
 /// Shows `placeholder` while the image loads, fades the photo in over it once it
 /// arrives, and keeps showing the placeholder if loading fails.
 ///
-/// Images come through `PlaceImageCache`, so one already loaded this session shows
-/// straight away with no placeholder or fade.
+/// Images come through `PlaceImageCache.areaPhotos`, so one already loaded this
+/// session shows straight away with no placeholder or fade, and one loaded before
+/// still shows offline.
 struct AreaPhotoView<Placeholder: View>: View {
     let photo: AreaPhoto
     /// Whether to show the credit chip. Off where the photo is only a dimmed backdrop
@@ -30,7 +31,7 @@ struct AreaPhotoView<Placeholder: View>: View {
         self.photo = photo
         self.showsAttribution = showsAttribution
         self.placeholder = placeholder()
-        _image = State(initialValue: PlaceImageCache.shared.cachedImage(for: photo.url))
+        _image = State(initialValue: PlaceImageCache.areaPhotos.cachedImage(for: photo.url))
     }
 
     var body: some View {
@@ -57,12 +58,12 @@ struct AreaPhotoView<Placeholder: View>: View {
             }
         }
         .task(id: photo.url) {
-            if let cached = PlaceImageCache.shared.cachedImage(for: photo.url) {
+            if let cached = PlaceImageCache.areaPhotos.cachedImage(for: photo.url) {
                 image = cached
                 return
             }
             image = nil
-            let loaded = await PlaceImageCache.shared.image(for: photo.url)
+            let loaded = await PlaceImageCache.areaPhotos.image(for: photo.url)
             withAnimation(.easeOut(duration: 0.25)) { image = loaded }
         }
     }

@@ -164,7 +164,7 @@ enum TripsAPI {
         var role: TripRole?
     }
 
-    static let list = Endpoint(path: "/trips")
+    static let list = Endpoint(path: "/trips", cachesResponse: true)
 
     static func create(_ body: CreateRequest) -> Endpoint {
         Endpoint(path: "/trips", method: .post, body: body)

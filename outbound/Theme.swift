@@ -71,6 +71,14 @@ extension View {
             .padding(14)
             .background(Color.white.opacity(0.9), in: .rect(cornerRadius: cornerRadius))
     }
+
+    /// The dark, bordered look of small messages floating over a screen, like the
+    /// itinerary's toasts and the offline pill.
+    func floatingPillBackground(in shape: some InsettableShape) -> some View {
+        background(Color(white: 0.15).opacity(0.95), in: shape)
+            .overlay(shape.strokeBorder(.white.opacity(0.12)))
+            .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+    }
 }
 
 /// Shared corner radius for input fields and buttons, keeping them visually in sync.

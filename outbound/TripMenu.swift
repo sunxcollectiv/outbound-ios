@@ -38,7 +38,10 @@ struct TripMenu: View {
             row("Add Activity", systemImage: "plus") { onAddItem(.activity) }
             row("Add Lodging", systemImage: "bed.double") { onAddItem(.lodging) }
             row("Add Transit", systemImage: "airplane") { onAddItem(.transit) }
+            // Offline, rows that save straight away are disabled; the forms the others open
+            // stay editable and only block saving.
             row("Import from Screenshot", systemImage: "photo", action: onImportScreenshot)
+                .requiresConnection()
             // Dotted rather than solid: forwarding is another way into the itinerary, so
             // it stays grouped with the rows above.
             dottedDivider
@@ -49,6 +52,7 @@ struct TripMenu: View {
             if let onDeleteTrip {
                 divider
                 row("Delete Trip", systemImage: "trash", tint: Color(red: 1, green: 0.45, blue: 0.42), action: onDeleteTrip)
+                    .requiresConnection()
             }
         }
         .foregroundStyle(.white)

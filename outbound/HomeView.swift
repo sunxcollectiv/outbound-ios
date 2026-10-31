@@ -22,6 +22,7 @@ struct HomeView: View {
     @State private var isDrawerOpen = false
     @Environment(\.scenePhase) private var scenePhase
     private var push = PushNotifications.shared
+    private var connectivity = Connectivity.shared
     /// Pairs each trip's tile with its itinerary for the zoom transition.
     @Namespace private var tripZoom
 
@@ -104,6 +105,15 @@ struct HomeView: View {
                     NotificationsView(store: notifications, trip: trip(id:))
                 }
                 .task { await store.load() }
+                .onChange(of: connectivity.isConnected) { _, isConnected in
+                    // Back online: swap the saved copy for the server's.
+                    if isConnected, store.isShowingSavedCopy { Task { await store.load() } }
+                }
+                .offlinePillAtBottom(
+                    savedDate: store.isShowingSavedCopy ? store.savedDate : nil,
+                    showsWhenOnline: store.isShowingSavedCopy
+                )
+                .task { OfflinePillWindow.install() }
                 .task(id: scenePhase) {
                     if scenePhase == .active { await notifications.refreshUnreadCount() }
                 }
@@ -165,6 +175,9 @@ struct HomeView: View {
                     tripSection("Past", trips: past, emptyText: "No past trips")
                         .padding()
                         .padding(.top, 4)
+                        // Room for the offline pill over the bottom, whether or not it's
+                        // showing, so the list's end never shifts.
+                        .padding(.bottom, 48)
                         .background(alignment: .top) { pastBackground }
                 }
             }

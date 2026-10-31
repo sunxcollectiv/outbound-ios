@@ -51,6 +51,8 @@ struct AreaPickerSheet: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
+            // Part of the trip form, so the offline pill keeps the form's wording.
+            .offlinePillAtBottom(isForm: true)
             .foregroundStyle(Color.appForeground)
             .navigationTitle("Add Area")
             .navigationBarTitleDisplayMode(.inline)

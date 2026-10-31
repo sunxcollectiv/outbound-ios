@@ -42,6 +42,8 @@ struct AddLodgingPopup: View {
                         .foregroundStyle(Color.appForeground)
                         .background(Color.appForeground.opacity(0.12), in: .rect(cornerRadius: 10))
                 }
+                // Uploading saves straight away, so it waits for a connection.
+                .requiresConnection()
                 Button(action: onAddManually) {
                     optionLabel("Add Manually", systemImage: "square.and.pencil")
                         .foregroundStyle(Color(white: 0.15))

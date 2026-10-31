@@ -21,6 +21,8 @@ struct NotificationsView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .containerBackground(LinearGradient.tripsBackground, for: .navigation)
+            // Notifications aren't saved for offline, so the pill just says "Offline".
+            .offlinePillAtBottom()
             .foregroundStyle(Color.appForeground)
             .navigationTitle("Notifications")
             .navigationBarTitleDisplayMode(.inline)

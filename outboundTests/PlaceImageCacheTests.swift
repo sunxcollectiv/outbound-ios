@@ -47,6 +47,26 @@ struct PlaceImageCacheTests {
         #expect(cache.cachedImage(for: url) == nil)
         #expect(StubImageProtocol.requestCount(for: url) == 2)
     }
+
+    @Test func aDiskBackedCacheServesAPhotoAfterRelaunch() async throws {
+        let url = StubImageProtocol.url(status: 200)
+        let disk = ResponseCache(directory: URL.temporaryDirectory.appending(path: "PlaceImageCacheTests-\(UUID().uuidString)"))
+
+        #expect(await PlaceImageCache(protocolClasses: [StubImageProtocol.self], disk: disk).image(for: url) != nil)
+        // A fresh cache stands in for a cold launch: nothing in memory, only on disk.
+        #expect(await PlaceImageCache(protocolClasses: [StubImageProtocol.self], disk: disk).image(for: url) != nil)
+
+        #expect(StubImageProtocol.requestCount(for: url) == 1)
+    }
+
+    @Test func theMemoryOnlyCacheFetchesAgainAfterRelaunch() async throws {
+        let url = StubImageProtocol.url(status: 200)
+
+        #expect(await PlaceImageCache(protocolClasses: [StubImageProtocol.self]).image(for: url) != nil)
+        #expect(await PlaceImageCache(protocolClasses: [StubImageProtocol.self]).image(for: url) != nil)
+
+        #expect(StubImageProtocol.requestCount(for: url) == 2)
+    }
 }
 
 /// Answers image requests locally: a 1×1 PNG with the status code named in the URL's

@@ -57,6 +57,7 @@ struct TransitFormView: View {
             }
         }
         .overlay { timePickerPopup }
+        .offlinePillNearBottom(isActive: editingTime != nil)
     }
 
     private var addLegButton: some View {
