@@ -12,6 +12,8 @@ struct ProfileDrawer: View {
     /// Called before signing out, so the drawer can close first.
     var onSignOut: () -> Void = {}
 
+    @State private var confirmingSignOut = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let user = auth.currentUser {
@@ -26,13 +28,22 @@ struct ProfileDrawer: View {
             }
 
             Button {
-                onSignOut()
-                auth.signOut()
+                confirmingSignOut = true
             } label: {
                 Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                     .font(.body.weight(.semibold))
             }
             .foregroundStyle(Color.appForeground)
+            // Asked whatever the connection: signing out clears the trips saved for
+            // offline, and they can't be brought back without signing in again.
+            .confirmationDialog("Sign out?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
+                Button("Confirm sign out", role: .destructive) {
+                    onSignOut()
+                    auth.signOut()
+                }
+            } message: {
+                Text("Your trips saved for offline viewing will be removed from this device. You will not have access to your itineraries or receive trip update notifications until you sign in again")
+            }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
