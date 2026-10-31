@@ -22,9 +22,8 @@ struct ProfileDrawer: View {
                 Text(user.email)
                     .font(.subheadline)
                     .foregroundStyle(Color.appForeground.opacity(0.7))
+                    .padding(.bottom, 32)
             }
-
-            Spacer()
 
             Button {
                 onSignOut()
