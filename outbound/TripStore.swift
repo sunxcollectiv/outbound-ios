@@ -22,6 +22,8 @@ final class TripStore {
     private(set) var savedDate: Date?
 
     private let api: APIClient
+    /// Where saved trips and their photos are kept, for clearing out unused ones.
+    private let cache: ResponseCache
     /// The background fetch of missing area photos, replaced by each load.
     private var photoRefresh: Task<Void, Never>?
     /// The background save of upcoming trips' itineraries, replaced by each load.
@@ -31,8 +33,9 @@ final class TripStore {
     /// re-download every upcoming trip each time.
     private static let itineraryFreshness: TimeInterval = 15 * 60
 
-    init(api: APIClient = .shared) {
+    init(api: APIClient = .shared, cache: ResponseCache = .shared) {
         self.api = api
+        self.cache = cache
         trips = api.cached(TripsAPI.list, as: [Trip].self) ?? []
         savedDate = trips.isEmpty ? nil : api.cachedDate(for: TripsAPI.list)
     }
@@ -49,6 +52,7 @@ final class TripStore {
             // The list is already showing; photos patch in when they arrive, and the
             // load (and pull-to-refresh) doesn't wait for them.
             refreshAreaPhotos(for: trips)
+            removeUnusedSavedCopies()
             saveUpcomingItineraries()
         } catch {
             errorMessage = error.localizedDescription
@@ -81,6 +85,20 @@ final class TripStore {
     /// just before losing the connection is what shows offline.
     private func saveTrips() {
         api.storeCached(trips, for: TripsAPI.list)
+    }
+
+    /// Deletes what's saved that no trip on the list uses any more: the itineraries of
+    /// trips that were deleted or that the user was taken off, and cover photos an
+    /// area has since replaced. Run after a load, when the list is the server's own.
+    private func removeUnusedSavedCopies() {
+        var kept: Set<String> = [TripsAPI.list.cacheKey]
+        for trip in trips {
+            kept.insert(TripsAPI.itinerary(tripId: trip.id).cacheKey)
+            if let photo = trip.areaCoverPhoto {
+                kept.insert(PlaceImageCache.diskKey(for: photo.url))
+            }
+        }
+        cache.removeAll(except: kept)
     }
 
     /// Downloads the itineraries of upcoming and in-progress trips in the background,

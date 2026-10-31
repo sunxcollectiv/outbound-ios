@@ -65,6 +65,22 @@ struct ResponseCacheTests {
 
         #expect(api.cached(endpoint, as: Payload.self) == nil)
     }
+
+    @Test func clearingAllButSomeKeepsOnlyThose() {
+        // A photo URL long enough to be saved under a hashed name.
+        let photo = "photo:https://images.unsplash.com/photo-1514395462725?" + String(repeating: "ixid=abc&", count: 20)
+        for key in ["/trips", "/trips/kept/itinerary", "/trips/gone/itinerary", photo, photo + "old"] {
+            cache.store(Data(key.utf8), for: key)
+        }
+
+        cache.removeAll(except: ["/trips", "/trips/kept/itinerary", photo])
+
+        #expect(cache.data(for: "/trips") != nil)
+        #expect(cache.data(for: "/trips/kept/itinerary") != nil)
+        #expect(cache.data(for: photo) != nil)
+        #expect(cache.data(for: "/trips/gone/itinerary") == nil)
+        #expect(cache.data(for: photo + "old") == nil)
+    }
 }
 
 /// Answers API requests locally: paths under `/ok/` get a JSON payload, anything else

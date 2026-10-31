@@ -56,6 +56,16 @@ final class ResponseCache {
         try? fileManager.removeItem(at: directory)
     }
 
+    /// Deletes everything saved except what's under `keys`, e.g. to drop trips the
+    /// user is no longer on and photos that have been replaced.
+    func removeAll(except keys: Set<String>) {
+        let kept = Set(keys.map { fileURL(for: $0).lastPathComponent })
+        guard let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        for file in files where !kept.contains(file.lastPathComponent) {
+            try? fileManager.removeItem(at: file)
+        }
+    }
+
     /// A file per key, named after it with anything but letters, digits and dashes
     /// replaced, e.g. "/trips/abc/itinerary" -> "_trips_abc_itinerary". Keys too long
     /// for a file name (photo URLs) are hashed instead.

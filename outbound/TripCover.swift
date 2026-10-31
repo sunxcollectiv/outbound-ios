@@ -26,17 +26,11 @@ struct TripCover: View {
             } placeholder: {
                 placeholder
             }
-        } else if let photo = areaCoverPhoto {
+        } else if let photo = trip.areaCoverPhoto {
             AreaPhotoView(photo: photo, showsAttribution: showsAttribution) { placeholder }
         } else {
             placeholder
         }
-    }
-
-    /// The first area's default photo. Only the first area's is used, even when a
-    /// later one has a photo, so the cover always matches the leading area.
-    private var areaCoverPhoto: AreaPhoto? {
-        trip.areas?.first?.coverPhoto
     }
 
     /// A solid color shown when there's no cover art, picked from the trip's id so it
@@ -68,5 +62,13 @@ struct TripCover: View {
             hash = hash &* 0x100000001b3
         }
         return Int(hash % UInt64(count))
+    }
+}
+
+extension Trip {
+    /// The first area's default photo, for the cover. Only the first area's is used,
+    /// even when a later one has a photo, so the cover always matches the leading area.
+    var areaCoverPhoto: AreaPhoto? {
+        areas?.first?.coverPhoto
     }
 }

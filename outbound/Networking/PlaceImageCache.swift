@@ -64,8 +64,13 @@ final class PlaceImageCache {
         return image
     }
 
+    /// What a photo is saved under on disk.
+    static func diskKey(for url: URL) -> String {
+        "photo:" + url.absoluteString
+    }
+
     private func load(_ url: URL) async -> UIImage? {
-        let key = "photo:" + url.absoluteString
+        let key = Self.diskKey(for: url)
         if let data = disk?.data(for: key), let image = UIImage(data: data) {
             return await image.byPreparingForDisplay() ?? image
         }
