@@ -37,11 +37,17 @@ struct OfflinePill: View {
         .padding(.vertical, 8)
         // Keeps the outgoing words inside the pill while it narrows.
         .clipShape(.capsule)
-        .background(Color(white: 0.15).opacity(0.95), in: .capsule)
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
-        .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
+        .floatingPillBackground(in: .capsule)
         .accessibilityElement(children: .combine)
     }
+
+    /// The gap between the pill and the bottom safe area where it rests on a screen
+    /// with nothing at its bottom, like the trips list. It's the lowest the pill rests
+    /// anywhere, which tells a screen sliding away from one at rest.
+    static let restingGap: CGFloat = 8
+    /// How far above the screen's bottom edge the pill sits over things with no spot
+    /// of their own for it, like popups: level with a form's Save button.
+    static let nearBottomGap = FormBottomBar.saveBottomGap
 
     private func detailText(_ detail: Detail) -> Text {
         switch detail {
@@ -126,10 +132,22 @@ extension View {
 }
 
 extension View {
-    /// Moves the offline pill down to 50pt above the screen's bottom edge (or the
-    /// keyboard) while this view is on display, keeping what the screen below says,
-    /// for things that cover a screen without a place of their own for it, like
-    /// popups and detail sheets. Apply it to a view filling the screen.
+    /// Places the offline pill `OfflinePill.restingGap` over the bottom safe area (or
+    /// the keyboard) while this view is on display, for screens with nothing at their
+    /// bottom. Apply it to a view filling the screen.
+    func offlinePillAtBottom(isForm: Bool = false, savedDate: Date? = nil, showsWhenOnline: Bool = false) -> some View {
+        overlay(alignment: .bottom) {
+            Color.clear
+                .frame(height: OfflinePill.restingGap)
+                .offlinePillAnchor(isForm: isForm, savedDate: savedDate, showsWhenOnline: showsWhenOnline)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// Moves the offline pill down to `OfflinePill.nearBottomGap` above the screen's
+    /// bottom edge (or the keyboard) while this view is on display, keeping what the
+    /// screen below says, for things that cover a screen without a place of their own
+    /// for it, like popups and detail sheets. Apply it to a view filling the screen.
     ///
     /// For a popup, apply it to the screen showing it, with `isActive` saying whether
     /// the popup is open, rather than inside the popup: the pill then moves back as
@@ -139,11 +157,35 @@ extension View {
         overlay {
             Color.clear
                 .frame(height: 0)
-                .offlinePillAnchor(spacing: 50, keepsScreenBelow: true, isActive: isActive)
+                .offlinePillAnchor(spacing: OfflinePill.nearBottomGap, keepsScreenBelow: true, isActive: isActive)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .allowsHitTesting(false)
         }
+    }
+}
+
+extension View {
+    /// Disables this while the server can't be reached, for actions that save straight
+    /// away; forms instead stay editable and only block saving. `dimmed` fades it too,
+    /// for controls whose style doesn't show being disabled.
+    func requiresConnection(dimmed: Bool = true) -> some View {
+        modifier(RequiresConnection(dimmed: dimmed))
+    }
+}
+
+private struct RequiresConnection: ViewModifier {
+    let dimmed: Bool
+    private var connectivity = Connectivity.shared
+
+    init(dimmed: Bool) {
+        self.dimmed = dimmed
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .disabled(!connectivity.isConnected)
+            .opacity(dimmed && !connectivity.isConnected ? 0.4 : 1)
     }
 }
 
@@ -201,9 +243,8 @@ private struct OfflinePillOverlay: View {
     @State private var bottomInset: CGFloat = 0
     @State private var screenHeight: CGFloat = 0
 
-    /// The lowest the pill rests anywhere: the trips list's spot, 8pt over the
-    /// bottom safe area.
-    private var lowestGap: CGFloat { bottomInset + 8 }
+    /// The lowest the pill rests anywhere, from the screen's bottom edge.
+    private var lowestGap: CGFloat { bottomInset + OfflinePill.restingGap }
 
     /// Where the pill should be. A screen whose spot is lower than any the pill rests
     /// in is on its way out, e.g. a sheet that has started sliding off the bottom,

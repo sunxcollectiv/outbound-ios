@@ -39,9 +39,9 @@ struct FormBottomBar: View {
 
     /// Showing the confirmation before deleting.
     @State private var confirmingDelete = false
-    @State private var connectivity = Connectivity.shared
 
-    private var isOffline: Bool { !connectivity.isConnected }
+    /// How far Save sits above the screen's bottom edge when it's last.
+    static let saveBottomGap: CGFloat = 50
 
     var body: some View {
         VStack(spacing: 4) {
@@ -59,7 +59,7 @@ struct FormBottomBar: View {
         // With Delete last, halfway into the home indicator's strip: closer to the edge,
         // but nothing tappable reaches the strip the home swipe starts in. With Save
         // last, a flat 50pt above the screen's bottom edge on every device.
-        .padding(.bottom, delete != nil ? -homeIndicatorInset / 2 : 50 - homeIndicatorInset)
+        .padding(.bottom, delete != nil ? -homeIndicatorInset / 2 : Self.saveBottomGap - homeIndicatorInset)
         .background(background.ignoresSafeArea())
         // Just above the bar, over the end of the form, and over anything the form
         // opens on top.
@@ -97,7 +97,9 @@ struct FormBottomBar: View {
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.roundedRectangle(radius: appFieldCornerRadius))
-        .disabled(isSaving || isDeleting || !canSave || isOffline)
+        .disabled(isSaving || isDeleting || !canSave)
+        // Its prominent style already greys out when disabled.
+        .requiresConnection(dimmed: false)
     }
 
     private func deleteButton(_ delete: Delete) -> some View {
@@ -117,8 +119,8 @@ struct FormBottomBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isSaving || isDeleting || isOffline)
-        .opacity(isOffline ? 0.4 : 1)
+        .disabled(isSaving || isDeleting)
+        .requiresConnection()
         .confirmationDialog(delete.confirmation, isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive, action: delete.action)
         } message: {

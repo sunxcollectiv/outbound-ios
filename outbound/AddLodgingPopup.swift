@@ -17,7 +17,6 @@ struct AddLodgingPopup: View {
     static let tripsEmail = "trips@outbound.earth"
 
     @State private var copied = false
-    @State private var connectivity = Connectivity.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -44,8 +43,7 @@ struct AddLodgingPopup: View {
                         .background(Color.appForeground.opacity(0.12), in: .rect(cornerRadius: 10))
                 }
                 // Uploading saves straight away, so it waits for a connection.
-                .disabled(!connectivity.isConnected)
-                .opacity(connectivity.isConnected ? 1 : 0.4)
+                .requiresConnection()
                 Button(action: onAddManually) {
                     optionLabel("Add Manually", systemImage: "square.and.pencil")
                         .foregroundStyle(Color(white: 0.15))

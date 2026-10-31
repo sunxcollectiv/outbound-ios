@@ -109,16 +109,10 @@ struct HomeView: View {
                     // Back online: swap the saved copy for the server's.
                     if isConnected, store.isShowingSavedCopy { Task { await store.load() } }
                 }
-                .overlay(alignment: .bottom) {
-                    // Puts the offline pill 8pt over the bottom safe area.
-                    Color.clear
-                        .frame(height: 8)
-                        .offlinePillAnchor(
-                            savedDate: store.isShowingSavedCopy ? store.savedDate : nil,
-                            showsWhenOnline: store.isShowingSavedCopy
-                        )
-                        .allowsHitTesting(false)
-                }
+                .offlinePillAtBottom(
+                    savedDate: store.isShowingSavedCopy ? store.savedDate : nil,
+                    showsWhenOnline: store.isShowingSavedCopy
+                )
                 .task { OfflinePillWindow.install() }
                 .task(id: scenePhase) {
                     if scenePhase == .active { await notifications.refreshUnreadCount() }

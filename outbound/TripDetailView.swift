@@ -454,9 +454,7 @@ struct TripDetailView: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(Color(white: 0.15).opacity(0.95), in: .rect(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.12)))
-            .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+            .floatingPillBackground(in: .rect(cornerRadius: 20))
             .padding(.horizontal, 24)
             // Clear of the day picker pinned to the bottom.
             .padding(.bottom, 96)
