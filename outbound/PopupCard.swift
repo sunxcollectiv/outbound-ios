@@ -24,6 +24,19 @@ struct PopupCard: ViewModifier {
     /// The height the card was given room for.
     @State private var shownHeight: CGFloat = 0
 
+    /// Where the content is scrolled to, for the jump buttons to move.
+    @State private var position = ScrollPosition(edge: .top)
+    /// Whether the content is scrolled all the way up, or all the way down.
+    @State private var atTop = true
+    @State private var atBottom = true
+
+    /// The tap area of the arrow buttons outside the card that jump to its top or bottom.
+    static let jumpButtonSize: CGFloat = 32
+    /// The gap between a jump button and the card's edge.
+    static let jumpButtonGap: CGFloat = 8
+    /// The room a jump button takes above the card, for a popup to keep clear.
+    static var jumpButtonRoom: CGFloat { jumpButtonSize + jumpButtonGap }
+
     /// Whether the content fits without scrolling. Only then may it draw past the
     /// card's edge, like a suggestion list; scrolled content has to stay inside.
     private var fits: Bool { contentHeight > 0 && shownHeight >= contentHeight - 0.5 }
@@ -39,6 +52,15 @@ struct PopupCard: ViewModifier {
         }
         .frame(maxHeight: contentHeight > 0 ? contentHeight : nil)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { shownHeight = $0 }
+        .scrollPosition($position)
+        .onScrollGeometryChange(for: [Bool].self) { geometry in
+            [geometry.visibleRect.minY <= 1, geometry.visibleRect.maxY >= geometry.contentSize.height - 1]
+        } action: { _, edges in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                atTop = edges[0]
+                atBottom = edges[1]
+            }
+        }
         .scrollBounceBehavior(.basedOnSize)
         .scrollDisabled(fits)
         .scrollClipDisabled(fits)
@@ -52,10 +74,38 @@ struct PopupCard: ViewModifier {
                 .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).strokeBorder(border))
         }
         .shadow(color: .black.opacity(0.4), radius: 24, y: 10)
+        // Just outside the card's top and bottom right corners, each showing only
+        // while there's more to scroll that way.
+        .overlay(alignment: .topTrailing) {
+            jumpButton(to: .top, isShowing: !fits && !atTop)
+                .alignmentGuide(.top) { $0[.bottom] + Self.jumpButtonGap }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            jumpButton(to: .bottom, isShowing: !fits && !atBottom)
+                .alignmentGuide(.bottom) { $0[.top] - Self.jumpButtonGap }
+        }
         .padding(.horizontal, Self.sideMargin)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape, onClose)
+    }
+
+    private func jumpButton(to edge: Edge, isShowing: Bool) -> some View {
+        Button {
+            withAnimation(.snappy(duration: 0.3)) { position.scrollTo(edge: edge) }
+        } label: {
+            JumpToEdgeIcon(edge: edge)
+                .foregroundStyle(Color.appForeground.opacity(0.6))
+                // A bare glyph, with a frame big enough to tap easily.
+                .frame(width: Self.jumpButtonSize, height: Self.jumpButtonSize)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(edge == .top ? "Scroll to Top" : "Scroll to Bottom")
+        .opacity(isShowing ? 1 : 0)
+        .scaleEffect(isShowing ? 1 : 0.8)
+        .allowsHitTesting(isShowing)
+        .accessibilityHidden(!isShowing)
     }
 }
 
@@ -114,7 +164,8 @@ struct DimmedPopup<Card: View>: View {
                     .zIndex(1)
                 closeButton
             }
-            .padding(.top, Self.edgeGap)
+            // Room above for the card's jump-to-top button.
+            .padding(.top, Self.edgeGap + PopupCard.jumpButtonRoom)
             // Measured from the screen's bottom edge, like the pill's own spot; the
             // keyboard still pushes it up.
             .padding(.bottom, pillClearance)
@@ -146,4 +197,27 @@ extension EnvironmentValues {
     /// Height of the visible area a `DimmedPopup` fills (above the keyboard when it's
     /// up), measured in `DimmedPopup.space`; zero outside a popup.
     @Entry var popupVisibleHeight: CGFloat = 0
+}
+
+/// A chevron with a bar across its tip, pointing to the top or bottom edge: like
+/// the `arrow.up.to.line` symbol without the arrow's shaft, which SF Symbols lacks.
+private struct JumpToEdgeIcon: View {
+    let edge: Edge
+
+    @ScaledMetric(relativeTo: .body) private var width: CGFloat = 12
+
+    var body: some View {
+        VStack(spacing: width * 0.2) {
+            if edge == .top { bar }
+            Image(systemName: edge == .top ? "chevron.up" : "chevron.down")
+                .font(.system(size: width, weight: .semibold))
+            if edge == .bottom { bar }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var bar: some View {
+        Capsule()
+            .frame(width: width * 1.1, height: width * 0.14)
+    }
 }
