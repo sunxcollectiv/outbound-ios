@@ -52,7 +52,8 @@ struct PurchasePopup: View {
         .popupCard(onClose: onClose)
     }
 
-    /// How credits are spent: each trip day at its bracket's rate, from `TripPricing`.
+    /// How credits are spent: each trip day at its bracket's rate, plus each member
+    /// beyond the included ones at theirs, from `TripPricing`.
     private var pricing: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("How trip pricing works")
@@ -61,20 +62,34 @@ struct PurchasePopup: View {
                 .font(.footnote)
                 .foregroundStyle(Color.appForeground.opacity(0.7))
                 .fixedSize(horizontal: false, vertical: true)
-            VStack(spacing: 6) {
-                ForEach(TripPricing.brackets, id: \.firstDay) { bracket in
-                    HStack {
-                        Text(Self.daysText(bracket))
-                        Spacer()
-                        Text("\(formatCredits(cents: bracket.centsPerDay)) per day")
-                            .monospacedDigit()
-                    }
-                    .font(.footnote)
-                }
-            }
-            .padding(.top, 2)
+            rates(TripPricing.brackets)
+                .padding(.top, 2)
+
+            Text("Groups over \(TripPricing.includedMembers)")
+                .font(.subheadline.weight(.semibold))
+                .padding(.top, 6)
+            Text("A trip includes up to \(TripPricing.includedMembers) people. Each extra person adds:")
+                .font(.footnote)
+                .foregroundStyle(Color.appForeground.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
+            rates(TripPricing.memberBrackets)
+                .padding(.top, 2)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private func rates(_ brackets: [TripPricing.Bracket]) -> some View {
+        VStack(spacing: 6) {
+            ForEach(brackets, id: \.firstDay) { bracket in
+                HStack {
+                    Text(Self.daysText(bracket))
+                    Spacer()
+                    Text("\(formatCredits(cents: bracket.centsPerDay)) per day")
+                        .monospacedDigit()
+                }
+                .font(.footnote)
+            }
+        }
     }
 
     /// A bracket's days, e.g. "Days 1–3" or "Day 31 and beyond".

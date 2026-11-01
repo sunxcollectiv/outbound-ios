@@ -5,9 +5,11 @@
 
 import Foundation
 
-/// What a trip costs to unlock, by its length. Each day is charged at the rate of the
-/// bracket it falls in, like tax brackets: the first 3 days at $1.60, the next 6 at
-/// $0.80, and so on, down to $0.20 a day after day 30. Amounts are whole cents.
+/// What a trip costs to unlock, by its length and size. Each day is charged at the rate
+/// of the bracket it falls in, like tax brackets: the first 3 days at $1.60, the next 6
+/// at $0.80, and so on, down to $0.20 a day after day 30. That covers up to
+/// `includedMembers` people; each one beyond adds their own daily rate, from $0.20
+/// down to $0.05. Amounts are whole cents.
 enum TripPricing {
     /// A run of trip days charged at one rate. `lastDay` is nil for the open-ended
     /// bracket at the end.
@@ -36,8 +38,44 @@ enum TripPricing {
         Bracket(firstDay: 31, lastDay: nil, centsPerDay: 20),
     ]
 
-    /// The brackets a trip of `days` days touches, each cut off at the trip's last day.
+    /// How many people the trip's own rate covers, owner included.
+    static let includedMembers = 5
+
+    /// What each member beyond `includedMembers` adds, per trip day.
+    static let memberBrackets: [Bracket] = [
+        Bracket(firstDay: 1, lastDay: 7, centsPerDay: 20),
+        Bracket(firstDay: 8, lastDay: 14, centsPerDay: 15),
+        Bracket(firstDay: 15, lastDay: 30, centsPerDay: 10),
+        Bracket(firstDay: 31, lastDay: nil, centsPerDay: 5),
+    ]
+
+    /// The trip brackets a trip of `days` days touches, each cut off at its last day.
     static func breakdown(days: Int) -> [Line] {
+        lines(of: brackets, days: days)
+    }
+
+    /// The member brackets a trip of `days` days touches, for one extra member.
+    static func memberBreakdown(days: Int) -> [Line] {
+        lines(of: memberBrackets, days: days)
+    }
+
+    /// The price of a trip of `days` days for up to `includedMembers` people, in
+    /// cents; 0 for no days.
+    static func priceCents(days: Int) -> Int {
+        total(of: breakdown(days: days))
+    }
+
+    /// What one member beyond `includedMembers` adds to a trip of `days` days, in cents.
+    static func extraMemberCents(days: Int) -> Int {
+        total(of: memberBreakdown(days: days))
+    }
+
+    /// The price of a trip of `days` days with `members` people, in cents.
+    static func priceCents(days: Int, members: Int) -> Int {
+        priceCents(days: days) + max(members - includedMembers, 0) * extraMemberCents(days: days)
+    }
+
+    private static func lines(of brackets: [Bracket], days: Int) -> [Line] {
         brackets.compactMap { bracket in
             guard days >= bracket.firstDay else { return nil }
             let lastDay = min(days, bracket.lastDay ?? days)
@@ -45,9 +83,8 @@ enum TripPricing {
         }
     }
 
-    /// The price of a trip of `days` days, in cents; 0 for no days.
-    static func priceCents(days: Int) -> Int {
-        breakdown(days: days).reduce(0) { $0 + $1.cents }
+    private static func total(of lines: [Line]) -> Int {
+        lines.reduce(0) { $0 + $1.cents }
     }
 }
 
@@ -61,8 +98,9 @@ extension Trip {
         return days + 1
     }
 
-    /// What unlocking the trip costs, in cents, or nil if its dates don't parse.
+    /// What unlocking the trip costs for everyone on it, in cents, or nil if its dates
+    /// don't parse. A trip whose members haven't loaded is priced as the base trip.
     var priceCents: Int? {
-        dayCount.map { TripPricing.priceCents(days: $0) }
+        dayCount.map { TripPricing.priceCents(days: $0, members: members?.count ?? 0) }
     }
 }

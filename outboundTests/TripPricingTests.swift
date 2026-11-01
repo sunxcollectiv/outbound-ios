@@ -39,6 +39,49 @@ struct TripPricingTests {
         #expect(TripPricing.breakdown(days: 35).last == .init(firstDay: 31, lastDay: 35, centsPerDay: 20))
     }
 
+    @Test(arguments: [
+        // (days, members, cents)
+        (3, 5, 480), (3, 6, 540), (3, 10, 780),
+        (7, 8, 1220), (9, 6, 1130), (10, 10, 1955),
+        (14, 7, 1800), (16, 9, 2510), (30, 10, 4035),
+        (45, 6, 2790), (90, 10, 6735),
+    ])
+    func priceWithMembers(days: Int, members: Int, cents: Int) {
+        #expect(TripPricing.priceCents(days: days, members: members) == cents)
+    }
+
+    @Test func membersUpToTheIncludedCountCostNothingExtra() {
+        for members in 0...TripPricing.includedMembers {
+            #expect(TripPricing.priceCents(days: 12, members: members) == TripPricing.priceCents(days: 12))
+        }
+    }
+
+    @Test(arguments: [(1, 20), (7, 140), (9, 170), (14, 245), (30, 405), (31, 410), (90, 705)])
+    func extraMemberCost(days: Int, cents: Int) {
+        #expect(TripPricing.extraMemberCents(days: days) == cents)
+    }
+
+    @Test func memberBracketsRunBackToBack() {
+        let brackets = TripPricing.memberBrackets
+        #expect(brackets.first?.firstDay == 1)
+        #expect(brackets.last?.lastDay == nil)
+        for (bracket, next) in zip(brackets, brackets.dropFirst()) {
+            #expect(bracket.lastDay.map { $0 + 1 } == next.firstDay)
+        }
+    }
+
+    @Test func tripPriceCountsItsMembers() {
+        var trip = Trip.sample
+        trip.startDate = "2026-11-01"
+        trip.endDate = "2026-11-07"
+        #expect(trip.priceCents == 800)
+
+        trip.members = (1...8).map {
+            TripMember(id: "m\($0)", email: "m\($0)@example.com", user: nil, role: $0 == 1 ? .organizer : .member)
+        }
+        #expect(trip.priceCents == 1220)
+    }
+
     @Test func tripDayCountIncludesBothEnds() {
         var trip = Trip.sample
         trip.startDate = "2026-11-01"
