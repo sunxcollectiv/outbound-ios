@@ -69,6 +69,10 @@ struct PopupCard: ViewModifier {
             }
         }
         .scrollBounceBehavior(.basedOnSize)
+        // The indicator runs right along the card's edge (iOS insets it a few points),
+        // kept off the rounded corners at its ends.
+        .contentMargins(.trailing, -3, for: .scrollIndicators)
+        .contentMargins(.vertical, Self.cornerRadius / 2, for: .scrollIndicators)
         .scrollDisabled(fits)
         .scrollClipDisabled(fits && !isResizing)
         .foregroundStyle(Color.appForeground)
