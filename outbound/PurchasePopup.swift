@@ -23,18 +23,6 @@ struct PurchasePopup: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: amountsCents.count)
 
     var body: some View {
-        // Scrolls only when it can't fit, e.g. with the pricing open on a smaller phone.
-        ViewThatFits(in: .vertical) {
-            content
-            ScrollView {
-                content
-            }
-            .scrollBounceBehavior(.basedOnSize)
-        }
-        .popupCard(onClose: onClose)
-    }
-
-    private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Purchase Credits", systemImage: "creditcard.fill")
                 .font(.caption.weight(.semibold))
@@ -74,6 +62,7 @@ struct PurchasePopup: View {
 
             pricing
         }
+        .popupCard(onClose: onClose)
     }
 
     /// How credits are spent, collapsed until asked for: each trip day at its bracket's

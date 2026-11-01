@@ -100,6 +100,7 @@ struct CreditsView: View {
         // Hiding the whole bar would shift the page up under the popup.
         .navigationBarBackButtonHidden(showingPurchase)
         .overlay { purchasePopup }
+        .offlinePillNearBottom(isActive: showingPurchase)
     }
 
     private func closePurchase() {
