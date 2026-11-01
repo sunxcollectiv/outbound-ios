@@ -21,6 +21,9 @@ struct PopupCard: ViewModifier {
 
     /// The content's natural height, padding included.
     @State private var contentHeight: CGFloat = 0
+    /// Whether the card is still animating to a new content height, during which its
+    /// content stays clipped so what's being added doesn't spill out past the border.
+    @State private var isResizing = false
     /// The height the card was given room for.
     @State private var shownHeight: CGFloat = 0
 
@@ -41,6 +44,10 @@ struct PopupCard: ViewModifier {
     /// card's edge, like a suggestion list; scrolled content has to stay inside.
     private var fits: Bool { contentHeight > 0 && shownHeight >= contentHeight - 0.5 }
 
+    /// Whether the jump buttons may show: only once the content scrolls, and not mid
+    /// resize, when growing content that will still fit would flash them.
+    private var showsJumpButtons: Bool { !fits && !isResizing }
+
     func body(content: Content) -> some View {
         // Always in a scroll view, rather than only when needed, so the content keeps
         // its identity, and a focused field its focus, as the room changes (e.g. when
@@ -48,7 +55,7 @@ struct PopupCard: ViewModifier {
         ScrollView {
             content
                 .padding(20)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { resize(to: $0) }
         }
         .frame(maxHeight: contentHeight > 0 ? contentHeight : nil)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { shownHeight = $0 }
@@ -63,7 +70,7 @@ struct PopupCard: ViewModifier {
         }
         .scrollBounceBehavior(.basedOnSize)
         .scrollDisabled(fits)
-        .scrollClipDisabled(fits)
+        .scrollClipDisabled(fits && !isResizing)
         .foregroundStyle(Color.appForeground)
         .frame(maxWidth: Self.maxWidth)
         // The border sits behind the content (not over it), so anything floating out
@@ -77,17 +84,45 @@ struct PopupCard: ViewModifier {
         // Just outside the card's top and bottom right corners, each showing only
         // while there's more to scroll that way.
         .overlay(alignment: .topTrailing) {
-            jumpButton(to: .top, isShowing: !fits && !atTop)
+            jumpButton(to: .top, isShowing: showsJumpButtons && !atTop)
                 .alignmentGuide(.top) { $0[.bottom] + Self.jumpButtonGap }
         }
         .overlay(alignment: .bottomTrailing) {
-            jumpButton(to: .bottom, isShowing: !fits && !atBottom)
+            jumpButton(to: .bottom, isShowing: showsJumpButtons && !atBottom)
                 .alignmentGuide(.bottom) { $0[.top] - Self.jumpButtonGap }
         }
         .padding(.horizontal, Self.sideMargin)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape, onClose)
+    }
+
+    /// Grows or shrinks the card to its content's new height, animated, so content
+    /// added or removed inside (an expanding section, a new row) eases the card along
+    /// instead of snapping it. The first measurement just sizes it.
+    private func resize(to height: CGFloat) {
+        guard contentHeight > 0 else { return contentHeight = height }
+        guard abs(height - contentHeight) > 0.5 else { return }
+        isResizing = true
+        withAnimation(Self.resizeAnimation) {
+            contentHeight = height
+        } completion: {
+            isResizing = false
+        }
+    }
+
+    /// How the card eases to a new height; content fading in or out inside it should
+    /// match, e.g. by changing in `withAnimation(PopupCard.resizeAnimation)`.
+    static let resizeAnimation = Animation.snappy(duration: 0.3)
+
+    /// For content added inside a card: fades in once the card has grown part of the
+    /// way, so it shows up into room already made for it, and fades straight out when
+    /// removed, so the card isn't left waiting to shrink.
+    static var contentTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.animation(.easeOut(duration: 0.25).delay(0.12)),
+            removal: .opacity.animation(.easeIn(duration: 0.12))
+        )
     }
 
     private func jumpButton(to edge: Edge, isShowing: Bool) -> some View {

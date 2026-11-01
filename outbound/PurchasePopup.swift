@@ -70,7 +70,7 @@ struct PurchasePopup: View {
     private var pricing: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
-                withAnimation(.snappy(duration: 0.25)) { showingPricing.toggle() }
+                withAnimation(PopupCard.resizeAnimation) { showingPricing.toggle() }
             } label: {
                 HStack {
                     Text("How trip pricing works")
@@ -101,7 +101,7 @@ struct PurchasePopup: View {
                         .padding(.top, 4)
                     ratesTable(TripPricing.memberBrackets, rateHeader: "Per person, per day")
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(PopupCard.contentTransition)
             }
         }
     }
