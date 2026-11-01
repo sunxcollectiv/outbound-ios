@@ -17,11 +17,24 @@ struct PurchasePopup: View {
     static let amountsCents = [500, 1_500, 2_500, 5_000]
 
     @State private var selectedCents = 1_500
+    @State private var showingPricing = false
 
     /// One column per amount, so they all sit in a single row.
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: amountsCents.count)
 
     var body: some View {
+        // Scrolls only when it can't fit, e.g. with the pricing open on a smaller phone.
+        ViewThatFits(in: .vertical) {
+            content
+            ScrollView {
+                content
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .popupCard(onClose: onClose)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Purchase Credits", systemImage: "creditcard.fill")
                 .font(.caption.weight(.semibold))
@@ -61,47 +74,81 @@ struct PurchasePopup: View {
 
             pricing
         }
-        .popupCard(onClose: onClose)
     }
 
-    /// How credits are spent: each trip day at its bracket's rate, plus each member
-    /// beyond the included ones at theirs, from `TripPricing`.
+    /// How credits are spent, collapsed until asked for: each trip day at its bracket's
+    /// rate, plus each member beyond the included ones at theirs, from `TripPricing`.
     private var pricing: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("How trip pricing works")
-                .font(.subheadline.weight(.semibold))
-            Text("You pay once per trip, based on how many days it is. Each day is priced at the rate for its range, so longer trips cost less per day.")
-                .font(.footnote)
-                .foregroundStyle(Color.appForeground.opacity(0.7))
-                .fixedSize(horizontal: false, vertical: true)
-            rates(TripPricing.brackets)
-                .padding(.top, 2)
+            Button {
+                withAnimation(.snappy(duration: 0.25)) { showingPricing.toggle() }
+            } label: {
+                HStack {
+                    Text("How trip pricing works")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color.appForeground.opacity(0.6))
+                        .rotationEffect(.degrees(showingPricing ? 180 : 0))
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(showingPricing ? "Expanded" : "Collapsed")
 
-            Text("Groups over \(TripPricing.includedMembers)")
-                .font(.subheadline.weight(.semibold))
-                .padding(.top, 6)
-            Text("A trip includes up to \(TripPricing.includedMembers) people. Each extra person adds:")
-                .font(.footnote)
-                .foregroundStyle(Color.appForeground.opacity(0.7))
-                .fixedSize(horizontal: false, vertical: true)
-            rates(TripPricing.memberBrackets)
-                .padding(.top, 2)
+            if showingPricing {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("You pay once per trip, based on how many days it is. Each day is priced at the rate for its range, so longer trips cost less per day.")
+                        .font(.footnote)
+                        .foregroundStyle(Color.appForeground.opacity(0.7))
+                        .fixedSize(horizontal: false, vertical: true)
+                    ratesTable(TripPricing.brackets, rateHeader: "Per day")
+
+                    Text("A standard trip includes unlimited collaboration between \(TripPricing.includedMembers) people. Each extra person costs less per day for longer trips.")
+                        .font(.footnote)
+                        .foregroundStyle(Color.appForeground.opacity(0.7))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
+                    ratesTable(TripPricing.memberBrackets, rateHeader: "Per person, per day")
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
-        .accessibilityElement(children: .combine)
     }
 
-    private func rates(_ brackets: [TripPricing.Bracket]) -> some View {
-        VStack(spacing: 6) {
-            ForEach(brackets, id: \.firstDay) { bracket in
-                HStack {
-                    Text(Self.daysText(bracket))
-                    Spacer()
-                    Text("\(formatCredits(cents: bracket.centsPerDay)) per day")
-                        .monospacedDigit()
-                }
+    /// Brackets as a bordered two-column table: the days, then the rate.
+    private func ratesTable(_ brackets: [TripPricing.Bracket], rateHeader: String) -> some View {
+        let shape = RoundedRectangle(cornerRadius: appFieldCornerRadius)
+        return VStack(spacing: 0) {
+            tableRow(Text("Trip days"), Text(rateHeader), fill: Color.white.opacity(0.08))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.appForeground.opacity(0.6))
+
+            ForEach(Array(brackets.enumerated()), id: \.element.firstDay) { index, bracket in
+                // Every other row shaded, so a rate is easy to follow across.
+                tableRow(
+                    Text(Self.daysText(bracket)),
+                    Text(formatCredits(cents: bracket.centsPerDay)).monospacedDigit(),
+                    fill: index.isMultiple(of: 2) ? Color.clear : Color.white.opacity(0.04)
+                )
                 .font(.footnote)
             }
         }
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.1)))
+    }
+
+    private func tableRow(_ days: some View, _ rate: some View, fill: Color) -> some View {
+        HStack {
+            days
+            Spacer(minLength: 12)
+            rate
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(fill)
+        .accessibilityElement(children: .combine)
     }
 
     /// How many equal trips the larger amounts are described as covering, since one
