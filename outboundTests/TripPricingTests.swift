@@ -61,6 +61,31 @@ struct TripPricingTests {
         #expect(TripPricing.extraMemberCents(days: days) == cents)
     }
 
+    @Test(arguments: [
+        // (budget, members, days)
+        (0, 5, 0), (159, 5, 0), (160, 5, 1), (500, 5, 3),
+        (1_500, 5, 17), (2_500, 5, 54), (5_000, 5, 179), (1_500, 10, 7),
+    ])
+    func maxDaysForBudget(budgetCents: Int, members: Int, days: Int) {
+        #expect(TripPricing.maxDays(budgetCents: budgetCents, members: members) == days)
+    }
+
+    @Test func maxDaysIsTheLongestTripTheBudgetCovers() {
+        for budget in stride(from: 160, through: 5_000, by: 35) {
+            let days = TripPricing.maxDays(budgetCents: budget)
+            #expect(TripPricing.priceCents(days: days, members: 5) <= budget)
+            #expect(TripPricing.priceCents(days: days + 1, members: 5) > budget)
+        }
+    }
+
+    @Test func purchasePopupSaysWhatAnAmountPaysFor() {
+        #expect(PurchasePopup.usableText(cents: 1_500, members: 5) == "Usable for a 17-day trip with up to 5 members")
+        #expect(PurchasePopup.usableText(cents: 500, members: 5) == "Usable for a 3-day trip with up to 5 members")
+        #expect(PurchasePopup.usableText(cents: 100, members: 5) == "Not enough for a 1-day trip with 5 members")
+        #expect(PurchasePopup.usableText(cents: 2_500, members: 5) == "Usable for 3 separate 7-day trips with up to 5 members")
+        #expect(PurchasePopup.usableText(cents: 5_000, members: 5) == "Usable for 6 separate 7-day trips with up to 5 members")
+    }
+
     @Test func memberBracketsRunBackToBack() {
         let brackets = TripPricing.memberBrackets
         #expect(brackets.first?.firstDay == 1)

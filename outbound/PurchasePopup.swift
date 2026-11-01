@@ -10,6 +10,9 @@ import SwiftUI
 struct PurchasePopup: View {
     let onClose: () -> Void
 
+    /// How many people the "usable for" line prices a trip for.
+    var members = TripPricing.includedMembers
+
     /// The amounts on offer, in cents.
     static let amountsCents = [500, 1_500, 2_500, 5_000]
 
@@ -43,6 +46,15 @@ struct PurchasePopup: View {
             }
             .buttonStyle(.plain)
             .padding(.top, 4)
+
+            Text(Self.usableText(cents: selectedCents, members: members))
+                .font(.footnote)
+                .foregroundStyle(Color.appForeground.opacity(0.7))
+                .frame(maxWidth: .infinity)
+                .multilineTextAlignment(.center)
+                .padding(.top, -6)
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.2), value: selectedCents)
 
             Divider()
                 .overlay(Color.appForeground.opacity(0.12))
@@ -90,6 +102,21 @@ struct PurchasePopup: View {
                 .font(.footnote)
             }
         }
+    }
+
+    /// How many equal trips the larger amounts are described as covering, since one
+    /// very long trip says little about what they're good for. Others cover one.
+    static let tripsPerAmount = [2_500: 3, 5_000: 6]
+
+    /// What an amount pays for, e.g. "Usable for a 17-day trip with up to 5 members"
+    /// or "Usable for 3 separate 7-day trips with up to 5 members".
+    static func usableText(cents: Int, members: Int) -> String {
+        let trips = tripsPerAmount[cents] ?? 1
+        let days = TripPricing.maxDays(budgetCents: cents / trips, members: members)
+        let who = "\(members) \(members == 1 ? "member" : "members")"
+        guard days > 0 else { return "Not enough for a 1-day trip with \(who)" }
+        guard trips > 1 else { return "Usable for a \(days)-day trip with up to \(who)" }
+        return "Usable for \(trips) separate \(days)-day trips with up to \(who)"
     }
 
     /// A bracket's days, e.g. "Days 1–3" or "Day 31 and beyond".

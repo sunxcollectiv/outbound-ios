@@ -75,6 +75,17 @@ enum TripPricing {
         priceCents(days: days) + max(members - includedMembers, 0) * extraMemberCents(days: days)
     }
 
+    /// The longest trip `budgetCents` pays for with `members` people, in days; 0 if it
+    /// doesn't cover a single day.
+    static func maxDays(budgetCents: Int, members: Int = includedMembers) -> Int {
+        // Every day costs at least the last brackets' rates, so this stops.
+        var days = 0
+        while priceCents(days: days + 1, members: members) <= budgetCents {
+            days += 1
+        }
+        return days
+    }
+
     private static func lines(of brackets: [Bracket], days: Int) -> [Line] {
         brackets.compactMap { bracket in
             guard days >= bracket.firstDay else { return nil }
