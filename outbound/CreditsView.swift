@@ -48,6 +48,8 @@ func formatCredits(cents: Int, signed: Bool = false) -> String {
 struct CreditsView: View {
     var entries: [CreditLedgerEntry] = CreditLedgerEntry.samples
 
+    @State private var showingPurchase = false
+
     var body: some View {
         List {
             Section {
@@ -84,6 +86,34 @@ struct CreditsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar {
+            // Drawn here rather than by the system, so it can dim with the page under
+            // the popup (the bar sits above the popup's backdrop).
+            ToolbarItem(placement: .principal) {
+                Text("Credits")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .opacity(showingPurchase ? 0.2 : 1)
+                    .accessibilityAddTraits(.isHeader)
+            }
+        }
+        // Hiding the whole bar would shift the page up under the popup.
+        .navigationBarBackButtonHidden(showingPurchase)
+        .overlay { purchasePopup }
+    }
+
+    private func closePurchase() {
+        withAnimation(.snappy(duration: 0.2)) { showingPurchase = false }
+    }
+
+    /// The open buy popup over a dimmed page; tapping outside closes it.
+    @ViewBuilder
+    private var purchasePopup: some View {
+        if showingPurchase {
+            DimmedPopup(onClose: closePurchase) {
+                PurchasePopup(onClose: closePurchase)
+            }
+        }
     }
 
     private var balanceHeader: some View {
@@ -95,9 +125,9 @@ struct CreditsView: View {
                 .font(.system(size: 44, weight: .bold, design: .rounded))
                 .monospacedDigit()
             Button {
-                // TODO: open the purchase flow.
+                withAnimation(.snappy(duration: 0.2)) { showingPurchase = true }
             } label: {
-                Label("Buy Credits", systemImage: "plus.circle.fill")
+                Label("Add Credits", systemImage: "plus.circle.fill")
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
