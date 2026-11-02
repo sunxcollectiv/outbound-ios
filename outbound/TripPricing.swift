@@ -42,6 +42,10 @@ enum TripPricing {
     static let includedMembers = 5
 
     /// What each member beyond `includedMembers` adds, per trip day.
+    ///
+    /// Extra members are meant to be charged only for the days they're on the trip,
+    /// but trips aren't split into those stretches yet, so for now every extra member
+    /// is priced as if on for the whole trip (an upper bound). See `priceCents(days:members:)`.
     static let memberBrackets: [Bracket] = [
         Bracket(firstDay: 1, lastDay: 7, centsPerDay: 20),
         Bracket(firstDay: 8, lastDay: 14, centsPerDay: 15),
@@ -71,6 +75,10 @@ enum TripPricing {
     }
 
     /// The price of a trip of `days` days with `members` people, in cents.
+    ///
+    /// TODO: charge extra members only for the days they're added to, once trips can
+    /// be segmented by who's on them. Until then this counts every extra member for
+    /// every day, which can overstate the price.
     static func priceCents(days: Int, members: Int) -> Int {
         priceCents(days: days) + max(members - includedMembers, 0) * extraMemberCents(days: days)
     }

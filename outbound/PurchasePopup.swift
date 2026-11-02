@@ -94,7 +94,7 @@ struct PurchasePopup: View {
                         .fixedSize(horizontal: false, vertical: true)
                     ratesTable(TripPricing.brackets, rateHeader: "Per day")
 
-                    Text("A standard trip includes unlimited collaboration between \(TripPricing.includedMembers) people. Each extra person costs less per day for longer trips.")
+                    Text("A standard trip includes unlimited collaboration between \(TripPricing.includedMembers) people. Extra people are only charged for the days they're added to, and cost less per day for longer trips.")
                         .font(.footnote)
                         .foregroundStyle(Color.appForeground.opacity(0.7))
                         .fixedSize(horizontal: false, vertical: true)
