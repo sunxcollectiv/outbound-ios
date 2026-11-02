@@ -48,6 +48,9 @@ struct OfflinePill: View {
     /// How far above the screen's bottom edge the pill sits over things with no spot
     /// of their own for it, like popups: level with a form's Save button.
     static let nearBottomGap = FormBottomBar.saveBottomGap
+    /// The pill's height at the default text size: a footnote line plus its padding.
+    /// Scale it with `@ScaledMetric(relativeTo: .footnote)` to keep room for it.
+    static let height: CGFloat = 34
 
     private func detailText(_ detail: Detail) -> Text {
         switch detail {
