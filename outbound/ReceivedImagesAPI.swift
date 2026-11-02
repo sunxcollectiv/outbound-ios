@@ -25,14 +25,8 @@ struct ImageImportResult: Decodable {
 
 /// Request shapes for uploaded images (booking screenshots).
 ///
-///     POST /received/images/upload   multipart `file` -> ImageReceiptRead (201)
 ///     POST /received/images/process  multipart `file` -> ImageImportResult (201)
 enum ReceivedImagesAPI {
-    /// Uploads one image into the received-item pipeline, without processing it.
-    static func upload(_ file: MultipartFile) -> Endpoint {
-        Endpoint(path: "/received/images/upload", method: .post, rawBody: file.body, timeout: 60)
-    }
-
     /// Uploads one image and runs the whole pipeline on it in the same call: store,
     /// read the booking out of it, and import it into the matching trip.
     static func process(_ file: MultipartFile) -> Endpoint {
