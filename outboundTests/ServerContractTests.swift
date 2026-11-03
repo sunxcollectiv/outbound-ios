@@ -156,6 +156,51 @@ struct ServerContractTests {
         #expect(!after.contains { $0.id == trip.id })
     }
 
+    /// Segments: a member adds a trip of their own next to one they're on, and the two
+    /// join one group. Dates must touch or overlap; a gap is refused.
+    @Test func tripSegments() async throws {
+        let owner = try await register("Contract Owner")
+        let friend = try await register("Contract Friend")
+        let trip = try await makeTrip(owner, with: [friend])
+        defer { Task { try? await owner.api.send(TripsAPI.delete(id: trip.id)) } }
+        #expect(trip.groupId == nil)
+        #expect(trip.extendsTripId == nil)
+        let year = trip.startDate.prefix(4)
+
+        // The friend adds the two days after the trip (Mar 5–6) as their own segment.
+        let segment = try await friend.api.send(TripsAPI.create(.init(
+            title: "Contract segment", description: nil,
+            startDate: "\(year)-03-05", endDate: "\(year)-03-06",
+            timezone: "Asia/Tokyo", extendsTripId: trip.id
+        )), as: Trip.self)
+        defer { Task { try? await friend.api.send(TripsAPI.delete(id: segment.id)) } }
+        #expect(segment.ownerId == friend.user.id)
+        #expect(segment.extendsTripId == trip.id)
+        let groupId = try #require(segment.groupId)
+        #expect(segment.members?.map(\.user?.id) == [friend.user.id])
+
+        // The trip it was added to joins the same group.
+        let ownerList = try await owner.api.send(TripsAPI.list, as: [Trip].self)
+        #expect(ownerList.first { $0.id == trip.id }?.groupId == groupId)
+
+        // A segment with a day between it and the trip is refused.
+        await #expect {
+            try await friend.api.send(TripsAPI.create(.init(
+                title: "Contract gap", description: nil,
+                startDate: "\(year)-03-07", endDate: "\(year)-03-08", extendsTripId: trip.id
+            )), as: Trip.self)
+        } throws: { status(of: $0) == 422 }
+
+        // Only people on the trip can add a segment to it.
+        let stranger = try await register("Contract Stranger")
+        await #expect {
+            try await stranger.api.send(TripsAPI.create(.init(
+                title: "Contract stranger", description: nil,
+                startDate: "\(year)-02-27", endDate: "\(year)-02-28", extendsTripId: trip.id
+            )), as: Trip.self)
+        } throws: { status(of: $0) == 404 }
+    }
+
     // MARK: - Items and itinerary
 
     @Test func itemsAndItinerary() async throws {

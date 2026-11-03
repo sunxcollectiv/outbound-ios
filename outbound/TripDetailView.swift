@@ -234,7 +234,10 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $segmentRequest) { request in
-            TripFormView(segmentOf: trip, segmentEdge: request.edge, onSaved: onSegmentCreated)
+            TripFormView(segmentOf: trip, segmentEdge: request.edge) { segment in
+                onSegmentCreated(segment)
+                showToast(TripToast(text: "Added \(segment.title)", systemImage: "checkmark.circle.fill"))
+            }
         }
         .sheet(item: $selectedItem) { item in
             TripItemDetailView(item: places.resolving(item), members: trip.members ?? [], tripDates: trip.dateRange, viewedDay: selectedDay?.calendarDate) { saved in

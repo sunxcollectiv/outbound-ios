@@ -185,6 +185,18 @@ struct TripFormView: View {
         .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
     }
 
+    /// A segment's dates must touch or overlap the trip it's grouped with, with no day
+    /// between them: it starts no later than the day after that trip ends, and ends no
+    /// earlier than the day before it starts. The pickers stay free; saving checks this.
+    /// Unbounded for an ordinary trip.
+    private var latestStart: Date {
+        segmentOf.flatMap { Self.adjacentDate(to: $0, on: .trailing) } ?? .distantFuture
+    }
+
+    private var earliestEnd: Date {
+        segmentOf.flatMap { Self.adjacentDate(to: $0, on: .leading) } ?? .distantPast
+    }
+
     /// The day just before `trip` starts (`.leading`) or just after it ends (`.trailing`).
     private static func adjacentDate(to trip: Trip, on edge: HorizontalEdge) -> Date? {
         let isLeading = edge == .leading
@@ -375,6 +387,10 @@ struct TripFormView: View {
         guard !name.isEmpty else { return }
         guard endDate >= startDate else {
             errorMessage = "End date can't be before the start date."
+            return
+        }
+        if let segmentOf, startDate > latestStart || endDate < earliestEnd {
+            errorMessage = "A segment's dates must touch or overlap \(segmentOf.title)."
             return
         }
         errorMessage = nil

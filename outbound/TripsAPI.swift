@@ -26,9 +26,11 @@ struct Trip: Codable, Identifiable, Equatable {
     /// trips still decode from a backend that doesn't send the field yet.
     var members: [TripMember]?
     /// Shared by the trips in one group: a trip and the segments members add before or
-    /// after it.
-    /// Optional so trips still decode from a backend that doesn't send the field yet.
-    var tripGroupId: String?
+    /// after it. Nil for a trip on its own.
+    var groupId: String?
+    /// The trip this one was added as a segment of; nil for a trip that wasn't, or
+    /// once that trip is deleted (the group stays).
+    var extendsTripId: String?
     let createdAt: Date
     let updatedAt: Date
 }
