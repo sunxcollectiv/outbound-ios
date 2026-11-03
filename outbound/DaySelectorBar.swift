@@ -19,6 +19,9 @@ struct DaySelectorBar: View {
     /// Live itinerary-swipe progress in day-units (-1…1); pulls the row along as the
     /// pages are dragged, before `selection` settles on the final day.
     var dragProgress: CGFloat = 0
+    /// Tapped from the inline "Add trip extension" button at either end of the row:
+    /// `.leading` for days before the trip, `.trailing` for days after.
+    var onAddExtension: (HorizontalEdge) -> Void = { _ in }
 
     var body: some View {
         GeometryReader { geo in
@@ -36,13 +39,19 @@ struct DaySelectorBar: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     GlassEffectContainer(spacing: 2) {
                         HStack(spacing: 0) {
+                            // The extension buttons sit in the side insets, so the first
+                            // and last days still scroll to center.
+                            extensionButton(.leading)
+                                .frame(width: cellWidth)
                             ForEach(days) { day in
                                 dayCell(day)
                                     .frame(width: cellWidth)
                                     .id(day.dayNumber)
                             }
+                            extensionButton(.trailing)
+                                .frame(width: cellWidth)
                         }
-                        .padding(.horizontal, sideInset)
+                        .padding(.horizontal, max(sideInset - cellWidth, 0))
                         // Track the itinerary swipe: one day-width of travel per full page drag.
                         .offset(x: dragProgress * cellWidth)
                     }
@@ -90,6 +99,26 @@ struct DaySelectorBar: View {
             startPoint: .leading,
             endPoint: .trailing
         )
+    }
+
+    /// A small dark plus disc past the first or last day, for adding days on that side.
+    /// Smaller than the day circles so it reads as an action, not another day.
+    private func extensionButton(_ edge: HorizontalEdge) -> some View {
+        Button {
+            onAddExtension(edge)
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color.appForeground.opacity(0.9))
+                .frame(width: 36, height: 36)
+                .background(Color(white: 0.1).opacity(0.9), in: .circle)
+                .overlay(Circle().strokeBorder(Color(white: 0.28), lineWidth: 1))
+                .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(edge == .leading ? "Add trip extension before the trip" : "Add trip extension after the trip")
     }
 
     private func dayCell(_ day: ItineraryDay) -> some View {
