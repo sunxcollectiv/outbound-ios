@@ -15,6 +15,9 @@ struct TripDetailView: View {
     @State private var trip: Trip
 
     @State private var days: [ItineraryDay]?
+    /// The trips merged into the itinerary (this one and the user's others in its
+    /// group), for the members of whichever one an item sits on.
+    @State private var itineraryTrips: [Trip] = []
     /// The trip's days keyed by date, for the zones to default the add-item picker to.
     /// Loaded alongside the itinerary (which doesn't carry zones yet) and joined on date.
     @State private var dayTimeZones: [String: [TimeZone]] = [:]
@@ -129,6 +132,7 @@ struct TripDetailView: View {
         let endpoint = TripsAPI.itinerary(tripId: trip.id)
         let saved = days == nil ? APIClient.shared.cached(endpoint, as: Itinerary.self) : nil
         _days = State(initialValue: days ?? saved?.days)
+        _itineraryTrips = State(initialValue: saved?.trips ?? [])
         _places = State(initialValue: saved.map { ItineraryPlaces(days: $0.days) } ?? ItineraryPlaces())
         _savedCopyDate = State(initialValue: saved == nil ? nil : APIClient.shared.cachedDate(for: endpoint))
         // Back on the day last viewed when the trip was opened within the hour; a day
@@ -212,13 +216,13 @@ struct TripDetailView: View {
             Task { await importScreenshot(item) }
         }
         .sheet(item: $addItemRequest) { request in
-            TripItemFormView(tripId: trip.id, kind: request.kind, members: trip.members ?? [], tripDates: trip.dateRange, defaultDate: request.date, onSaved: { saved in
+            TripItemFormView(tripId: trip.id, kind: request.kind, members: trip.members ?? [], tripsByDate: tripsByDate, tripDates: trip.dateRange, defaultDate: request.date, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: editHaptic)
         .sheet(item: $editingItem) { item in
-            TripItemFormView(tripId: item.tripId, members: trip.members ?? [], tripDates: trip.dateRange, item: item, viewedDay: selectedDay?.calendarDate) { saved in
+            TripItemFormView(tripId: item.tripId, members: members(onTripOf: item.tripId), tripDates: trip.dateRange, item: item, viewedDay: selectedDay?.calendarDate) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -247,7 +251,7 @@ struct TripDetailView: View {
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: places.resolving(item), members: trip.members ?? [], tripDates: trip.dateRange, viewedDay: selectedDay?.calendarDate) { saved in
+            TripItemDetailView(item: places.resolving(item), members: members(onTripOf: item.tripId), tripDates: trip.dateRange, viewedDay: selectedDay?.calendarDate) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -678,16 +682,17 @@ struct TripDetailView: View {
     }
 
     private func itemRow(_ entry: ItineraryEntry, topFade: CGFloat) -> some View {
-        let going = memberSelection.initialSelection(for: entry.item)
+        let itemMembers = memberSelection(onTripOf: entry.item.tripId)
+        let going = itemMembers.initialSelection(for: entry.item)
         return ItineraryEntryCard(
             entry: entry,
             places: places,
             placeDetails: placeDetails,
             // A redacted item's participants are blanked, so there's no one to count.
-            membersSummary: entry.item.redacted ? nil : memberSelection.summary(of: going),
+            membersSummary: entry.item.redacted ? nil : itemMembers.summary(of: going),
             membersCount: going.count,
             // Open items others are doing shrink to a one-line card.
-            isCondensed: entry.item.visibility == .open && memberSelection.includesCurrentUser(entry.item) == false
+            isCondensed: entry.item.visibility == .open && itemMembers.includesCurrentUser(entry.item) == false
         )
         .contentShape(.rect)
         // Every entry of an item (each end, each layover) opens the same record; a
@@ -855,8 +860,23 @@ struct TripDetailView: View {
         }
     }
 
-    private var memberSelection: ItemMemberSelection {
-        ItemMemberSelection(members: trip.members ?? [], currentUserId: auth.currentUser?.id)
+    private func memberSelection(onTripOf tripId: String?) -> ItemMemberSelection {
+        ItemMemberSelection(members: members(onTripOf: tripId), currentUserId: auth.currentUser?.id)
+    }
+
+    /// The trip owning each itinerary day, by date, for a new item to save to the trip
+    /// its date falls in. Days no trip covers are left out.
+    private var tripsByDate: [String: Trip] {
+        let trips = Dictionary(itineraryTrips.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return Dictionary((days ?? []).compactMap { day in
+            day.tripId.flatMap { trips[$0] }.map { (day.date, $0) }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The members of one of the itinerary's trips: an item's participants are member
+    /// rows on its own trip. Falls back to this trip's.
+    private func members(onTripOf tripId: String?) -> [TripMember] {
+        itineraryTrips.first { $0.id == tripId }?.members ?? trip.members ?? []
     }
 
     private func closeAddLodgingPopup() {
@@ -1038,6 +1058,7 @@ struct TripDetailView: View {
         do {
             let itinerary = try await api.send(TripsAPI.itinerary(tripId: trip.id), as: Itinerary.self)
             days = itinerary.days
+            itineraryTrips = itinerary.trips
             places = ItineraryPlaces(days: itinerary.days)
             selection = resolveSelection(in: itinerary.days, focusItemId: focusItemId)
             errorMessage = nil

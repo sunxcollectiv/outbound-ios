@@ -19,14 +19,42 @@ import Observation
 /// picked (or comes from a place).
 @Observable
 final class TripItemDraft {
-    let tripId: String
     let kind: TripItemKind
 
     /// The item being edited, or `nil` when creating a new one.
     let item: TripItem?
 
-    /// Everyone on the trip, offered in the "who's going" popup.
-    let members: [TripMember]
+    /// The trip an edited item is on, or the one a new item goes to when its date
+    /// isn't in `tripsByDate`.
+    private let fallbackTripId: String
+    /// The roster for `fallbackTripId`.
+    private let fallbackMembers: [TripMember]
+    /// For a new item: the trip owning each itinerary day ("yyyy-MM-dd"), so the item
+    /// is saved to whichever of the user's trips its start date falls in. Empty for
+    /// an edit, which stays on the item's trip.
+    private let tripsByDate: [String: Trip]
+
+    /// The trip this item saves to: an edited item's own, or for a new one the trip
+    /// owning its start date.
+    var tripId: String { targetTrip?.id ?? fallbackTripId }
+
+    /// Everyone on that trip, offered in the "who's going" popup.
+    var members: [TripMember] { targetTrip?.members ?? fallbackMembers }
+
+    /// The trip owning a new item's start date, when it isn't the fallback.
+    private var targetTrip: Trip? {
+        guard item == nil, let start = hasLegs ? legs.first?.startsAt : startsAt else { return nil }
+        return tripsByDate[Self.dayKey.string(from: start)]
+    }
+
+    /// The day a wall clock on the device-zone canvas falls on, as itinerary days name it.
+    private static let dayKey: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 
     /// The trip's first through last day, shown in the date popup's calendar.
     let tripDates: ClosedRange<Date>?
@@ -37,8 +65,14 @@ final class TripItemDraft {
     /// What people who aren't going see of the item.
     var visibility: TripItemVisibility
     /// Ids of the trip members this item is for, toggled in the popup. Nil until
-    /// seeded on appear, once the signed-in user is known.
-    var selectedMemberIds: Set<String>?
+    /// seeded on appear, once the signed-in user is known. Kept by email underneath, so
+    /// when a new item's date moves it to another trip, everyone also on that trip
+    /// stays selected (as their member row there).
+    var selectedMemberIds: Set<String>? {
+        get { selectedEmails.map { emails in Set(members.filter { emails.contains($0.email) }.map(\.id)) } }
+        set { selectedEmails = newValue.map { ids in Set(members.filter { ids.contains($0.id) }.map(\.email)) } }
+    }
+    private var selectedEmails: Set<String>?
     /// The selection the item was opened with, so an edit only re-sends who's in when
     /// it changed.
     private var originalMemberIds: Set<String>?
@@ -103,10 +137,11 @@ final class TripItemDraft {
     /// nothing is.
     var typedName: String?
 
-    init(tripId: String, kind: TripItemKind, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil) {
-        self.tripId = tripId
+    init(tripId: String, kind: TripItemKind, members: [TripMember] = [], tripsByDate: [String: Trip] = [:], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil) {
+        fallbackTripId = tripId
         self.kind = item?.kind ?? kind
-        self.members = members
+        fallbackMembers = members
+        self.tripsByDate = tripsByDate
         self.tripDates = tripDates
         self.item = item
         self.viewedDay = viewedDay ?? defaultDate

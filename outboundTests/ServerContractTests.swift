@@ -195,6 +195,7 @@ struct ServerContractTests {
         // marked as a gap.
         let itinerary = try await friend.api.send(TripsAPI.itinerary(tripId: gap.id), as: Itinerary.self)
         #expect(itinerary.days.filter(\.isGap).map(\.date) == ["\(year)-03-07"])
+        #expect(itinerary.trips.map(\.id) == [trip.id, segment.id, gap.id])
 
         // Only people on the trip can add a segment to it.
         let stranger = try await register("Contract Stranger")

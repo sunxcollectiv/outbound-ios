@@ -25,8 +25,10 @@ struct TripItemFormView: View {
     ///     viewed when add was tapped); the time-of-day defaults to noon. `nil` falls back to now.
     ///   - viewedDay: The itinerary day the form was opened from, marked in the date
     ///     popup's calendar. For a new item it defaults to `defaultDate`.
-    init(tripId: String, kind: TripItemKind = .activity, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
-        _draft = State(initialValue: TripItemDraft(tripId: tripId, kind: kind, members: members, tripDates: tripDates, item: item, defaultDate: defaultDate, viewedDay: viewedDay))
+    ///   - tripsByDate: For a new item, the trip owning each itinerary day, so it saves
+    ///     to the one its date falls in rather than `tripId`.
+    init(tripId: String, kind: TripItemKind = .activity, members: [TripMember] = [], tripsByDate: [String: Trip] = [:], tripDates: ClosedRange<Date>? = nil, item: TripItem? = nil, defaultDate: Date? = nil, viewedDay: Date? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+        _draft = State(initialValue: TripItemDraft(tripId: tripId, kind: kind, members: members, tripsByDate: tripsByDate, tripDates: tripDates, item: item, defaultDate: defaultDate, viewedDay: viewedDay))
         self.onSaved = onSaved
         self.onDeleted = onDeleted
     }
