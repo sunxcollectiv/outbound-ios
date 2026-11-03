@@ -590,7 +590,8 @@ struct TripDetailView: View {
     // MARK: - Paged days
 
     private func dayPager(_ days: [ItineraryDay]) -> some View {
-        DayPager(days: days, selection: $selection, dragProgress: $pageDragProgress) { day, scrollLocked in
+        // Gap days between the user's trips show only in the day picker.
+        DayPager(days: days.filter { !$0.isGap }, selection: $selection, dragProgress: $pageDragProgress) { day, scrollLocked in
             dayPage(day, scrollLocked: scrollLocked)
         }
     }
@@ -1006,7 +1007,9 @@ struct TripDetailView: View {
     }
 
     /// The day to show after a reload: the day holding the just-saved item when given,
-    /// otherwise the current day if it still exists, falling back to the first day.
+    /// otherwise the current day if it still exists, falling back to the first day. Never
+    /// a gap day, which has no page (e.g. once the last item on a day outside the trips
+    /// is deleted).
     private func resolveSelection(in days: [ItineraryDay], focusItemId: String?) -> Int {
         if let focusItemId,
            let day = days.first(where: { day in
@@ -1014,7 +1017,7 @@ struct TripDetailView: View {
            }) {
             return day.dayNumber
         }
-        if days.contains(where: { $0.dayNumber == selection }) {
+        if days.contains(where: { $0.dayNumber == selection && !$0.isGap }) {
             return selection
         }
         return days.first?.dayNumber ?? 1

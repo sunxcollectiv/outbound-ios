@@ -46,10 +46,16 @@ struct DaySelectorBar: View {
                             // and last days still scroll to center.
                             segmentEnd(.leading)
                                 .frame(width: cellWidth)
-                            ForEach(days) { day in
-                                dayCell(day)
-                                    .frame(width: cellWidth)
-                                    .id(day.dayNumber)
+                            ForEach(cells) { cell in
+                                switch cell {
+                                case .day(let day):
+                                    dayCell(day)
+                                        .frame(width: cellWidth)
+                                        .id(day.dayNumber)
+                                case .gap(let gapDays):
+                                    gapCell(gapDays)
+                                        .frame(width: cellWidth)
+                                }
                             }
                             segmentEnd(.trailing)
                                 .frame(width: cellWidth)
@@ -102,6 +108,57 @@ struct DaySelectorBar: View {
             startPoint: .leading,
             endPoint: .trailing
         )
+    }
+
+    /// The row's cells: each day, with every run of gap days between the user's trips
+    /// folded into one.
+    private var cells: [Cell] {
+        var cells: [Cell] = []
+        for day in days {
+            if day.isGap, case .gap(let run) = cells.last {
+                cells[cells.count - 1] = .gap(run + [day])
+            } else {
+                cells.append(day.isGap ? .gap([day]) : .day(day))
+            }
+        }
+        return cells
+    }
+
+    private enum Cell: Identifiable {
+        case day(ItineraryDay)
+        /// A run of gap days, shown as plain dates rather than a circle.
+        case gap([ItineraryDay])
+
+        var id: String {
+            switch self {
+            case .day(let day): "day-\(day.dayNumber)"
+            case .gap(let days): "gap-\(days.first?.dayNumber ?? 0)"
+            }
+        }
+    }
+
+    /// The dates of a gap between the user's trips as plain text, e.g. "Dec 5", or the
+    /// first and last with a short rule between them. Sized like a day circle, so the
+    /// row keeps its rhythm across the gap.
+    private func gapCell(_ gapDays: [ItineraryDay]) -> some View {
+        let dates = gapDays.compactMap(\.calendarDate).map { $0.formatted(.dateTime.month(.abbreviated).day()) }
+        let first = dates.first ?? "", last = dates.last ?? ""
+        let isRange = dates.count > 1
+        return VStack(spacing: 4) {
+            Text(first)
+            if isRange {
+                Capsule()
+                    .frame(width: 10, height: 1.5)
+                Text(last)
+            }
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(Color.appForeground.opacity(0.6))
+        .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
+        .frame(width: 56, height: 56)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isRange ? "No trip \(first) to \(last)" : "No trip \(first)")
     }
 
     /// A small dark plus disc past the first or last day, for adding days on that side.

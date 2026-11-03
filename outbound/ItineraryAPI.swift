@@ -32,11 +32,15 @@ struct ItineraryDay: Decodable, Identifiable {
     /// The day's timeline. An item can appear more than once across the itinerary (its
     /// departure and arrival, check-in and check-out, layovers), sharing one `item.id`.
     let entries: [ItineraryEntry]
+    /// A day between the user's trips in a group with nothing on it, as the server
+    /// decides. Shown only as a date in the day picker, not as a page. False from a
+    /// server that doesn't send it.
+    let isGap: Bool
 
     var id: Int { dayNumber }
 
     private enum CodingKeys: String, CodingKey {
-        case date, dayNumber, lodging
+        case date, dayNumber, lodging, isGap
         case entries = "items"
     }
 
@@ -47,6 +51,7 @@ struct ItineraryDay: Decodable, Identifiable {
         dayNumber = try c.decode(Int.self, forKey: .dayNumber)
         lodging = try c.decode([LodgingStay].self, forKey: .lodging)
         entries = Self.ordered(try c.decode([ItineraryEntry].self, forKey: .entries))
+        isGap = try c.decodeIfPresent(Bool.self, forKey: .isGap) ?? false
     }
 
     /// A day's entries in display order: by the wall clock shown on each card, ties
@@ -71,11 +76,12 @@ struct ItineraryDay: Decodable, Identifiable {
         }
     }
 
-    init(date: String, dayNumber: Int, lodging: [LodgingStay], entries: [ItineraryEntry]) {
+    init(date: String, dayNumber: Int, lodging: [LodgingStay], entries: [ItineraryEntry], isGap: Bool = false) {
         self.date = date
         self.dayNumber = dayNumber
         self.lodging = lodging
         self.entries = entries
+        self.isGap = isGap
     }
 
     /// This day without any entries or lodging for the given item, e.g. once it's deleted.
@@ -84,7 +90,8 @@ struct ItineraryDay: Decodable, Identifiable {
             date: date,
             dayNumber: dayNumber,
             lodging: lodging.filter { $0.item.id != itemId },
-            entries: entries.filter { $0.item.id != itemId }
+            entries: entries.filter { $0.item.id != itemId },
+            isGap: isGap
         )
     }
 

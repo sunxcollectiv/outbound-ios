@@ -191,6 +191,11 @@ struct ServerContractTests {
         defer { Task { try? await friend.api.send(TripsAPI.delete(id: gap.id)) } }
         #expect(gap.groupId == groupId)
 
+        // The friend's merged itinerary keeps the empty day between their two segments,
+        // marked as a gap.
+        let itinerary = try await friend.api.send(TripsAPI.itinerary(tripId: gap.id), as: Itinerary.self)
+        #expect(itinerary.days.filter(\.isGap).map(\.date) == ["\(year)-03-07"])
+
         // Only people on the trip can add a segment to it.
         let stranger = try await register("Contract Stranger")
         await #expect {
