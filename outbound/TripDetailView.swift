@@ -40,6 +40,8 @@ struct TripDetailView: View {
     /// `.sheet(isPresented:)` the content closure could capture a stale date.
     @State private var addItemRequest: AddItemRequest?
     @State private var showingEditTrip = false
+    /// A pending add-segment sheet, from the day picker's plus at either end.
+    @State private var segmentRequest: SegmentRequest?
     /// Whether the dropdown under the header's more button is open.
     @State private var showingTripMenu = false
     /// Showing the confirmation before the trip is deleted from its menu.
@@ -102,10 +104,18 @@ struct TripDetailView: View {
     /// Coordinate space used to measure each card's position for the fade behind the picker.
     private static let detailSpace = "itineraryDetail"
 
+    /// Called with a segment created from the day picker, for the trip list.
+    private let onSegmentCreated: (Trip) -> Void
     /// Called after the trip is deleted from its edit form; the presenter closes this screen.
     private let onDeleted: () -> Void
 
-    init(trip: Trip, days: [ItineraryDay]? = nil, onDeleted: @escaping () -> Void = {}) {
+    init(
+        trip: Trip,
+        days: [ItineraryDay]? = nil,
+        onSegmentCreated: @escaping (Trip) -> Void = { _ in },
+        onDeleted: @escaping () -> Void = {}
+    ) {
+        self.onSegmentCreated = onSegmentCreated
         self.onDeleted = onDeleted
         _trip = State(initialValue: trip)
         // Without days given, start from the itinerary saved by an earlier load (or the
@@ -143,8 +153,10 @@ struct TripDetailView: View {
                     // (wide, scrollable) content can never grow the pager or change the
                     // width of the page content behind it.
                     .overlay(alignment: .bottom) {
-                        DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress)
-                            .revealIn(hasRevealed)
+                        DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress) { edge in
+                            segmentRequest = SegmentRequest(edge: edge)
+                        }
+                        .revealIn(hasRevealed)
                     }
                     // A task rather than onAppear: the pager settles on the selected day in
                     // its own onAppear, and revealing in that same update would animate the
@@ -220,6 +232,9 @@ struct TripDetailView: View {
             } onDeleted: {
                 onDeleted()
             }
+        }
+        .sheet(item: $segmentRequest) { request in
+            TripFormView(segmentOf: trip, segmentEdge: request.edge, onSaved: onSegmentCreated)
         }
         .sheet(item: $selectedItem) { item in
             TripItemDetailView(item: places.resolving(item), members: trip.members ?? [], tripDates: trip.dateRange, viewedDay: selectedDay?.calendarDate) { saved in
@@ -1064,6 +1079,12 @@ private struct AddItemRequest: Identifiable {
     let id = UUID()
     let date: Date?
     var kind: TripItemKind = .activity
+}
+
+/// A request to present the add-segment form, for days on `edge`'s side of the trip.
+private struct SegmentRequest: Identifiable {
+    let id = UUID()
+    let edge: HorizontalEdge
 }
 
 /// A horizontally paged container that renders only the current day and its

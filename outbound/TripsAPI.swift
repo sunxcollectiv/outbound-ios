@@ -25,6 +25,10 @@ struct Trip: Codable, Identifiable, Equatable {
     /// Everyone on the trip, owner included, in the order they were added. Optional so
     /// trips still decode from a backend that doesn't send the field yet.
     var members: [TripMember]?
+    /// Shared by the trips in one group: a trip and the segments members add before or
+    /// after it.
+    /// Optional so trips still decode from a backend that doesn't send the field yet.
+    var tripGroupId: String?
     let createdAt: Date
     let updatedAt: Date
 }
@@ -138,9 +142,12 @@ enum TripsAPI {
         var members: [MemberRequest]?
         /// PATCH only: tell the trip's other members what changed.
         var notifyMembers: Bool?
+        /// POST only: the trip to group this one with, making it a segment in that trip's
+        /// group.
+        var extendsTripId: String?
 
         private enum CodingKeys: String, CodingKey {
-            case title, description, startDate, endDate, timezone, areaIds, members, notifyMembers
+            case title, description, startDate, endDate, timezone, areaIds, members, notifyMembers, extendsTripId
         }
 
         func encode(to encoder: Encoder) throws {
@@ -155,6 +162,7 @@ enum TripsAPI {
             try c.encodeIfPresent(areaIds, forKey: .areaIds)
             try c.encodeIfPresent(members, forKey: .members)
             try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
+            try c.encodeIfPresent(extendsTripId, forKey: .extendsTripId)
         }
     }
 

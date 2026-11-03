@@ -7,13 +7,17 @@ import SwiftUI
 
 /// Modal for manually creating or editing a trip. Collects a name, start/end dates,
 /// and an optional description. Timezone and locations come later, derived from trip
-/// items. Pass an existing `trip` to edit it; omit it to create a new one.
+/// items. Pass an existing `trip` to edit it; omit it to create a new one. Pass
+/// `segmentOf` instead to create a segment: a trip of the user's own, grouped with
+/// that one and just before or after it.
 struct TripFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var auth
 
     /// The trip being edited, or `nil` when creating a new one.
     private let trip: Trip?
+    /// The trip a new segment is grouped with, or `nil` for an ordinary trip.
+    private let segmentOf: Trip?
 
     /// Called with the created or updated trip after a successful save.
     var onSaved: (Trip) -> Void
@@ -52,14 +56,24 @@ struct TripFormView: View {
 
     private var isEditing: Bool { trip != nil }
 
-    init(trip: Trip? = nil, onSaved: @escaping (Trip) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+    /// `segmentEdge` is the side of `segmentOf` the new trip goes on: `.leading` for
+    /// days before it, `.trailing` for days after. Its dates start on the adjacent day.
+    init(
+        trip: Trip? = nil,
+        segmentOf: Trip? = nil,
+        segmentEdge: HorizontalEdge = .trailing,
+        onSaved: @escaping (Trip) -> Void = { _ in },
+        onDeleted: @escaping () -> Void = {}
+    ) {
         self.trip = trip
+        self.segmentOf = segmentOf
         self.onSaved = onSaved
         self.onDeleted = onDeleted
         _title = State(initialValue: trip?.title ?? "")
         _description = State(initialValue: trip?.description ?? "")
-        _startDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.startDate) } ?? Date())
-        _endDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.endDate) } ?? Date())
+        let defaultDate = segmentOf.flatMap { Self.adjacentDate(to: $0, on: segmentEdge) } ?? Date()
+        _startDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.startDate) } ?? defaultDate)
+        _endDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.endDate) } ?? defaultDate)
         _areas = State(initialValue: trip?.areas ?? [])
         // The owner is always kept by the server, so they aren't listed or sent.
         let others = (trip?.members ?? []).filter { $0.user?.id != trip?.ownerId }.map(\.email)
@@ -73,6 +87,10 @@ struct TripFormView: View {
                 Color.appBackground.ignoresSafeArea()
                 ScrollView {
                     VStack(spacing: 20) {
+                        if segmentOf != nil {
+                            segmentHelp
+                        }
+
                         TextField("Trip name", text: $title)
                             .textInputAutocapitalization(.words)
                             .appField()
@@ -128,7 +146,7 @@ struct TripFormView: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .foregroundStyle(Color.appForeground)
-            .navigationTitle(isEditing ? "Edit Trip" : "New Trip")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -147,6 +165,33 @@ struct TripFormView: View {
         .appTheme()
     }
 
+    private var navigationTitle: String {
+        if isEditing { return "Edit Trip" }
+        return segmentOf != nil ? "Add trip extension" : "New Trip"
+    }
+
+    /// Explains what saving a segment does, above the form.
+    private var segmentHelp: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle")
+                .font(.subheadline.weight(.semibold))
+            Text("Adding a trip extension creates a new segment with it's own members that you manage. Members of the original trip get limited visibility into its itinerary.")
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Color.appForeground.opacity(0.85))
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+    }
+
+    /// The day just before `trip` starts (`.leading`) or just after it ends (`.trailing`).
+    private static func adjacentDate(to trip: Trip, on edge: HorizontalEdge) -> Date? {
+        let isLeading = edge == .leading
+        guard let date = apiDateFormatter.date(from: isLeading ? trip.startDate : trip.endDate) else { return nil }
+        return Calendar(identifier: .gregorian).date(byAdding: .day, value: isLeading ? -1 : 1, to: date)
+    }
+
     /// Only edits can notify (creating a trip can't), and only when someone else is on it.
     private var canNotifyMembers: Bool { isEditing && !memberEmails.isEmpty }
 
@@ -160,7 +205,7 @@ struct TripFormView: View {
         FormBottomBar(
             notifyLabel: canNotifyMembers ? "Notify members of changes" : nil,
             notifyMembers: $notifyMembers,
-            saveTitle: isEditing ? "Save" : "Add Trip",
+            saveTitle: isEditing ? "Save" : segmentOf != nil ? "Add Segment" : "Add Trip",
             canSave: !title.trimmingCharacters(in: .whitespaces).isEmpty,
             isSaving: isSaving,
             onSave: save,
@@ -347,7 +392,8 @@ struct TripFormView: View {
                     timezone: isEditing ? nil : TimeZone.current.identifier,
                     areaIds: areaIdsToSave,
                     members: membersToSave,
-                    notifyMembers: canNotifyMembers && notifyMembers ? true : nil
+                    notifyMembers: canNotifyMembers && notifyMembers ? true : nil,
+                    extendsTripId: isEditing ? nil : segmentOf?.id
                 )
                 let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
                 let saved = try await api.send(endpoint, as: Trip.self)

@@ -19,9 +19,9 @@ struct DaySelectorBar: View {
     /// Live itinerary-swipe progress in day-units (-1…1); pulls the row along as the
     /// pages are dragged, before `selection` settles on the final day.
     var dragProgress: CGFloat = 0
-    /// Tapped from the inline "Add trip extension" button at either end of the row:
+    /// Tapped from the plus button at either end of the row, to add a segment:
     /// `.leading` for days before the trip, `.trailing` for days after.
-    var onAddExtension: (HorizontalEdge) -> Void = { _ in }
+    var onAddSegment: (HorizontalEdge) -> Void = { _ in }
 
     var body: some View {
         GeometryReader { geo in
@@ -39,16 +39,16 @@ struct DaySelectorBar: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     GlassEffectContainer(spacing: 2) {
                         HStack(spacing: 0) {
-                            // The extension buttons sit in the side insets, so the first
+                            // The add-segment buttons sit in the side insets, so the first
                             // and last days still scroll to center.
-                            extensionButton(.leading)
+                            addSegmentButton(.leading)
                                 .frame(width: cellWidth)
                             ForEach(days) { day in
                                 dayCell(day)
                                     .frame(width: cellWidth)
                                     .id(day.dayNumber)
                             }
-                            extensionButton(.trailing)
+                            addSegmentButton(.trailing)
                                 .frame(width: cellWidth)
                         }
                         .padding(.horizontal, max(sideInset - cellWidth, 0))
@@ -103,9 +103,9 @@ struct DaySelectorBar: View {
 
     /// A small dark plus disc past the first or last day, for adding days on that side.
     /// Smaller than the day circles so it reads as an action, not another day.
-    private func extensionButton(_ edge: HorizontalEdge) -> some View {
+    private func addSegmentButton(_ edge: HorizontalEdge) -> some View {
         Button {
-            onAddExtension(edge)
+            onAddSegment(edge)
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 14, weight: .bold))
@@ -118,7 +118,7 @@ struct DaySelectorBar: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(edge == .leading ? "Add trip extension before the trip" : "Add trip extension after the trip")
+        .accessibilityLabel(edge == .leading ? "Add a segment before the trip" : "Add a segment after the trip")
     }
 
     private func dayCell(_ day: ItineraryDay) -> some View {

@@ -98,7 +98,7 @@ struct HomeView: View {
                 }
                 .navigationDestination(item: $openedTripId) { id in
                     if let trip = store.trips.first(where: { $0.id == id }) {
-                        TripDetailView(trip: trip) {
+                        TripDetailView(trip: trip, onSegmentCreated: { store.add($0) }) {
                             openedTripId = nil
                             store.remove(id: id)
                         }
