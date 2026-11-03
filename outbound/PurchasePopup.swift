@@ -5,19 +5,36 @@
 
 import SwiftUI
 
-/// A centered card for buying credits, shown over the credits page: a choice of set
-/// amounts, a button to confirm the one picked, and how trips are priced.
+/// A centered card for buying credits: a choice of set amounts, a button to confirm
+/// the one picked, and how trips are priced. Shown over the credits page, or from the
+/// trip form when a save costs more than the user has (`shortfall`), with the amount
+/// that covers it picked.
 struct PurchasePopup: View {
     let onClose: () -> Void
 
     /// How many people the "usable for" line prices a trip for.
     var members = TripPricing.includedMembers
 
+    /// The save that needs more credits, when opened from one.
+    var shortfall: TripQuote?
+
     /// The amounts on offer, in cents.
     static let amountsCents = [500, 1_500, 2_500, 5_000]
 
-    @State private var selectedCents = 1_500
+    @State private var selectedCents: Int
     @State private var showingPricing = false
+
+    init(onClose: @escaping () -> Void, members: Int = TripPricing.includedMembers, shortfall: TripQuote? = nil) {
+        self.onClose = onClose
+        self.members = members
+        self.shortfall = shortfall
+        _selectedCents = State(initialValue: shortfall.map { Self.recommendedCents(covering: $0.shortfallCents) } ?? 1_500)
+    }
+
+    /// The smallest amount on offer that covers `cents`, or the largest if none does.
+    static func recommendedCents(covering cents: Int) -> Int {
+        amountsCents.first { $0 >= cents } ?? amountsCents.last!
+    }
 
     /// One column per amount, so they all sit in a single row.
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: amountsCents.count)
@@ -57,12 +74,39 @@ struct PurchasePopup: View {
                 .contentTransition(.numericText())
                 .animation(.snappy(duration: 0.2), value: selectedCents)
 
+            if let shortfall {
+                shortfallNote(shortfall)
+            }
+
             Divider()
                 .overlay(Color.appForeground.opacity(0.12))
 
             pricing
         }
         .popupCard(onClose: onClose)
+    }
+
+    /// Why the picked amount was picked: what the save costs, what the user has, and the
+    /// difference it covers.
+    ///
+    /// TODO: placeholder wording until the final copy is written.
+    private func shortfallNote(_ quote: TripQuote) -> some View {
+        let recommended = Self.recommendedCents(covering: quote.shortfallCents)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("You need \(formatCredits(cents: quote.shortfallCents)) more credits")
+                .font(.headline)
+            Text("This trip costs \(formatCredits(cents: quote.priceCents)) and you have \(formatCredits(cents: quote.balanceCents)), so \(formatCredits(cents: quote.priceCents)) − \(formatCredits(cents: quote.balanceCents)) = \(formatCredits(cents: quote.shortfallCents)). We picked \(formatCredits(cents: recommended)), the smallest amount that covers it.")
+                .font(.footnote)
+                .foregroundStyle(Color.appForeground.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Placeholder: final explanation to come.")
+                .font(.caption)
+                .italic()
+                .foregroundStyle(Color.appForeground.opacity(0.5))
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.appForeground.opacity(0.06), in: .rect(cornerRadius: appFieldCornerRadius))
     }
 
     /// How credits are spent, collapsed until asked for: each trip day at its bracket's

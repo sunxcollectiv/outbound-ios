@@ -150,9 +150,12 @@ enum TripsAPI {
         /// POST only: the trip to group this one with, making it a segment in that trip's
         /// group.
         var extendsTripId: String?
+        /// The charge a quote showed the user for this save. The server refuses the
+        /// save (409) if it would now charge something else.
+        var expectedPriceCents: Int?
 
         private enum CodingKeys: String, CodingKey {
-            case title, description, startDate, endDate, timezone, areaIds, members, notifyMembers, extendsTripId
+            case title, description, startDate, endDate, timezone, areaIds, members, notifyMembers, extendsTripId, expectedPriceCents
         }
 
         func encode(to encoder: Encoder) throws {
@@ -168,6 +171,7 @@ enum TripsAPI {
             try c.encodeIfPresent(members, forKey: .members)
             try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
             try c.encodeIfPresent(extendsTripId, forKey: .extendsTripId)
+            try c.encodeIfPresent(expectedPriceCents, forKey: .expectedPriceCents)
         }
     }
 
@@ -185,6 +189,17 @@ enum TripsAPI {
 
     static func update(id: String, _ body: CreateRequest) -> Endpoint {
         Endpoint(path: "/trips/\(id)", method: .patch, body: body)
+    }
+
+    /// What `create(body)` would charge, with the user's balance and any shortfall.
+    /// Nothing is saved.
+    static func quote(_ body: CreateRequest) -> Endpoint {
+        Endpoint(path: "/trips/quote", method: .post, body: body)
+    }
+
+    /// What `update(id:body)` would charge (or refund). Organizers only.
+    static func quote(id: String, _ body: CreateRequest) -> Endpoint {
+        Endpoint(path: "/trips/\(id)/quote", method: .post, body: body)
     }
 
     /// Owner only; deletes the trip with everything on it. 204.

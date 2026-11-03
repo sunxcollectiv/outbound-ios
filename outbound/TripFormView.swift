@@ -49,6 +49,9 @@ struct TripFormView: View {
     @State private var isSaving = false
     @State private var isDeleting = false
     @State private var errorMessage: String?
+    /// A save that costs credits, waiting on the user: to confirm the charge, or to buy
+    /// credits first when they're short.
+    @State private var pendingCharge: PendingCharge?
 
     private enum DateField { case start, end }
 
@@ -161,7 +164,8 @@ struct TripFormView: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { homeIndicatorInset = $0 }
         .overlay { memberInvitePopup }
-        .offlinePillNearBottom(isActive: showingMemberInvite)
+        .overlay { chargePopup }
+        .offlinePillNearBottom(isActive: showingMemberInvite || pendingCharge != nil)
         .appTheme()
     }
 
@@ -354,6 +358,39 @@ struct TripFormView: View {
         }
     }
 
+    private func closeCharge() {
+        withAnimation(.snappy(duration: 0.2)) { pendingCharge = nil }
+    }
+
+    /// The charge confirmation, or the purchase popup when the user's credits fall
+    /// short, over the dimmed form.
+    @ViewBuilder
+    private var chargePopup: some View {
+        if let pendingCharge {
+            DimmedPopup(onClose: closeCharge) {
+                if pendingCharge.needsCredits {
+                    PurchasePopup(onClose: closeCharge, shortfall: pendingCharge.quote)
+                } else {
+                    ChargeConfirmationPopup(
+                        tripTitle: pendingCharge.body.title,
+                        quote: pendingCharge.quote,
+                        onConfirm: { confirmCharge(pendingCharge) },
+                        onClose: closeCharge
+                    )
+                }
+            }
+        }
+    }
+
+    private func confirmCharge(_ charge: PendingCharge) {
+        closeCharge()
+        isSaving = true
+        Task {
+            defer { isSaving = false }
+            await commit(charge.body, quote: charge.quote)
+        }
+    }
+
     /// A tappable row showing a date; tapping toggles the inline picker below it.
     private func dateRow(title: String, date: Date, field: DateField) -> some View {
         Button {
@@ -379,29 +416,57 @@ struct TripFormView: View {
         }
         errorMessage = nil
         isSaving = true
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = TripsAPI.CreateRequest(
+            title: name,
+            description: trimmedDescription.isEmpty ? nil : trimmedDescription,
+            startDate: Self.apiDateFormatter.string(from: startDate),
+            endDate: Self.apiDateFormatter.string(from: endDate),
+            // Seed the trip's days with the device's zone on create; PATCH doesn't take it.
+            timezone: isEditing ? nil : TimeZone.current.identifier,
+            areaIds: areaIdsToSave,
+            members: membersToSave,
+            notifyMembers: canNotifyMembers && notifyMembers ? true : nil,
+            extendsTripId: isEditing ? nil : segmentOf?.id
+        )
         Task {
             defer { isSaving = false }
-            do {
-                let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
-                let body = TripsAPI.CreateRequest(
-                    title: name,
-                    description: trimmedDescription.isEmpty ? nil : trimmedDescription,
-                    startDate: Self.apiDateFormatter.string(from: startDate),
-                    endDate: Self.apiDateFormatter.string(from: endDate),
-                    // Seed the trip's days with the device's zone on create; PATCH doesn't take it.
-                    timezone: isEditing ? nil : TimeZone.current.identifier,
-                    areaIds: areaIdsToSave,
-                    members: membersToSave,
-                    notifyMembers: canNotifyMembers && notifyMembers ? true : nil,
-                    extendsTripId: isEditing ? nil : segmentOf?.id
-                )
-                let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
-                let saved = try await api.send(endpoint, as: Trip.self)
-                onSaved(saved)
-                dismiss()
-            } catch {
-                errorMessage = error.localizedDescription
+            await quoteThenSave(body)
+        }
+    }
+
+    /// Asks the server what the save would cost before making it. Free saves go
+    /// straight through; otherwise the user confirms the charge, or buys credits first
+    /// when they're short (see `chargePopup`).
+    private func quoteThenSave(_ body: TripsAPI.CreateRequest, retrying: Bool = false) async {
+        do {
+            let endpoint = trip.map { TripsAPI.quote(id: $0.id, body) } ?? TripsAPI.quote(body)
+            let quote = try await api.send(endpoint, as: TripQuote.self)
+            if quote.priceCents == 0 {
+                await commit(body, quote: quote, retrying: retrying)
+            } else {
+                withAnimation(.snappy(duration: 0.2)) { pendingCharge = PendingCharge(body: body, quote: quote) }
             }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Saves the trip at the price `quote` showed. If the price or the user's credits
+    /// changed since (409, 402), quotes again once to show the new numbers.
+    private func commit(_ body: TripsAPI.CreateRequest, quote: TripQuote, retrying: Bool = false) async {
+        var body = body
+        body.expectedPriceCents = quote.priceCents
+        do {
+            let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
+            let saved = try await api.send(endpoint, as: Trip.self)
+            onSaved(saved)
+            dismiss()
+        } catch APIError.server(let status, _) where !retrying && (status == 402 || status == 409) {
+            body.expectedPriceCents = nil
+            await quoteThenSave(body, retrying: true)
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -418,4 +483,13 @@ struct TripFormView: View {
 #Preview {
     TripFormView()
         .environment(AuthStore())
+}
+
+/// A trip save that costs credits, with the quote shown for it.
+private struct PendingCharge {
+    let body: TripsAPI.CreateRequest
+    let quote: TripQuote
+
+    /// Whether the user has to buy credits before they can save.
+    var needsCredits: Bool { quote.shortfallCents > 0 }
 }
