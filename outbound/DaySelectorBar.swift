@@ -22,6 +22,9 @@ struct DaySelectorBar: View {
     /// Tapped from the plus button at either end of the row, to add a segment:
     /// `.leading` for days before the trip, `.trailing` for days after.
     var onAddSegment: (HorizontalEdge) -> Void = { _ in }
+    /// The ends that show the plus button; an end left out keeps its empty cell, so the
+    /// row's layout doesn't change.
+    var segmentEdges: Set<HorizontalEdge> = [.leading, .trailing]
 
     var body: some View {
         GeometryReader { geo in
@@ -41,14 +44,14 @@ struct DaySelectorBar: View {
                         HStack(spacing: 0) {
                             // The add-segment buttons sit in the side insets, so the first
                             // and last days still scroll to center.
-                            addSegmentButton(.leading)
+                            segmentEnd(.leading)
                                 .frame(width: cellWidth)
                             ForEach(days) { day in
                                 dayCell(day)
                                     .frame(width: cellWidth)
                                     .id(day.dayNumber)
                             }
-                            addSegmentButton(.trailing)
+                            segmentEnd(.trailing)
                                 .frame(width: cellWidth)
                         }
                         .padding(.horizontal, max(sideInset - cellWidth, 0))
@@ -103,6 +106,15 @@ struct DaySelectorBar: View {
 
     /// A small dark plus disc past the first or last day, for adding days on that side.
     /// Smaller than the day circles so it reads as an action, not another day.
+    @ViewBuilder
+    private func segmentEnd(_ edge: HorizontalEdge) -> some View {
+        if segmentEdges.contains(edge) {
+            addSegmentButton(edge)
+        } else {
+            Color.clear
+        }
+    }
+
     private func addSegmentButton(_ edge: HorizontalEdge) -> some View {
         Button {
             onAddSegment(edge)

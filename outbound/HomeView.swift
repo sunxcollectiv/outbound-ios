@@ -98,9 +98,8 @@ struct HomeView: View {
                 }
                 .navigationDestination(item: $openedTripId) { id in
                     if let trip = store.trips.first(where: { $0.id == id }) {
-                        TripDetailView(trip: trip, onSegmentCreated: { segment in
-                            store.add(segment)
-                            // Adding a segment puts the trip it was added to into a group too.
+                        TripDetailView(trip: trip, groupTrips: trip.extensions ?? [], onSegmentCreated: { _ in
+                            // The list nests a segment under the trip it was added to.
                             Task { await store.load() }
                         }) {
                             openedTripId = nil

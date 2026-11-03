@@ -31,6 +31,9 @@ struct Trip: Codable, Identifiable, Equatable {
     /// The trip this one was added as a segment of; nil for a trip that wasn't, or
     /// once that trip is deleted (the group stays).
     var extendsTripId: String?
+    /// In the trip list only: the user's other trips in this one's group, by start date.
+    /// The list shows them as one entry, whose `startDate`/`endDate` then span them all.
+    var extensions: [Trip]?
     let createdAt: Date
     let updatedAt: Date
 }

@@ -104,6 +104,9 @@ struct TripDetailView: View {
     /// Coordinate space used to measure each card's position for the fade behind the picker.
     private static let detailSpace = "itineraryDetail"
 
+    /// The user's other trips in this trip's group; an end of the day picker one of them
+    /// reaches gets no add-segment button.
+    private let groupTrips: [Trip]
     /// Called with a segment created from the day picker, for the trip list.
     private let onSegmentCreated: (Trip) -> Void
     /// Called after the trip is deleted from its edit form; the presenter closes this screen.
@@ -112,9 +115,11 @@ struct TripDetailView: View {
     init(
         trip: Trip,
         days: [ItineraryDay]? = nil,
+        groupTrips: [Trip] = [],
         onSegmentCreated: @escaping (Trip) -> Void = { _ in },
         onDeleted: @escaping () -> Void = {}
     ) {
+        self.groupTrips = groupTrips
         self.onSegmentCreated = onSegmentCreated
         self.onDeleted = onDeleted
         _trip = State(initialValue: trip)
@@ -153,9 +158,9 @@ struct TripDetailView: View {
                     // (wide, scrollable) content can never grow the pager or change the
                     // width of the page content behind it.
                     .overlay(alignment: .bottom) {
-                        DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress) { edge in
+                        DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress, onAddSegment: { edge in
                             segmentRequest = SegmentRequest(edge: edge)
-                        }
+                        }, segmentEdges: openSegmentEdges)
                         .revealIn(hasRevealed)
                     }
                     // A task rather than onAppear: the pager settles on the selected day in
@@ -236,6 +241,8 @@ struct TripDetailView: View {
         .sheet(item: $segmentRequest) { request in
             TripFormView(segmentOf: trip, segmentEdge: request.edge) { segment in
                 onSegmentCreated(segment)
+                // The itinerary merges the user's trips in a group, so it now has the new days.
+                Task { await load() }
                 showToast(TripToast(text: "Added \(segment.title)", systemImage: "checkmark.circle.fill"))
             }
         }
@@ -495,6 +502,19 @@ struct TripDetailView: View {
 
     private func closeTripMenu() {
         withAnimation(.snappy(duration: 0.2)) { showingTripMenu = false }
+    }
+
+    /// The ends of the trip with no group trip of the user's past them yet; one segment
+    /// on each side is all a user needs.
+    private var openSegmentEdges: Set<HorizontalEdge> {
+        var edges: Set<HorizontalEdge> = [.leading, .trailing]
+        for other in groupTrips where other.id != trip.id {
+            // `trip`'s dates may already span its group (as the list sends them), so a
+            // trip reaching either end counts.
+            if other.startDate <= trip.startDate { edges.remove(.leading) }
+            if other.endDate >= trip.endDate { edges.remove(.trailing) }
+        }
+        return edges
     }
 
     /// The open trip menu, hung below the header's trailing edge; tapping anywhere else
