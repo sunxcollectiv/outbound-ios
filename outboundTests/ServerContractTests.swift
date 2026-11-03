@@ -157,7 +157,7 @@ struct ServerContractTests {
     }
 
     /// Segments: a member adds a trip of their own next to one they're on, and the two
-    /// join one group. Dates must touch or overlap; a gap is refused.
+    /// join one group, whatever their dates.
     @Test func tripSegments() async throws {
         let owner = try await register("Contract Owner")
         let friend = try await register("Contract Friend")
@@ -183,13 +183,13 @@ struct ServerContractTests {
         let ownerList = try await owner.api.send(TripsAPI.list, as: [Trip].self)
         #expect(ownerList.first { $0.id == trip.id }?.groupId == groupId)
 
-        // A segment with a day between it and the trip is refused.
-        await #expect {
-            try await friend.api.send(TripsAPI.create(.init(
-                title: "Contract gap", description: nil,
-                startDate: "\(year)-03-07", endDate: "\(year)-03-08", extendsTripId: trip.id
-            )), as: Trip.self)
-        } throws: { status(of: $0) == 422 }
+        // A segment needn't touch the trip: one with days between them joins the group too.
+        let gap = try await friend.api.send(TripsAPI.create(.init(
+            title: "Contract gap", description: nil,
+            startDate: "\(year)-03-08", endDate: "\(year)-03-09", extendsTripId: trip.id
+        )), as: Trip.self)
+        defer { Task { try? await friend.api.send(TripsAPI.delete(id: gap.id)) } }
+        #expect(gap.groupId == groupId)
 
         // Only people on the trip can add a segment to it.
         let stranger = try await register("Contract Stranger")
