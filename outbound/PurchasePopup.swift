@@ -155,6 +155,8 @@ struct PurchasePopup: View {
                 "Your payment went through. Your credits will be added as soon as we can confirm it."
             case .pending:
                 "Your purchase is waiting for approval. Your credits will be added once it's approved."
+            case .refused:
+                credits.errorMessage ?? "Your purchase couldn't be added to this account."
             case .failed:
                 credits.errorMessage ?? "The purchase couldn't be completed. Please try again."
             }

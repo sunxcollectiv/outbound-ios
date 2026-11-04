@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		9E015310307900000000000D /* NotificationContent.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9E0153103079000000000002 /* NotificationContent.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		9ED98A61309BA2CD00D380E3 /* TestStoreKitConfig.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 9ED98A60309BA2CD00D380E3 /* TestStoreKitConfig.storekit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -54,7 +53,6 @@
 		9E0152E23078A76F000E65AB /* outboundTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = outboundTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9E0152EC3078A76F000E65AB /* outboundUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = outboundUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9E0153103079000000000002 /* NotificationContent.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationContent.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		9ED98A60309BA2CD00D380E3 /* TestStoreKitConfig.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = TestStoreKitConfig.storekit; sourceTree = "<group>"; };
 		9ED98A62309BA2CD00D380E3 /* Outbound.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Outbound.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -130,7 +128,6 @@
 			isa = PBXGroup;
 			children = (
 				9ED98A62309BA2CD00D380E3 /* Outbound.storekit */,
-				9ED98A60309BA2CD00D380E3 /* TestStoreKitConfig.storekit */,
 				9E0152D53078A76D000E65AB /* outbound */,
 				9E0152E53078A76F000E65AB /* outboundTests */,
 				9E0152EF3078A76F000E65AB /* outboundUITests */,
@@ -319,7 +316,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				9ED98A61309BA2CD00D380E3 /* TestStoreKitConfig.storekit in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

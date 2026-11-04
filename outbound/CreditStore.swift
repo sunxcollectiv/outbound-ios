@@ -34,6 +34,8 @@ enum CreditPurchaseOutcome: Equatable {
     /// Waiting on approval (e.g. Ask to Buy); it's credited when approved.
     case pending
     case cancelled
+    /// Paid for, but the server refused to credit it (`errorMessage` says why).
+    case refused
     case failed
 }
 
@@ -41,7 +43,8 @@ enum CreditPurchaseOutcome: Equatable {
 ///
 /// A purchase is only finished with StoreKit once the server has credited it, so one
 /// the server didn't get (offline, an error) is sent again from
-/// `Transaction.unfinished` until it's credited.
+/// `Transaction.unfinished` until it's credited. One the server refuses isn't sent
+/// again on every load (see `deliver`).
 @Observable
 final class CreditStore {
     private(set) var credits: CreditsAPI.Credits?
@@ -53,6 +56,10 @@ final class CreditStore {
 
     private let api: APIClient
     private var isObservingTransactions = false
+    /// Purchases the server refused but that may yet be credited (see `deliver`): left
+    /// unfinished, but not sent again until the next launch or sign-in, which starts a
+    /// new store.
+    private var heldTransactionIDs: Set<UInt64> = []
 
     init(api: APIClient = .shared) {
         self.api = api
@@ -133,6 +140,7 @@ final class CreditStore {
 
     private func deliverUnfinished() async {
         for await result in Transaction.unfinished {
+            guard !heldTransactionIDs.contains(result.unsafePayloadValue.id) else { continue }
             _ = await deliver(result)
         }
     }
@@ -159,7 +167,34 @@ final class CreditStore {
             await transaction.finish()
             errorMessage = nil
             return .credited
+        } catch let error as APIError {
+            return await handleRefusal(error, of: transaction)
         } catch {
+            return .awaitingCredit
+        }
+    }
+
+    /// What to do with a purchase the server didn't credit, by why. Only a purchase that
+    /// can never be credited here is finished; finishing one that could be would lose
+    /// what the user paid for.
+    private func handleRefusal(_ error: APIError, of transaction: Transaction) async -> CreditPurchaseOutcome {
+        guard case .server(let status, let message) = error else { return .awaitingCredit }
+        switch status {
+        case 409:
+            // Already credited to another account: done, and sending it again changes
+            // nothing.
+            await transaction.finish()
+            errorMessage = "These credits were already added to another account."
+            return .refused
+        case 403, 422:
+            // 403: bought for another account, whose owner may sign in here later.
+            // 422: couldn't be verified, which a misconfigured server can cause too.
+            // Kept unfinished, but not sent again until the next launch or sign-in.
+            heldTransactionIDs.insert(transaction.id)
+            errorMessage = message ?? "Your purchase couldn't be added to this account."
+            return .refused
+        default:
+            // Unreachable, unauthorized or a server error: worth trying again.
             return .awaitingCredit
         }
     }

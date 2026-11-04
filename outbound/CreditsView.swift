@@ -22,26 +22,6 @@ struct CreditLedgerEntry: Identifiable, Equatable, Codable {
     }
 }
 
-extension CreditLedgerEntry {
-    /// The balance the lines add up to, in cents.
-    static func balanceCents(of entries: [CreditLedgerEntry]) -> Int {
-        entries.reduce(0) { $0 + $1.amountCents }
-    }
-
-    /// Example lines for previews, newest first.
-    static let samples: [CreditLedgerEntry] = {
-        let now = Date()
-        func daysAgo(_ days: Double) -> Date { now.addingTimeInterval(-days * 86_400) }
-        return [
-            CreditLedgerEntry(id: "5", title: "Unlocked Lisbon Weekend", amountCents: -499, date: daysAgo(2)),
-            CreditLedgerEntry(id: "4", title: "Added credits", amountCents: 1_000, date: daysAgo(3)),
-            CreditLedgerEntry(id: "3", title: "Unlocked Tokyo 2026", amountCents: -999, date: daysAgo(21)),
-            CreditLedgerEntry(id: "2", title: "Unlocked Big Sur Road Trip", amountCents: -499, date: daysAgo(45)),
-            CreditLedgerEntry(id: "1", title: "Added credits", amountCents: 2_000, date: daysAgo(46)),
-        ]
-    }()
-}
-
 /// Formats cents as dollars, e.g. 1050 → "$10.50"; with `signed`, "+$10.50" or "−$4.99".
 func formatCredits(cents: Int, signed: Bool = false) -> String {
     let dollars = (Decimal(abs(cents)) / 100).formatted(.currency(code: "USD"))
