@@ -164,9 +164,7 @@ struct PurchasePopup: View {
     }
 
     /// Why the picked amount was picked: what the save costs, what the user has, and the
-    /// difference it covers.
-    ///
-    /// TODO: placeholder wording until the final copy is written.
+    /// difference it covers, with how the price adds up.
     private func shortfallNote(_ quote: TripQuote) -> some View {
         let recommended = Self.recommendedCents(covering: quote.shortfallCents)
         return VStack(alignment: .leading, spacing: 8) {
@@ -176,10 +174,8 @@ struct PurchasePopup: View {
                 .font(.footnote)
                 .foregroundStyle(Color.appForeground.opacity(0.7))
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Placeholder: final explanation to come.")
-                .font(.caption)
-                .italic()
-                .foregroundStyle(Color.appForeground.opacity(0.5))
+            PriceBreakdown(quote: quote)
+                .padding(.top, 4)
             if let refundsGoTo {
                 OwnerRefundNote(owner: refundsGoTo)
                     .padding(.top, 4)

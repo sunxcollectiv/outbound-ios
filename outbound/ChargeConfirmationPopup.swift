@@ -17,8 +17,6 @@ struct ChargeConfirmationPopup: View {
     let onConfirm: () -> Void
     let onClose: () -> Void
 
-    @State private var showingBreakdown = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Confirm Credits", systemImage: "creditcard.fill")
@@ -46,7 +44,7 @@ struct ChargeConfirmationPopup: View {
                 OwnerRefundNote(owner: refundsGoTo)
             }
 
-            breakdown
+            PriceBreakdown(quote: quote)
 
             Button(action: onConfirm) {
                 Text("Use \(formatCredits(cents: quote.priceCents))")
@@ -69,90 +67,6 @@ struct ChargeConfirmationPopup: View {
                 .monospacedDigit()
         }
         .font(.subheadline)
-        .accessibilityElement(children: .combine)
-    }
-
-    /// How the price adds up, collapsed until asked for.
-    ///
-    /// TODO: placeholder wording; the final explanation (and how it shows a change to an
-    /// already-paid trip) is still to be written.
-    private var breakdown: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                withAnimation(PopupCard.resizeAnimation) { showingBreakdown.toggle() }
-            } label: {
-                HStack {
-                    Text("How we got this")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color.appForeground.opacity(0.6))
-                        .rotationEffect(.degrees(showingBreakdown ? 180 : 0))
-                }
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityValue(showingBreakdown ? "Expanded" : "Collapsed")
-
-            if showingBreakdown {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("\(quote.days) \(quote.days == 1 ? "day" : "days") for \(quote.members) \(quote.members == 1 ? "person" : "people")")
-                        .font(.footnote.weight(.semibold))
-                    ForEach(Array(quote.tripLines.enumerated()), id: \.offset) { _, line in
-                        lineRow(line, label: Self.daysText(line))
-                    }
-                    if quote.extraMembers > 0 {
-                        Text(Self.memberDaysText(extraMembers: quote.extraMembers, days: quote.days))
-                            .font(.footnote.weight(.semibold))
-                            .padding(.top, 4)
-                        // Each line already covers everyone extra: the brackets run over
-                        // all their member-days together.
-                        ForEach(Array(quote.memberLines.enumerated()), id: \.offset) { _, line in
-                            lineRow(line, label: Self.memberDaysRangeText(line))
-                        }
-                    }
-                    Text("Placeholder: a fuller explanation of this charge is coming.")
-                        .font(.caption)
-                        .italic()
-                        .foregroundStyle(Color.appForeground.opacity(0.5))
-                        .padding(.top, 4)
-                }
-                .foregroundStyle(Color.appForeground.opacity(0.8))
-                .transition(PopupCard.contentTransition)
-            }
-        }
-    }
-
-    /// A bracket's days, e.g. "Day 1" or "Days 4–9".
-    static func daysText(_ line: TripPricing.Line) -> String {
-        line.firstDay == line.lastDay ? "Day \(line.firstDay)" : "Days \(line.firstDay)–\(line.lastDay)"
-    }
-
-    /// How the extra member-days add up, e.g. "3 extra people × 5 days = 15 member-days".
-    static func memberDaysText(extraMembers: Int, days: Int) -> String {
-        let people = extraMembers == 1 ? "1 extra person" : "\(extraMembers) extra people"
-        let total = extraMembers * days
-        return "\(people) × \(days) \(days == 1 ? "day" : "days") = \(total) \(total == 1 ? "member-day" : "member-days")"
-    }
-
-    /// A member bracket's member-days, e.g. "Member-day 1" or "Member-days 1–10".
-    static func memberDaysRangeText(_ line: TripPricing.Line) -> String {
-        line.firstDay == line.lastDay ? "Member-day \(line.firstDay)" : "Member-days \(line.firstDay)–\(line.lastDay)"
-    }
-
-    /// One bracket of the price, e.g. "Days 1–3   3 × $1.60   $4.80".
-    private func lineRow(_ line: TripPricing.Line, label: String) -> some View {
-        HStack {
-            Text(label)
-            Spacer(minLength: 8)
-            Text("\(line.days) × \(formatCredits(cents: line.centsPerDay))")
-                .foregroundStyle(Color.appForeground.opacity(0.6))
-            Text(formatCredits(cents: line.cents))
-                .frame(minWidth: 56, alignment: .trailing)
-        }
-        .font(.footnote)
-        .monospacedDigit()
         .accessibilityElement(children: .combine)
     }
 }
