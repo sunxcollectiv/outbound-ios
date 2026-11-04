@@ -11,6 +11,9 @@ import SwiftUI
 struct ChargeConfirmationPopup: View {
     let tripTitle: String
     let quote: TripQuote
+    /// The trip owner's name when someone else is paying (an organizer editing the
+    /// trip): refunds only ever go to the owner, so the payer is told up front.
+    var refundsGoTo: String? = nil
     let onConfirm: () -> Void
     let onClose: () -> Void
 
@@ -38,6 +41,10 @@ struct ChargeConfirmationPopup: View {
             }
             .padding(14)
             .background(Color.appForeground.opacity(0.06), in: .rect(cornerRadius: appFieldCornerRadius))
+
+            if let refundsGoTo {
+                OwnerRefundNote(owner: refundsGoTo)
+            }
 
             breakdown
 
@@ -130,6 +137,25 @@ struct ChargeConfirmationPopup: View {
         .font(.footnote)
         .monospacedDigit()
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Warns a payer who isn't the trip's owner that credits spent on it don't come back
+/// to them: refunds for a shortened or cancelled trip always go to the owner.
+struct OwnerRefundNote: View {
+    /// The owner's name.
+    let owner: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle")
+                .font(.footnote.weight(.semibold))
+            Text("You're not this trip's owner. If the trip is later shortened or cancelled, any refunded credits go to \(owner), not back to you.")
+                .font(.footnote)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Color.appForeground.opacity(0.8))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

@@ -42,7 +42,10 @@ struct TripDetailView: View {
     /// Presented via `.sheet(item:)` so the form receives the value directly; with
     /// `.sheet(isPresented:)` the content closure could capture a stale date.
     @State private var addItemRequest: AddItemRequest?
-    @State private var showingEditTrip = false
+    /// The trip open in the edit form: this one, or the extension the viewed day is on.
+    @State private var tripToEdit: Trip?
+    /// The trip the delete confirmation is for (see `menuTrip`).
+    @State private var tripToDelete: Trip?
     /// A pending add-segment sheet, from the day picker's plus at either end.
     @State private var segmentRequest: SegmentRequest?
     /// Whether the dropdown under the header's more button is open.
@@ -229,17 +232,17 @@ struct TripDetailView: View {
             }
         }
         .confirmationDialog("Delete this trip?", isPresented: $confirmingDeleteTrip, titleVisibility: .visible) {
-            Button("Delete", role: .destructive, action: deleteTrip)
+            Button("Delete", role: .destructive) { tripToDelete.map(deleteTrip) }
         } message: {
             Text("Everything on it is deleted for everyone on the trip. This can't be undone.")
         }
-        .sheet(isPresented: $showingEditTrip) {
-            TripFormView(trip: trip) { updated in
-                trip = updated
+        .sheet(item: $tripToEdit) { edited in
+            TripFormView(trip: edited) { updated in
+                if updated.id == trip.id { trip = updated }
                 // Dates may have shifted, so rebuild the day-by-day itinerary.
                 Task { await load() }
             } onDeleted: {
-                onDeleted()
+                tripDeleted(edited)
             }
         }
         .sheet(item: $segmentRequest) { request in
@@ -493,15 +496,33 @@ struct TripDetailView: View {
     }
 
     /// Deletes the trip from its menu, then leaves it for the presenter to close.
-    private func deleteTrip() {
+    private func deleteTrip(_ target: Trip) {
         Task {
             do {
-                try await api.send(TripsAPI.delete(id: trip.id))
-                onDeleted()
+                try await api.send(TripsAPI.delete(id: target.id))
+                tripDeleted(target)
             } catch {
                 showToast(TripToast(text: "Couldn't delete the trip", systemImage: "exclamationmark.triangle.fill"))
             }
         }
+    }
+
+    /// After `deleted` is gone: this trip closes the screen; an extension of it just
+    /// drops out of the merged itinerary.
+    private func tripDeleted(_ deleted: Trip) {
+        if deleted.id == trip.id {
+            onDeleted()
+        } else {
+            Task { await load() }
+        }
+    }
+
+    /// The trip the menu's trip actions apply to: the extension the viewed day is on,
+    /// or this trip (also for days no trip covers).
+    private var menuTrip: Trip {
+        guard let tripId = selectedDay?.tripId, tripId != trip.id,
+              let dayTrip = itineraryTrips.first(where: { $0.id == tripId }) else { return trip }
+        return dayTrip
     }
 
     private func closeTripMenu() {
@@ -533,7 +554,7 @@ struct TripDetailView: View {
                         .onTapGesture { closeTripMenu() }
                         .accessibilityHidden(true)
                     TripMenu(
-                        trip: trip,
+                        trip: menuTrip,
                         onAddItem: { kind in
                             closeTripMenu()
                             addItemRequest = AddItemRequest(date: selectedDay?.calendarDate, kind: kind)
@@ -548,12 +569,13 @@ struct TripDetailView: View {
                         },
                         onEditTrip: {
                             closeTripMenu()
-                            showingEditTrip = true
+                            tripToEdit = menuTrip
                         },
                         // Not built yet.
                         onShare: { closeTripMenu() },
-                        onDeleteTrip: trip.ownerId == auth.currentUser?.id ? {
+                        onDeleteTrip: menuTrip.ownerId == auth.currentUser?.id ? {
                             closeTripMenu()
+                            tripToDelete = menuTrip
                             confirmingDeleteTrip = true
                         } : nil
                     )

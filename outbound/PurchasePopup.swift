@@ -17,6 +17,8 @@ struct PurchasePopup: View {
 
     /// The save that needs more credits, when opened from one.
     var shortfall: TripQuote?
+    /// The trip owner's name when the buyer isn't the owner (see `OwnerRefundNote`).
+    var refundsGoTo: String?
 
     /// The amounts on offer, in cents.
     static let amountsCents = [500, 1_500, 2_500, 5_000]
@@ -24,10 +26,11 @@ struct PurchasePopup: View {
     @State private var selectedCents: Int
     @State private var showingPricing = false
 
-    init(onClose: @escaping () -> Void, members: Int = TripPricing.includedMembers, shortfall: TripQuote? = nil) {
+    init(onClose: @escaping () -> Void, members: Int = TripPricing.includedMembers, shortfall: TripQuote? = nil, refundsGoTo: String? = nil) {
         self.onClose = onClose
         self.members = members
         self.shortfall = shortfall
+        self.refundsGoTo = refundsGoTo
         _selectedCents = State(initialValue: shortfall.map { Self.recommendedCents(covering: $0.shortfallCents) } ?? 1_500)
     }
 
@@ -103,6 +106,10 @@ struct PurchasePopup: View {
                 .font(.caption)
                 .italic()
                 .foregroundStyle(Color.appForeground.opacity(0.5))
+            if let refundsGoTo {
+                OwnerRefundNote(owner: refundsGoTo)
+                    .padding(.top, 4)
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

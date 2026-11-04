@@ -183,6 +183,11 @@ enum TripsAPI {
 
     static let list = Endpoint(path: "/trips", cachesResponse: true)
 
+    /// One trip with its own dates (the list's span a trip's whole group).
+    static func read(id: String) -> Endpoint {
+        Endpoint(path: "/trips/\(id)")
+    }
+
     static func create(_ body: CreateRequest) -> Endpoint {
         Endpoint(path: "/trips", method: .post, body: body)
     }

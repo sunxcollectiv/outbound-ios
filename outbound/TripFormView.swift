@@ -49,6 +49,10 @@ struct TripFormView: View {
     @State private var isSaving = false
     @State private var isDeleting = false
     @State private var errorMessage: String?
+    /// Whether an edited trip's own dates are still loading. A trip from the list that
+    /// has extensions carries its whole group's span instead, which saving would write
+    /// over the trip's real dates, so saving waits for them.
+    @State private var isLoadingOwnDates: Bool
     /// A save that costs credits, waiting on the user: to confirm the charge, or to buy
     /// credits first when they're short.
     @State private var pendingCharge: PendingCharge?
@@ -82,6 +86,7 @@ struct TripFormView: View {
         let others = (trip?.members ?? []).filter { $0.user?.id != trip?.ownerId }.map(\.email)
         originalMemberEmails = others
         _memberEmails = State(initialValue: others)
+        _isLoadingOwnDates = State(initialValue: trip?.extensions?.isEmpty == false)
     }
 
     var body: some View {
@@ -163,6 +168,7 @@ struct TripFormView: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { homeIndicatorInset = $0 }
+        .task { await loadOwnDates() }
         .overlay { memberInvitePopup }
         .overlay { chargePopup }
         .offlinePillNearBottom(isActive: showingMemberInvite || pendingCharge != nil)
@@ -210,7 +216,7 @@ struct TripFormView: View {
             notifyLabel: canNotifyMembers ? "Notify members of changes" : nil,
             notifyMembers: $notifyMembers,
             saveTitle: isEditing ? "Save" : segmentOf != nil ? "Add Segment" : "Add Trip",
-            canSave: !title.trimmingCharacters(in: .whitespaces).isEmpty,
+            canSave: !title.trimmingCharacters(in: .whitespaces).isEmpty && !isLoadingOwnDates,
             isSaving: isSaving,
             onSave: save,
             delete: canDelete
@@ -225,6 +231,24 @@ struct TripFormView: View {
             homeIndicatorInset: homeIndicatorInset,
             background: .appBackground
         )
+    }
+
+    /// Replaces the group-wide dates the list gave with the trip's own (see
+    /// `isLoadingOwnDates`).
+    private func loadOwnDates() async {
+        guard isLoadingOwnDates, let trip else { return }
+        do {
+            let own = try await api.send(TripsAPI.read(id: trip.id), as: Trip.self)
+            if let start = Self.apiDateFormatter.date(from: own.startDate),
+               let end = Self.apiDateFormatter.date(from: own.endDate) {
+                startDate = start
+                endDate = end
+            }
+            isLoadingOwnDates = false
+        } catch {
+            // Saving stays off rather than risk writing the group's span over the trip.
+            errorMessage = "Couldn't load this trip's dates. Close and try again."
+        }
     }
 
     private func delete() {
@@ -369,17 +393,27 @@ struct TripFormView: View {
         if let pendingCharge {
             DimmedPopup(onClose: closeCharge) {
                 if pendingCharge.needsCredits {
-                    PurchasePopup(onClose: closeCharge, shortfall: pendingCharge.quote)
+                    PurchasePopup(onClose: closeCharge, shortfall: pendingCharge.quote, refundsGoTo: ownerNameIfNotPayer)
                 } else {
                     ChargeConfirmationPopup(
                         tripTitle: pendingCharge.body.title,
                         quote: pendingCharge.quote,
+                        refundsGoTo: ownerNameIfNotPayer,
                         onConfirm: { confirmCharge(pendingCharge) },
                         onClose: closeCharge
                     )
                 }
             }
         }
+    }
+
+    /// The owner's name when an organizer other than the owner is editing, since any
+    /// refund for the trip goes to the owner. Nil for the owner, and for a new trip
+    /// (whoever creates it owns it).
+    private var ownerNameIfNotPayer: String? {
+        guard let trip, let ownerId = trip.ownerId, ownerId != auth.currentUser?.id else { return nil }
+        let owner = trip.members?.first { $0.user?.id == ownerId }
+        return owner?.user?.displayName ?? owner?.email ?? "the trip's owner"
     }
 
     private func confirmCharge(_ charge: PendingCharge) {
