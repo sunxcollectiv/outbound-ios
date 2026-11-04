@@ -9,6 +9,7 @@ import SwiftUI
 /// signing out.
 struct ProfileDrawer: View {
     @Environment(AuthStore.self) private var auth
+    @Environment(CreditStore.self) private var credits
 
     /// Called before signing out, so the drawer can close first.
     var onSignOut: () -> Void = {}
@@ -35,10 +36,12 @@ struct ProfileDrawer: View {
                     Label("Credits", systemImage: "creditcard")
                         .font(.body.weight(.semibold))
                     Spacer()
-                    Text(formatCredits(cents: CreditLedgerEntry.balanceCents(of: CreditLedgerEntry.samples)))
-                        .font(.subheadline)
-                        .monospacedDigit()
-                        .foregroundStyle(Color.appForeground.opacity(0.7))
+                    if let balance = credits.balanceCents {
+                        Text(formatCredits(cents: balance))
+                            .font(.subheadline)
+                            .monospacedDigit()
+                            .foregroundStyle(Color.appForeground.opacity(0.7))
+                    }
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Color.appForeground.opacity(0.5))
@@ -117,4 +120,5 @@ struct AvatarView: View {
 #Preview {
     ProfileDrawer()
         .environment(AuthStore())
+        .environment(CreditStore())
 }

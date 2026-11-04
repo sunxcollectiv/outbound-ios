@@ -17,8 +17,6 @@ struct ChargeConfirmationPopup: View {
     let onConfirm: () -> Void
     let onClose: () -> Void
 
-    @State private var showingBreakdown = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Confirm Credits", systemImage: "creditcard.fill")
@@ -46,7 +44,7 @@ struct ChargeConfirmationPopup: View {
                 OwnerRefundNote(owner: refundsGoTo)
             }
 
-            breakdown
+            PriceBreakdown(quote: quote)
 
             Button(action: onConfirm) {
                 Text("Use \(formatCredits(cents: quote.priceCents))")
@@ -69,73 +67,6 @@ struct ChargeConfirmationPopup: View {
                 .monospacedDigit()
         }
         .font(.subheadline)
-        .accessibilityElement(children: .combine)
-    }
-
-    /// How the price adds up, collapsed until asked for.
-    ///
-    /// TODO: placeholder wording; the final explanation (and how it shows a change to an
-    /// already-paid trip) is still to be written.
-    private var breakdown: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                withAnimation(PopupCard.resizeAnimation) { showingBreakdown.toggle() }
-            } label: {
-                HStack {
-                    Text("How we got this")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color.appForeground.opacity(0.6))
-                        .rotationEffect(.degrees(showingBreakdown ? 180 : 0))
-                }
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityValue(showingBreakdown ? "Expanded" : "Collapsed")
-
-            if showingBreakdown {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("\(quote.days) \(quote.days == 1 ? "day" : "days") for \(quote.members) \(quote.members == 1 ? "person" : "people")")
-                        .font(.footnote.weight(.semibold))
-                    ForEach(Array(quote.tripLines.enumerated()), id: \.offset) { _, line in
-                        lineRow(line, label: Self.daysText(line))
-                    }
-                    if quote.extraMembers > 0 {
-                        ForEach(Array(quote.memberLines.enumerated()), id: \.offset) { _, line in
-                            lineRow(line, label: "\(quote.extraMembers) extra × \(Self.daysText(line).lowercased())", times: quote.extraMembers)
-                        }
-                    }
-                    Text("Placeholder: a fuller explanation of this charge is coming.")
-                        .font(.caption)
-                        .italic()
-                        .foregroundStyle(Color.appForeground.opacity(0.5))
-                        .padding(.top, 4)
-                }
-                .foregroundStyle(Color.appForeground.opacity(0.8))
-                .transition(PopupCard.contentTransition)
-            }
-        }
-    }
-
-    /// A bracket's days, e.g. "Day 1" or "Days 4–9".
-    static func daysText(_ line: TripPricing.Line) -> String {
-        line.firstDay == line.lastDay ? "Day \(line.firstDay)" : "Days \(line.firstDay)–\(line.lastDay)"
-    }
-
-    /// One bracket of the price, e.g. "Days 1–3   3 × $1.60   $4.80".
-    private func lineRow(_ line: TripPricing.Line, label: String, times: Int = 1) -> some View {
-        HStack {
-            Text(label)
-            Spacer(minLength: 8)
-            Text("\(line.days) × \(formatCredits(cents: line.centsPerDay))")
-                .foregroundStyle(Color.appForeground.opacity(0.6))
-            Text(formatCredits(cents: line.cents * times))
-                .frame(minWidth: 56, alignment: .trailing)
-        }
-        .font(.footnote)
-        .monospacedDigit()
         .accessibilityElement(children: .combine)
     }
 }
@@ -163,10 +94,18 @@ struct OwnerRefundNote: View {
     DimmedPopup(onClose: {}) {
         ChargeConfirmationPopup(
             tripTitle: "Before",
+            // 3 extra people × 5 days = 15 member-days, on the "2026-11" rates.
             quote: TripQuote(
-                days: 3, members: 2, extraMembers: 0, priceCents: 480, refundCents: 0,
+                days: 5, members: 8, extraMembers: 3, priceCents: 915, refundCents: 0,
                 balanceCents: 2_000, shortfallCents: 0,
-                tripLines: TripPricing.breakdown(days: 3), memberLines: []
+                tripLines: [
+                    TripPricing.Line(firstDay: 1, lastDay: 3, centsPerDay: 160),
+                    TripPricing.Line(firstDay: 4, lastDay: 5, centsPerDay: 80),
+                ],
+                memberLines: [
+                    TripPricing.Line(firstDay: 1, lastDay: 10, centsPerDay: 20),
+                    TripPricing.Line(firstDay: 11, lastDay: 15, centsPerDay: 15),
+                ]
             ),
             onConfirm: {}, onClose: {}
         )

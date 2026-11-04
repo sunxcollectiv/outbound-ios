@@ -19,6 +19,9 @@ struct FormBottomBar: View {
         let confirmation: String
         let message: String
         let action: () -> Void
+        /// Asks in the caller's own popup instead of the system confirmation, which
+        /// `confirmation`, `message` and `action` are then left to.
+        var onRequest: (() -> Void)? = nil
     }
 
     /// The notify checkbox's label; nil hides the checkbox.
@@ -104,7 +107,11 @@ struct FormBottomBar: View {
 
     private func deleteButton(_ delete: Delete) -> some View {
         Button(role: .destructive) {
-            confirmingDelete = true
+            if let onRequest = delete.onRequest {
+                onRequest()
+            } else {
+                confirmingDelete = true
+            }
         } label: {
             Group {
                 if isDeleting {

@@ -1,0 +1,93 @@
+{
+  "appPolicies": {
+    "eula": "",
+    "policies": [
+      {
+        "locale": "en_US",
+        "policyText": "",
+        "policyURL": ""
+      }
+    ]
+  },
+  "identifier": "8F2C1B9A",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "5.00",
+      "familyShareable": false,
+      "internalID": "10000500",
+      "localizations": [
+        {
+          "description": "$5 of credits for unlocking trips",
+          "displayName": "$5 Credits",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "earth.outbound.credits.500",
+      "referenceName": "Credits 5",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "15.00",
+      "familyShareable": false,
+      "internalID": "10001500",
+      "localizations": [
+        {
+          "description": "$15 of credits for unlocking trips",
+          "displayName": "$15 Credits",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "earth.outbound.credits.1500",
+      "referenceName": "Credits 15",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "25.00",
+      "familyShareable": false,
+      "internalID": "10002500",
+      "localizations": [
+        {
+          "description": "$25 of credits for unlocking trips",
+          "displayName": "$25 Credits",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "earth.outbound.credits.2500",
+      "referenceName": "Credits 25",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "50.00",
+      "familyShareable": false,
+      "internalID": "10005000",
+      "localizations": [
+        {
+          "description": "$50 of credits for unlocking trips",
+          "displayName": "$50 Credits",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "earth.outbound.credits.5000",
+      "referenceName": "Credits 50",
+      "type": "Consumable"
+    }
+  ],
+  "settings": {
+    "_askToBuyEnabled": false,
+    "_billingGracePeriodEnabled": false,
+    "_billingIssuesEnabled": false,
+    "_disableDialogs": false,
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_renewalBillingIssuesEnabled": false,
+    "_storefront": "USA",
+    "_storeKitErrors": [],
+    "_timeRate": 0
+  },
+  "subscriptionGroups": [],
+  "version": {
+    "major": 5,
+    "minor": 0
+  }
+}

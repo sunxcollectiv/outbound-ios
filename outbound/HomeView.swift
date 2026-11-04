@@ -13,6 +13,8 @@ struct HomeView: View {
 
     @State private var store = TripStore()
     @State private var notifications = NotificationStore()
+    @State private var credits = CreditStore()
+    @State private var pricing = PricingStore()
     @State private var showingNotifications = false
     @State private var showingCredits = false
     @State private var showingAddTrip = false
@@ -41,6 +43,15 @@ struct HomeView: View {
                 showingCredits = true
             })
         }
+        // For the drawer's balance, the credits page, and buying credits from a trip form.
+        .environment(credits)
+        .environment(pricing)
+        .task { await credits.load() }
+        // The current rates, saved for offline, and those of any older trips.
+        .task { await pricing.loadCurrent() }
+        .task(id: store.trips.compactMap(\.priceSchedule)) { await pricing.load(for: store.trips) }
+        // Credits purchases that finish outside the purchase popup, e.g. Ask to Buy.
+        .task { await credits.observeTransactions() }
         // Behind the whole stack, over the app's terracotta, so a trip zooming in or out
         // shows this at its rounded corners.
         .background(LinearGradient.tripsBackground.ignoresSafeArea())

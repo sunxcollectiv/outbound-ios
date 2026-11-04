@@ -5,35 +5,21 @@
 
 import SwiftUI
 
-/// One line in the user's credit ledger: money added, or spent on a trip.
-struct CreditLedgerEntry: Identifiable, Equatable {
+/// One line in the user's credit ledger (`CreditEntryRead`): credits added, or spent
+/// on a trip.
+struct CreditLedgerEntry: Identifiable, Equatable, Codable {
     let id: String
-    /// What the line is for, e.g. "Added credits" or "Unlocked Tokyo 2026".
+    /// What the line is for, e.g. "Credits purchased" or "Unlocked Tokyo 2026".
     let title: String
     /// Whole cents, positive for credits added and negative for credits spent, so
     /// amounts add up exactly.
     let amountCents: Int
     let date: Date
-}
 
-extension CreditLedgerEntry {
-    /// The balance the lines add up to, in cents.
-    static func balanceCents(of entries: [CreditLedgerEntry]) -> Int {
-        entries.reduce(0) { $0 + $1.amountCents }
+    private enum CodingKeys: String, CodingKey {
+        case id, title, amountCents
+        case date = "createdAt"
     }
-
-    /// Placeholder lines until the backend has a ledger, newest first.
-    static let samples: [CreditLedgerEntry] = {
-        let now = Date()
-        func daysAgo(_ days: Double) -> Date { now.addingTimeInterval(-days * 86_400) }
-        return [
-            CreditLedgerEntry(id: "5", title: "Unlocked Lisbon Weekend", amountCents: -499, date: daysAgo(2)),
-            CreditLedgerEntry(id: "4", title: "Added credits", amountCents: 1_000, date: daysAgo(3)),
-            CreditLedgerEntry(id: "3", title: "Unlocked Tokyo 2026", amountCents: -999, date: daysAgo(21)),
-            CreditLedgerEntry(id: "2", title: "Unlocked Big Sur Road Trip", amountCents: -499, date: daysAgo(45)),
-            CreditLedgerEntry(id: "1", title: "Added credits", amountCents: 2_000, date: daysAgo(46)),
-        ]
-    }()
 }
 
 /// Formats cents as dollars, e.g. 1050 → "$10.50"; with `signed`, "+$10.50" or "−$4.99".
@@ -46,9 +32,11 @@ func formatCredits(cents: Int, signed: Bool = false) -> String {
 /// The user's credits, pushed from the drawer: the balance, a button to buy more, and
 /// the activity behind the balance, newest first.
 struct CreditsView: View {
-    var entries: [CreditLedgerEntry] = CreditLedgerEntry.samples
+    @Environment(CreditStore.self) private var credits
 
     @State private var showingPurchase = false
+
+    private var entries: [CreditLedgerEntry] { credits.entries }
 
     var body: some View {
         List {
@@ -59,7 +47,7 @@ struct CreditsView: View {
             }
             Section {
                 if entries.isEmpty {
-                    Text("No activity yet")
+                    Text(credits.credits == nil ? (credits.errorMessage ?? "Loading…") : "No activity yet")
                         .font(.subheadline)
                         .foregroundStyle(Color.appForeground.opacity(0.7))
                         .listRowBackground(Color.clear)
@@ -100,6 +88,8 @@ struct CreditsView: View {
         // Hiding the whole bar would shift the page up under the popup.
         .navigationBarBackButtonHidden(showingPurchase)
         .overlay { purchasePopup }
+        .task { await credits.load() }
+        .refreshable { await credits.load() }
         .offlinePillNearBottom(isActive: showingPurchase)
     }
 
@@ -112,7 +102,7 @@ struct CreditsView: View {
     private var purchasePopup: some View {
         if showingPurchase {
             DimmedPopup(onClose: closePurchase) {
-                PurchasePopup(onClose: closePurchase)
+                PurchasePopup(onClose: closePurchase, onPurchased: closePurchase)
             }
         }
     }
@@ -122,7 +112,7 @@ struct CreditsView: View {
             Text("Balance")
                 .font(.subheadline)
                 .foregroundStyle(Color.appForeground.opacity(0.7))
-            Text(formatCredits(cents: CreditLedgerEntry.balanceCents(of: entries)))
+            Text(credits.balanceCents.map { formatCredits(cents: $0) } ?? "–")
                 .font(.system(size: 44, weight: .bold, design: .rounded))
                 .monospacedDigit()
             Button {
@@ -175,4 +165,7 @@ struct CreditLedgerRow: View {
     NavigationStack {
         CreditsView()
     }
+    .environment(CreditStore())
+    .environment(AuthStore())
+    .environment(PricingStore())
 }

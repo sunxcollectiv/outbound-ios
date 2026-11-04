@@ -53,6 +53,7 @@
 		9E0152E23078A76F000E65AB /* outboundTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = outboundTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9E0152EC3078A76F000E65AB /* outboundUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = outboundUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9E0153103079000000000002 /* NotificationContent.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationContent.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		9ED98A62309BA2CD00D380E3 /* Outbound.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Outbound.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -126,6 +127,7 @@
 		9E0152CA3078A76D000E65AB = {
 			isa = PBXGroup;
 			children = (
+				9ED98A62309BA2CD00D380E3 /* Outbound.storekit */,
 				9E0152D53078A76D000E65AB /* outbound */,
 				9E0152E53078A76F000E65AB /* outboundTests */,
 				9E0152EF3078A76F000E65AB /* outboundUITests */,

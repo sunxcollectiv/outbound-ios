@@ -10,33 +10,63 @@ import SwiftUI
 /// trip form when a save costs more than the user has (`shortfall`), with the amount
 /// that covers it picked.
 struct PurchasePopup: View {
+    @Environment(CreditStore.self) private var credits
+    @Environment(AuthStore.self) private var auth
+    @Environment(PricingStore.self) private var pricingStore
+
     let onClose: () -> Void
 
-    /// How many people the "usable for" line prices a trip for.
-    var members = TripPricing.includedMembers
+    /// How many people the "usable for" line prices a trip for; nil for the schedule's
+    /// included members.
+    var members: Int?
 
     /// The save that needs more credits, when opened from one.
     var shortfall: TripQuote?
     /// The trip owner's name when the buyer isn't the owner (see `OwnerRefundNote`).
     var refundsGoTo: String?
+    /// Called once bought credits are on the balance.
+    var onPurchased: () -> Void
 
-    /// The amounts on offer, in cents.
+    /// The amounts on offer, in cents (see `CreditProducts`).
     static let amountsCents = [500, 1_500, 2_500, 5_000]
 
     @State private var selectedCents: Int
     @State private var showingPricing = false
+    /// Why the last purchase didn't put credits on the balance, if it didn't.
+    @State private var notice: String?
 
-    init(onClose: @escaping () -> Void, members: Int = TripPricing.includedMembers, shortfall: TripQuote? = nil, refundsGoTo: String? = nil) {
+    init(
+        onClose: @escaping () -> Void,
+        members: Int? = nil,
+        shortfall: TripQuote? = nil,
+        refundsGoTo: String? = nil,
+        onPurchased: @escaping () -> Void = {}
+    ) {
         self.onClose = onClose
         self.members = members
         self.shortfall = shortfall
         self.refundsGoTo = refundsGoTo
+        self.onPurchased = onPurchased
         _selectedCents = State(initialValue: shortfall.map { Self.recommendedCents(covering: $0.shortfallCents) } ?? 1_500)
     }
 
     /// The smallest amount on offer that covers `cents`, or the largest if none does.
     static func recommendedCents(covering cents: Int) -> Int {
         amountsCents.first { $0 >= cents } ?? amountsCents.last!
+    }
+
+    /// The key of the schedule to show: the trip's, when opened from a save that's short
+    /// (its quote names it); nil for the current one, which new trips get.
+    private var scheduleKey: String? { shortfall?.schedule }
+
+    /// The rates to show, once loaded.
+    private var schedule: PricingSchedule? { pricingStore.schedule(key: scheduleKey) }
+
+    /// What to say in place of the rates while they load, or when they can't.
+    private var scheduleStatus: String {
+        pricingStore.isUnavailable(key: scheduleKey)
+            ? "Pricing couldn't be loaded. Check your connection and try again."
+            : "Loading pricing…"
     }
 
     /// One column per amount, so they all sit in a single row.
@@ -56,19 +86,37 @@ struct PurchasePopup: View {
                 }
             }
 
-            Button {
-                // TODO: start the purchase once payments are integrated.
-            } label: {
-                Text("Purchase Credits")
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.appBackground, in: .rect(cornerRadius: appFieldCornerRadius))
+            Button(action: purchase) {
+                ZStack {
+                    // Kept for its size while the spinner shows, so the button doesn't jump.
+                    Text("Purchase Credits")
+                        .opacity(isPurchasing ? 0 : 1)
+                    if isPurchasing {
+                        ProgressView()
+                            .tint(Color.appForeground)
+                    }
+                }
+                .font(.body.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Color.appBackground, in: .rect(cornerRadius: appFieldCornerRadius))
             }
             .buttonStyle(.plain)
+            .disabled(isPurchasing)
             .padding(.top, 4)
+            .accessibilityValue(isPurchasing ? "Purchasing" : "")
 
-            Text(Self.usableText(cents: selectedCents, members: members))
+            if let notice {
+                Text(notice)
+                    .font(.footnote)
+                    .foregroundStyle(Color.appForeground)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(PopupCard.contentTransition)
+            }
+
+            Text(schedule.map { Self.usableText(cents: selectedCents, members: members ?? $0.includedMembers, schedule: $0) } ?? " ")
                 .font(.footnote)
                 .foregroundStyle(Color.appForeground.opacity(0.7))
                 .frame(maxWidth: .infinity)
@@ -87,12 +135,38 @@ struct PurchasePopup: View {
             pricing
         }
         .popupCard(onClose: onClose)
+        .task { await credits.loadProducts() }
+        .task { await pricingStore.load(key: scheduleKey) }
+    }
+
+    private var isPurchasing: Bool { credits.purchasingCents != nil }
+
+    /// Buys the picked amount through the App Store; once it's credited, hands over to
+    /// `onPurchased`, and otherwise says what happened.
+    private func purchase() {
+        let cents = selectedCents
+        withAnimation(PopupCard.resizeAnimation) { notice = nil }
+        Task {
+            let outcome = await credits.purchase(cents: cents, accountId: auth.currentUser?.id)
+            let message: String? = switch outcome {
+            case .credited, .cancelled:
+                nil
+            case .awaitingCredit:
+                "Your payment went through. Your credits will be added as soon as we can confirm it."
+            case .pending:
+                "Your purchase is waiting for approval. Your credits will be added once it's approved."
+            case .refused:
+                credits.errorMessage ?? "Your purchase couldn't be added to this account."
+            case .failed:
+                credits.errorMessage ?? "The purchase couldn't be completed. Please try again."
+            }
+            withAnimation(PopupCard.resizeAnimation) { notice = message }
+            if outcome == .credited { onPurchased() }
+        }
     }
 
     /// Why the picked amount was picked: what the save costs, what the user has, and the
-    /// difference it covers.
-    ///
-    /// TODO: placeholder wording until the final copy is written.
+    /// difference it covers, with how the price adds up.
     private func shortfallNote(_ quote: TripQuote) -> some View {
         let recommended = Self.recommendedCents(covering: quote.shortfallCents)
         return VStack(alignment: .leading, spacing: 8) {
@@ -102,10 +176,8 @@ struct PurchasePopup: View {
                 .font(.footnote)
                 .foregroundStyle(Color.appForeground.opacity(0.7))
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Placeholder: final explanation to come.")
-                .font(.caption)
-                .italic()
-                .foregroundStyle(Color.appForeground.opacity(0.5))
+            PriceBreakdown(quote: quote)
+                .padding(.top, 4)
             if let refundsGoTo {
                 OwnerRefundNote(owner: refundsGoTo)
                     .padding(.top, 4)
@@ -117,7 +189,7 @@ struct PurchasePopup: View {
     }
 
     /// How credits are spent, collapsed until asked for: each trip day at its bracket's
-    /// rate, plus each member beyond the included ones at theirs, from `TripPricing`.
+    /// rate, plus each member beyond the included ones at theirs, from the schedule.
     private var pricing: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
@@ -137,38 +209,49 @@ struct PurchasePopup: View {
             .buttonStyle(.plain)
             .accessibilityValue(showingPricing ? "Expanded" : "Collapsed")
 
-            if showingPricing {
+            if showingPricing, let schedule {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("You pay once per trip, based on how many days it is. Each day is priced at the rate for its range, so longer trips cost less per day.")
                         .font(.footnote)
                         .foregroundStyle(Color.appForeground.opacity(0.7))
                         .fixedSize(horizontal: false, vertical: true)
-                    ratesTable(TripPricing.brackets, rateHeader: "Per day")
+                    ratesTable(schedule.tripBrackets, rateHeader: "Per day")
 
-                    Text("A standard trip includes unlimited collaboration between \(TripPricing.includedMembers) people. Extra people are only charged for the days they're added to, and cost less per day for longer trips.")
+                    Text("A standard trip includes unlimited collaboration between \(schedule.includedMembers) people. Additional member costs are calculated per day and decrease with trip length and group size. (example: 3 extra members on a 3-day trip costs the same as 1 extra member on a 9 day trip")
                         .font(.footnote)
                         .foregroundStyle(Color.appForeground.opacity(0.7))
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 4)
-                    ratesTable(TripPricing.memberBrackets, rateHeader: "Per person, per day")
+                    ratesTable(schedule.memberBrackets, daysHeader: "Member-days", rateHeader: "Per person, per day", rangesOnly: true)
                 }
                 .transition(PopupCard.contentTransition)
+            } else if showingPricing {
+                Text(scheduleStatus)
+                    .font(.footnote)
+                    .foregroundStyle(Color.appForeground.opacity(0.7))
+                    .transition(PopupCard.contentTransition)
             }
         }
     }
 
-    /// Brackets as a bordered two-column table: the days, then the rate.
-    private func ratesTable(_ brackets: [TripPricing.Bracket], rateHeader: String) -> some View {
+    /// Brackets as a bordered two-column table: the days, then the rate. With
+    /// `rangesOnly`, rows show just the numbers, e.g. "1–7" or "31+".
+    private func ratesTable(
+        _ brackets: [TripPricing.Bracket],
+        daysHeader: String = "Trip days",
+        rateHeader: String,
+        rangesOnly: Bool = false
+    ) -> some View {
         let shape = RoundedRectangle(cornerRadius: appFieldCornerRadius)
         return VStack(spacing: 0) {
-            tableRow(Text("Trip days"), Text(rateHeader), fill: Color.white.opacity(0.08))
+            tableRow(Text(daysHeader), Text(rateHeader), fill: Color.white.opacity(0.08))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.appForeground.opacity(0.6))
 
             ForEach(Array(brackets.enumerated()), id: \.element.firstDay) { index, bracket in
                 // Every other row shaded, so a rate is easy to follow across.
                 tableRow(
-                    Text(Self.daysText(bracket)),
+                    Text(rangesOnly ? Self.rangeText(bracket) : Self.daysText(bracket)),
                     Text(formatCredits(cents: bracket.centsPerDay)).monospacedDigit(),
                     fill: index.isMultiple(of: 2) ? Color.clear : Color.white.opacity(0.04)
                 )
@@ -197,9 +280,9 @@ struct PurchasePopup: View {
 
     /// What an amount pays for, e.g. "Usable for a 17-day trip with up to 5 members"
     /// or "Usable for 3 separate 7-day trips with up to 5 members".
-    static func usableText(cents: Int, members: Int) -> String {
+    static func usableText(cents: Int, members: Int, schedule: PricingSchedule) -> String {
         let trips = tripsPerAmount[cents] ?? 1
-        let days = TripPricing.maxDays(budgetCents: cents / trips, members: members)
+        let days = schedule.maxDays(budgetCents: cents / trips, members: members)
         let who = "\(members) \(members == 1 ? "member" : "members")"
         guard days > 0 else { return "Not enough for a 1-day trip with \(who)" }
         guard trips > 1 else { return "Usable for a \(days)-day trip with up to \(who)" }
@@ -210,6 +293,12 @@ struct PurchasePopup: View {
     static func daysText(_ bracket: TripPricing.Bracket) -> String {
         guard let lastDay = bracket.lastDay else { return "Day \(bracket.firstDay) and beyond" }
         return "Days \(bracket.firstDay)–\(lastDay)"
+    }
+
+    /// A bracket's days as just numbers, e.g. "1–7" or "31+".
+    static func rangeText(_ bracket: TripPricing.Bracket) -> String {
+        guard let lastDay = bracket.lastDay else { return "\(bracket.firstDay)+" }
+        return "\(bracket.firstDay)–\(lastDay)"
     }
 
     private func amountOption(_ cents: Int) -> some View {
@@ -243,4 +332,7 @@ struct PurchasePopup: View {
         PurchasePopup(onClose: {})
     }
     .background(LinearGradient.tripsBackground)
+    .environment(CreditStore())
+    .environment(AuthStore())
+    .environment(PricingStore())
 }
