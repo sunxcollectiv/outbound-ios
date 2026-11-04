@@ -18,6 +18,9 @@ struct TripFormView: View {
     private let trip: Trip?
     /// The trip a new segment is grouped with, or `nil` for an ordinary trip.
     private let segmentOf: Trip?
+    /// Which part of a group the edited trip is, shown at the top of the form; nil
+    /// shows nothing (see `TripGroupPart.forEditing`).
+    private let groupPart: TripGroupPart?
 
     /// Called with the created or updated trip after a successful save.
     var onSaved: (Trip) -> Void
@@ -69,11 +72,13 @@ struct TripFormView: View {
         trip: Trip? = nil,
         segmentOf: Trip? = nil,
         segmentEdge: HorizontalEdge = .trailing,
+        groupPart: TripGroupPart? = nil,
         onSaved: @escaping (Trip) -> Void = { _ in },
         onDeleted: @escaping () -> Void = {}
     ) {
         self.trip = trip
         self.segmentOf = segmentOf
+        self.groupPart = groupPart
         self.onSaved = onSaved
         self.onDeleted = onDeleted
         _title = State(initialValue: trip?.title ?? "")
@@ -97,6 +102,9 @@ struct TripFormView: View {
                     VStack(spacing: 20) {
                         if segmentOf != nil {
                             segmentHelp
+                        }
+                        if let groupPart, isEditing {
+                            groupPartNote(groupPart)
                         }
 
                         TextField("Trip name", text: $title)
@@ -186,6 +194,25 @@ struct TripFormView: View {
             Image(systemName: "info.circle")
                 .font(.subheadline.weight(.semibold))
             Text("Adding a trip extension creates a new segment with it's own members that you manage. Members of the original trip get limited visibility into its itinerary.")
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Color.appForeground.opacity(0.85))
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+    }
+
+    /// Says which trip in the group is being edited.
+    private func groupPartNote(_ part: TripGroupPart) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: part == .primary ? "suitcase.fill" : "arrow.triangle.branch")
+                .font(.subheadline.weight(.semibold))
+            // The saved name, so the note doesn't change while the name is edited.
+            let name = trip?.title ?? title
+            Text(part == .primary
+                 ? "You're editing the primary trip, **\(name)**."
+                 : "You're editing the trip extension **\(name)**.")
                 .font(.subheadline)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -526,4 +553,24 @@ private struct PendingCharge {
 
     /// Whether the user has to buy credits before they can save.
     var needsCredits: Bool { quote.shortfallCents > 0 }
+}
+
+/// Which part of a group a trip is: the one the group grew from, or an extension
+/// added before or after it.
+enum TripGroupPart {
+    case primary
+    case `extension`
+
+    /// What to tell the user editing `edited`, in a group led by `primary` with
+    /// `extensions`: nothing unless they organize one of the extensions, since only then
+    /// is it unclear which trip the form is for. So an organizer of the primary trip
+    /// who hasn't added on to it sees nothing.
+    static func forEditing(_ edited: Trip, primary: Trip, extensions: [Trip], userId: String?) -> TripGroupPart? {
+        guard let userId, !extensions.isEmpty else { return nil }
+        let organizesAnExtension = extensions.contains { trip in
+            trip.members?.contains { $0.user?.id == userId && $0.role == .organizer } == true
+        }
+        guard organizesAnExtension else { return nil }
+        return edited.id == primary.id ? .primary : .extension
+    }
 }

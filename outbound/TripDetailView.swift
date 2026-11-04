@@ -237,7 +237,13 @@ struct TripDetailView: View {
             Text("Everything on it is deleted for everyone on the trip. This can't be undone.")
         }
         .sheet(item: $tripToEdit) { edited in
-            TripFormView(trip: edited) { updated in
+            TripFormView(
+                trip: edited,
+                groupPart: TripGroupPart.forEditing(
+                    edited, primary: trip, extensions: itineraryTrips.filter { $0.id != trip.id },
+                    userId: auth.currentUser?.id
+                )
+            ) { updated in
                 if updated.id == trip.id { trip = updated }
                 // Dates may have shifted, so rebuild the day-by-day itinerary.
                 Task { await load() }
