@@ -15,6 +15,9 @@ struct TripDetailView: View {
     @State private var trip: Trip
 
     @State private var days: [ItineraryDay]?
+    /// The trips merged into the itinerary (this one and the user's others in its
+    /// group), for the members of whichever one an item sits on.
+    @State private var itineraryTrips: [Trip] = []
     /// The trip's days keyed by date, for the zones to default the add-item picker to.
     /// Loaded alongside the itinerary (which doesn't carry zones yet) and joined on date.
     @State private var dayTimeZones: [String: [TimeZone]] = [:]
@@ -39,7 +42,12 @@ struct TripDetailView: View {
     /// Presented via `.sheet(item:)` so the form receives the value directly; with
     /// `.sheet(isPresented:)` the content closure could capture a stale date.
     @State private var addItemRequest: AddItemRequest?
-    @State private var showingEditTrip = false
+    /// The trip open in the edit form: this one, or the extension the viewed day is on.
+    @State private var tripToEdit: Trip?
+    /// The trip the delete confirmation is for (see `menuTrip`).
+    @State private var tripToDelete: Trip?
+    /// A pending add-segment sheet, from the day picker's plus at either end.
+    @State private var segmentRequest: SegmentRequest?
     /// Whether the dropdown under the header's more button is open.
     @State private var showingTripMenu = false
     /// Showing the confirmation before the trip is deleted from its menu.
@@ -102,10 +110,23 @@ struct TripDetailView: View {
     /// Coordinate space used to measure each card's position for the fade behind the picker.
     private static let detailSpace = "itineraryDetail"
 
+    /// The user's other trips in this trip's group; an end of the day picker one of them
+    /// reaches gets no add-segment button.
+    private let groupTrips: [Trip]
+    /// Called with a segment created from the day picker, for the trip list.
+    private let onSegmentCreated: (Trip) -> Void
     /// Called after the trip is deleted from its edit form; the presenter closes this screen.
     private let onDeleted: () -> Void
 
-    init(trip: Trip, days: [ItineraryDay]? = nil, onDeleted: @escaping () -> Void = {}) {
+    init(
+        trip: Trip,
+        days: [ItineraryDay]? = nil,
+        groupTrips: [Trip] = [],
+        onSegmentCreated: @escaping (Trip) -> Void = { _ in },
+        onDeleted: @escaping () -> Void = {}
+    ) {
+        self.groupTrips = groupTrips
+        self.onSegmentCreated = onSegmentCreated
         self.onDeleted = onDeleted
         _trip = State(initialValue: trip)
         // Without days given, start from the itinerary saved by an earlier load (or the
@@ -114,6 +135,7 @@ struct TripDetailView: View {
         let endpoint = TripsAPI.itinerary(tripId: trip.id)
         let saved = days == nil ? APIClient.shared.cached(endpoint, as: Itinerary.self) : nil
         _days = State(initialValue: days ?? saved?.days)
+        _itineraryTrips = State(initialValue: saved?.trips ?? [])
         _places = State(initialValue: saved.map { ItineraryPlaces(days: $0.days) } ?? ItineraryPlaces())
         _savedCopyDate = State(initialValue: saved == nil ? nil : APIClient.shared.cachedDate(for: endpoint))
         // Back on the day last viewed when the trip was opened within the hour; a day
@@ -143,8 +165,10 @@ struct TripDetailView: View {
                     // (wide, scrollable) content can never grow the pager or change the
                     // width of the page content behind it.
                     .overlay(alignment: .bottom) {
-                        DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress)
-                            .revealIn(hasRevealed)
+                        DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress, onAddSegment: { edge in
+                            segmentRequest = SegmentRequest(edge: edge)
+                        }, segmentEdges: openSegmentEdges, primaryTripId: trip.id)
+                        .revealIn(hasRevealed)
                     }
                     // A task rather than onAppear: the pager settles on the selected day in
                     // its own onAppear, and revealing in that same update would animate the
@@ -195,34 +219,48 @@ struct TripDetailView: View {
             Task { await importScreenshot(item) }
         }
         .sheet(item: $addItemRequest) { request in
-            TripItemFormView(tripId: trip.id, kind: request.kind, members: trip.members ?? [], tripDates: trip.dateRange, defaultDate: request.date, onSaved: { saved in
+            TripItemFormView(tripId: trip.id, kind: request.kind, members: trip.members ?? [], tripsByDate: tripsByDate, tripDates: trip.dateRange, defaultDate: request.date, onSaved: { saved in
                 Task { await load(focusItemId: saved.id) }
             })
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: editHaptic)
         .sheet(item: $editingItem) { item in
-            TripItemFormView(tripId: item.tripId, members: trip.members ?? [], tripDates: trip.dateRange, item: item, viewedDay: selectedDay?.calendarDate) { saved in
+            TripItemFormView(tripId: item.tripId, members: members(onTripOf: item.tripId), tripDates: trip.dateRange, item: item, viewedDay: selectedDay?.calendarDate) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
             }
         }
         .confirmationDialog("Delete this trip?", isPresented: $confirmingDeleteTrip, titleVisibility: .visible) {
-            Button("Delete", role: .destructive, action: deleteTrip)
+            Button("Delete", role: .destructive) { tripToDelete.map(deleteTrip) }
         } message: {
             Text("Everything on it is deleted for everyone on the trip. This can't be undone.")
         }
-        .sheet(isPresented: $showingEditTrip) {
-            TripFormView(trip: trip) { updated in
-                trip = updated
+        .sheet(item: $tripToEdit) { edited in
+            TripFormView(
+                trip: edited,
+                groupPart: TripGroupPart.forEditing(
+                    edited, primary: trip, extensions: itineraryTrips.filter { $0.id != trip.id },
+                    userId: auth.currentUser?.id
+                )
+            ) { updated in
+                if updated.id == trip.id { trip = updated }
                 // Dates may have shifted, so rebuild the day-by-day itinerary.
                 Task { await load() }
             } onDeleted: {
-                onDeleted()
+                tripDeleted(edited)
+            }
+        }
+        .sheet(item: $segmentRequest) { request in
+            TripFormView(segmentOf: trip, segmentEdge: request.edge) { segment in
+                onSegmentCreated(segment)
+                // The itinerary merges the user's trips in a group, so it now has the new days.
+                Task { await load() }
+                showToast(TripToast(text: "Added \(segment.title)", systemImage: "checkmark.circle.fill"))
             }
         }
         .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: places.resolving(item), members: trip.members ?? [], tripDates: trip.dateRange, viewedDay: selectedDay?.calendarDate) { saved in
+            TripItemDetailView(item: places.resolving(item), members: members(onTripOf: item.tripId), tripDates: trip.dateRange, viewedDay: selectedDay?.calendarDate) { saved in
                 Task { await load(focusItemId: saved.id) }
             } onDeleted: {
                 removeItem(item.id)
@@ -464,19 +502,50 @@ struct TripDetailView: View {
     }
 
     /// Deletes the trip from its menu, then leaves it for the presenter to close.
-    private func deleteTrip() {
+    private func deleteTrip(_ target: Trip) {
         Task {
             do {
-                try await api.send(TripsAPI.delete(id: trip.id))
-                onDeleted()
+                try await api.send(TripsAPI.delete(id: target.id))
+                tripDeleted(target)
             } catch {
                 showToast(TripToast(text: "Couldn't delete the trip", systemImage: "exclamationmark.triangle.fill"))
             }
         }
     }
 
+    /// After `deleted` is gone: this trip closes the screen; an extension of it just
+    /// drops out of the merged itinerary.
+    private func tripDeleted(_ deleted: Trip) {
+        if deleted.id == trip.id {
+            onDeleted()
+        } else {
+            Task { await load() }
+        }
+    }
+
+    /// The trip the menu's trip actions apply to: the extension the viewed day is on,
+    /// or this trip (also for days no trip covers).
+    private var menuTrip: Trip {
+        guard let tripId = selectedDay?.tripId, tripId != trip.id,
+              let dayTrip = itineraryTrips.first(where: { $0.id == tripId }) else { return trip }
+        return dayTrip
+    }
+
     private func closeTripMenu() {
         withAnimation(.snappy(duration: 0.2)) { showingTripMenu = false }
+    }
+
+    /// The ends of the trip with no group trip of the user's past them yet; one segment
+    /// on each side is all a user needs.
+    private var openSegmentEdges: Set<HorizontalEdge> {
+        var edges: Set<HorizontalEdge> = [.leading, .trailing]
+        for other in groupTrips where other.id != trip.id {
+            // `trip`'s dates may already span its group (as the list sends them), so a
+            // trip reaching either end counts.
+            if other.startDate <= trip.startDate { edges.remove(.leading) }
+            if other.endDate >= trip.endDate { edges.remove(.trailing) }
+        }
+        return edges
     }
 
     /// The open trip menu, hung below the header's trailing edge; tapping anywhere else
@@ -491,7 +560,7 @@ struct TripDetailView: View {
                         .onTapGesture { closeTripMenu() }
                         .accessibilityHidden(true)
                     TripMenu(
-                        trip: trip,
+                        trip: menuTrip,
                         onAddItem: { kind in
                             closeTripMenu()
                             addItemRequest = AddItemRequest(date: selectedDay?.calendarDate, kind: kind)
@@ -506,12 +575,13 @@ struct TripDetailView: View {
                         },
                         onEditTrip: {
                             closeTripMenu()
-                            showingEditTrip = true
+                            tripToEdit = menuTrip
                         },
                         // Not built yet.
                         onShare: { closeTripMenu() },
-                        onDeleteTrip: trip.ownerId == auth.currentUser?.id ? {
+                        onDeleteTrip: menuTrip.ownerId == auth.currentUser?.id ? {
                             closeTripMenu()
+                            tripToDelete = menuTrip
                             confirmingDeleteTrip = true
                         } : nil
                     )
@@ -552,7 +622,8 @@ struct TripDetailView: View {
     // MARK: - Paged days
 
     private func dayPager(_ days: [ItineraryDay]) -> some View {
-        DayPager(days: days, selection: $selection, dragProgress: $pageDragProgress) { day, scrollLocked in
+        // Gap days between the user's trips show only in the day picker.
+        DayPager(days: days.filter { !$0.isGap }, selection: $selection, dragProgress: $pageDragProgress) { day, scrollLocked in
             dayPage(day, scrollLocked: scrollLocked)
         }
     }
@@ -639,16 +710,17 @@ struct TripDetailView: View {
     }
 
     private func itemRow(_ entry: ItineraryEntry, topFade: CGFloat) -> some View {
-        let going = memberSelection.initialSelection(for: entry.item)
+        let itemMembers = memberSelection(onTripOf: entry.item.tripId)
+        let going = itemMembers.initialSelection(for: entry.item)
         return ItineraryEntryCard(
             entry: entry,
             places: places,
             placeDetails: placeDetails,
             // A redacted item's participants are blanked, so there's no one to count.
-            membersSummary: entry.item.redacted ? nil : memberSelection.summary(of: going),
+            membersSummary: entry.item.redacted ? nil : itemMembers.summary(of: going),
             membersCount: going.count,
             // Open items others are doing shrink to a one-line card.
-            isCondensed: entry.item.visibility == .open && memberSelection.includesCurrentUser(entry.item) == false
+            isCondensed: entry.item.visibility == .open && itemMembers.includesCurrentUser(entry.item) == false
         )
         .contentShape(.rect)
         // Every entry of an item (each end, each layover) opens the same record; a
@@ -816,8 +888,23 @@ struct TripDetailView: View {
         }
     }
 
-    private var memberSelection: ItemMemberSelection {
-        ItemMemberSelection(members: trip.members ?? [], currentUserId: auth.currentUser?.id)
+    private func memberSelection(onTripOf tripId: String?) -> ItemMemberSelection {
+        ItemMemberSelection(members: members(onTripOf: tripId), currentUserId: auth.currentUser?.id)
+    }
+
+    /// The trip owning each itinerary day, by date, for a new item to save to the trip
+    /// its date falls in. Days no trip covers are left out.
+    private var tripsByDate: [String: Trip] {
+        let trips = Dictionary(itineraryTrips.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return Dictionary((days ?? []).compactMap { day in
+            day.tripId.flatMap { trips[$0] }.map { (day.date, $0) }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The members of one of the itinerary's trips: an item's participants are member
+    /// rows on its own trip. Falls back to this trip's.
+    private func members(onTripOf tripId: String?) -> [TripMember] {
+        itineraryTrips.first { $0.id == tripId }?.members ?? trip.members ?? []
     }
 
     private func closeAddLodgingPopup() {
@@ -968,7 +1055,9 @@ struct TripDetailView: View {
     }
 
     /// The day to show after a reload: the day holding the just-saved item when given,
-    /// otherwise the current day if it still exists, falling back to the first day.
+    /// otherwise the current day if it still exists, falling back to the first day. Never
+    /// a gap day, which has no page (e.g. once the last item on a day outside the trips
+    /// is deleted).
     private func resolveSelection(in days: [ItineraryDay], focusItemId: String?) -> Int {
         if let focusItemId,
            let day = days.first(where: { day in
@@ -976,7 +1065,7 @@ struct TripDetailView: View {
            }) {
             return day.dayNumber
         }
-        if days.contains(where: { $0.dayNumber == selection }) {
+        if days.contains(where: { $0.dayNumber == selection && !$0.isGap }) {
             return selection
         }
         return days.first?.dayNumber ?? 1
@@ -997,6 +1086,7 @@ struct TripDetailView: View {
         do {
             let itinerary = try await api.send(TripsAPI.itinerary(tripId: trip.id), as: Itinerary.self)
             days = itinerary.days
+            itineraryTrips = itinerary.trips
             places = ItineraryPlaces(days: itinerary.days)
             selection = resolveSelection(in: itinerary.days, focusItemId: focusItemId)
             errorMessage = nil
@@ -1064,6 +1154,12 @@ private struct AddItemRequest: Identifiable {
     let id = UUID()
     let date: Date?
     var kind: TripItemKind = .activity
+}
+
+/// A request to present the add-segment form, for days on `edge`'s side of the trip.
+private struct SegmentRequest: Identifiable {
+    let id = UUID()
+    let edge: HorizontalEdge
 }
 
 /// A horizontally paged container that renders only the current day and its

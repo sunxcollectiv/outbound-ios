@@ -25,6 +25,15 @@ struct Trip: Codable, Identifiable, Equatable {
     /// Everyone on the trip, owner included, in the order they were added. Optional so
     /// trips still decode from a backend that doesn't send the field yet.
     var members: [TripMember]?
+    /// Shared by the trips in one group: a trip and the segments members add before or
+    /// after it. Nil for a trip on its own.
+    var groupId: String?
+    /// The trip this one was added as a segment of; nil for a trip that wasn't, or
+    /// once that trip is deleted (the group stays).
+    var extendsTripId: String?
+    /// In the trip list only: the user's other trips in this one's group, by start date.
+    /// The list shows them as one entry, whose `startDate`/`endDate` then span them all.
+    var extensions: [Trip]?
     let createdAt: Date
     let updatedAt: Date
 }
@@ -138,9 +147,15 @@ enum TripsAPI {
         var members: [MemberRequest]?
         /// PATCH only: tell the trip's other members what changed.
         var notifyMembers: Bool?
+        /// POST only: the trip to group this one with, making it a segment in that trip's
+        /// group.
+        var extendsTripId: String?
+        /// The charge a quote showed the user for this save. The server refuses the
+        /// save (409) if it would now charge something else.
+        var expectedPriceCents: Int?
 
         private enum CodingKeys: String, CodingKey {
-            case title, description, startDate, endDate, timezone, areaIds, members, notifyMembers
+            case title, description, startDate, endDate, timezone, areaIds, members, notifyMembers, extendsTripId, expectedPriceCents
         }
 
         func encode(to encoder: Encoder) throws {
@@ -155,6 +170,8 @@ enum TripsAPI {
             try c.encodeIfPresent(areaIds, forKey: .areaIds)
             try c.encodeIfPresent(members, forKey: .members)
             try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
+            try c.encodeIfPresent(extendsTripId, forKey: .extendsTripId)
+            try c.encodeIfPresent(expectedPriceCents, forKey: .expectedPriceCents)
         }
     }
 
@@ -166,12 +183,28 @@ enum TripsAPI {
 
     static let list = Endpoint(path: "/trips", cachesResponse: true)
 
+    /// One trip with its own dates (the list's span a trip's whole group).
+    static func read(id: String) -> Endpoint {
+        Endpoint(path: "/trips/\(id)")
+    }
+
     static func create(_ body: CreateRequest) -> Endpoint {
         Endpoint(path: "/trips", method: .post, body: body)
     }
 
     static func update(id: String, _ body: CreateRequest) -> Endpoint {
         Endpoint(path: "/trips/\(id)", method: .patch, body: body)
+    }
+
+    /// What `create(body)` would charge, with the user's balance and any shortfall.
+    /// Nothing is saved.
+    static func quote(_ body: CreateRequest) -> Endpoint {
+        Endpoint(path: "/trips/quote", method: .post, body: body)
+    }
+
+    /// What `update(id:body)` would charge (or refund). Organizers only.
+    static func quote(id: String, _ body: CreateRequest) -> Endpoint {
+        Endpoint(path: "/trips/\(id)/quote", method: .post, body: body)
     }
 
     /// Owner only; deletes the trip with everything on it. 204.

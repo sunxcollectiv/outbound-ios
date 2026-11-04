@@ -19,8 +19,9 @@ enum TripPricing {
         let centsPerDay: Int
     }
 
-    /// One bracket's share of a trip's price, for showing the breakdown.
-    struct Line: Equatable {
+    /// One bracket's share of a trip's price, for showing the breakdown. Also how the
+    /// server's quote lists it (`BracketLineRead`).
+    struct Line: Equatable, Decodable {
         let firstDay: Int
         let lastDay: Int
         let centsPerDay: Int

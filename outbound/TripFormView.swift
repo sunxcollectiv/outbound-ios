@@ -7,13 +7,20 @@ import SwiftUI
 
 /// Modal for manually creating or editing a trip. Collects a name, start/end dates,
 /// and an optional description. Timezone and locations come later, derived from trip
-/// items. Pass an existing `trip` to edit it; omit it to create a new one.
+/// items. Pass an existing `trip` to edit it; omit it to create a new one. Pass
+/// `segmentOf` instead to create a segment: a trip of the user's own, grouped with
+/// that one and just before or after it.
 struct TripFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var auth
 
     /// The trip being edited, or `nil` when creating a new one.
     private let trip: Trip?
+    /// The trip a new segment is grouped with, or `nil` for an ordinary trip.
+    private let segmentOf: Trip?
+    /// Which part of a group the edited trip is, shown at the top of the form; nil
+    /// shows nothing (see `TripGroupPart.forEditing`).
+    private let groupPart: TripGroupPart?
 
     /// Called with the created or updated trip after a successful save.
     var onSaved: (Trip) -> Void
@@ -45,6 +52,13 @@ struct TripFormView: View {
     @State private var isSaving = false
     @State private var isDeleting = false
     @State private var errorMessage: String?
+    /// Whether an edited trip's own dates are still loading. A trip from the list that
+    /// has extensions carries its whole group's span instead, which saving would write
+    /// over the trip's real dates, so saving waits for them.
+    @State private var isLoadingOwnDates: Bool
+    /// A save that costs credits, waiting on the user: to confirm the charge, or to buy
+    /// credits first when they're short.
+    @State private var pendingCharge: PendingCharge?
 
     private enum DateField { case start, end }
 
@@ -52,19 +66,32 @@ struct TripFormView: View {
 
     private var isEditing: Bool { trip != nil }
 
-    init(trip: Trip? = nil, onSaved: @escaping (Trip) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
+    /// `segmentEdge` is the side of `segmentOf` the new trip goes on: `.leading` for
+    /// days before it, `.trailing` for days after. Its dates start on the adjacent day.
+    init(
+        trip: Trip? = nil,
+        segmentOf: Trip? = nil,
+        segmentEdge: HorizontalEdge = .trailing,
+        groupPart: TripGroupPart? = nil,
+        onSaved: @escaping (Trip) -> Void = { _ in },
+        onDeleted: @escaping () -> Void = {}
+    ) {
         self.trip = trip
+        self.segmentOf = segmentOf
+        self.groupPart = groupPart
         self.onSaved = onSaved
         self.onDeleted = onDeleted
         _title = State(initialValue: trip?.title ?? "")
         _description = State(initialValue: trip?.description ?? "")
-        _startDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.startDate) } ?? Date())
-        _endDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.endDate) } ?? Date())
+        let defaultDate = segmentOf.flatMap { Self.adjacentDate(to: $0, on: segmentEdge) } ?? Date()
+        _startDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.startDate) } ?? defaultDate)
+        _endDate = State(initialValue: trip.flatMap { Self.apiDateFormatter.date(from: $0.endDate) } ?? defaultDate)
         _areas = State(initialValue: trip?.areas ?? [])
         // The owner is always kept by the server, so they aren't listed or sent.
         let others = (trip?.members ?? []).filter { $0.user?.id != trip?.ownerId }.map(\.email)
         originalMemberEmails = others
         _memberEmails = State(initialValue: others)
+        _isLoadingOwnDates = State(initialValue: trip?.extensions?.isEmpty == false)
     }
 
     var body: some View {
@@ -73,6 +100,13 @@ struct TripFormView: View {
                 Color.appBackground.ignoresSafeArea()
                 ScrollView {
                     VStack(spacing: 20) {
+                        if segmentOf != nil {
+                            segmentHelp
+                        }
+                        if let groupPart, isEditing {
+                            groupPartNote(groupPart)
+                        }
+
                         TextField("Trip name", text: $title)
                             .textInputAutocapitalization(.words)
                             .appField()
@@ -128,7 +162,7 @@ struct TripFormView: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .foregroundStyle(Color.appForeground)
-            .navigationTitle(isEditing ? "Edit Trip" : "New Trip")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -142,9 +176,57 @@ struct TripFormView: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { homeIndicatorInset = $0 }
+        .task { await loadOwnDates() }
         .overlay { memberInvitePopup }
-        .offlinePillNearBottom(isActive: showingMemberInvite)
+        .overlay { chargePopup }
+        .offlinePillNearBottom(isActive: showingMemberInvite || pendingCharge != nil)
         .appTheme()
+    }
+
+    private var navigationTitle: String {
+        if isEditing { return "Edit Trip" }
+        return segmentOf != nil ? "Add trip extension" : "New Trip"
+    }
+
+    /// Explains what saving a segment does, above the form.
+    private var segmentHelp: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle")
+                .font(.subheadline.weight(.semibold))
+            Text("Adding a trip extension creates a new segment with it's own members that you manage. Members of the original trip get limited visibility into its itinerary.")
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Color.appForeground.opacity(0.85))
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+    }
+
+    /// Says which trip in the group is being edited.
+    private func groupPartNote(_ part: TripGroupPart) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: part == .primary ? "suitcase.fill" : "arrow.triangle.branch")
+                .font(.subheadline.weight(.semibold))
+            // The saved name, so the note doesn't change while the name is edited.
+            let name = trip?.title ?? title
+            Text(part == .primary
+                 ? "You're editing the primary trip, **\(name)**."
+                 : "You're editing the trip extension **\(name)**.")
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Color.appForeground.opacity(0.85))
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+    }
+
+    /// The day just before `trip` starts (`.leading`) or just after it ends (`.trailing`).
+    private static func adjacentDate(to trip: Trip, on edge: HorizontalEdge) -> Date? {
+        let isLeading = edge == .leading
+        guard let date = apiDateFormatter.date(from: isLeading ? trip.startDate : trip.endDate) else { return nil }
+        return Calendar(identifier: .gregorian).date(byAdding: .day, value: isLeading ? -1 : 1, to: date)
     }
 
     /// Only edits can notify (creating a trip can't), and only when someone else is on it.
@@ -160,8 +242,8 @@ struct TripFormView: View {
         FormBottomBar(
             notifyLabel: canNotifyMembers ? "Notify members of changes" : nil,
             notifyMembers: $notifyMembers,
-            saveTitle: isEditing ? "Save" : "Add Trip",
-            canSave: !title.trimmingCharacters(in: .whitespaces).isEmpty,
+            saveTitle: isEditing ? "Save" : segmentOf != nil ? "Add Segment" : "Add Trip",
+            canSave: !title.trimmingCharacters(in: .whitespaces).isEmpty && !isLoadingOwnDates,
             isSaving: isSaving,
             onSave: save,
             delete: canDelete
@@ -176,6 +258,24 @@ struct TripFormView: View {
             homeIndicatorInset: homeIndicatorInset,
             background: .appBackground
         )
+    }
+
+    /// Replaces the group-wide dates the list gave with the trip's own (see
+    /// `isLoadingOwnDates`).
+    private func loadOwnDates() async {
+        guard isLoadingOwnDates, let trip else { return }
+        do {
+            let own = try await api.send(TripsAPI.read(id: trip.id), as: Trip.self)
+            if let start = Self.apiDateFormatter.date(from: own.startDate),
+               let end = Self.apiDateFormatter.date(from: own.endDate) {
+                startDate = start
+                endDate = end
+            }
+            isLoadingOwnDates = false
+        } catch {
+            // Saving stays off rather than risk writing the group's span over the trip.
+            errorMessage = "Couldn't load this trip's dates. Close and try again."
+        }
     }
 
     private func delete() {
@@ -309,6 +409,49 @@ struct TripFormView: View {
         }
     }
 
+    private func closeCharge() {
+        withAnimation(.snappy(duration: 0.2)) { pendingCharge = nil }
+    }
+
+    /// The charge confirmation, or the purchase popup when the user's credits fall
+    /// short, over the dimmed form.
+    @ViewBuilder
+    private var chargePopup: some View {
+        if let pendingCharge {
+            DimmedPopup(onClose: closeCharge) {
+                if pendingCharge.needsCredits {
+                    PurchasePopup(onClose: closeCharge, shortfall: pendingCharge.quote, refundsGoTo: ownerNameIfNotPayer)
+                } else {
+                    ChargeConfirmationPopup(
+                        tripTitle: pendingCharge.body.title,
+                        quote: pendingCharge.quote,
+                        refundsGoTo: ownerNameIfNotPayer,
+                        onConfirm: { confirmCharge(pendingCharge) },
+                        onClose: closeCharge
+                    )
+                }
+            }
+        }
+    }
+
+    /// The owner's name when an organizer other than the owner is editing, since any
+    /// refund for the trip goes to the owner. Nil for the owner, and for a new trip
+    /// (whoever creates it owns it).
+    private var ownerNameIfNotPayer: String? {
+        guard let trip, let ownerId = trip.ownerId, ownerId != auth.currentUser?.id else { return nil }
+        let owner = trip.members?.first { $0.user?.id == ownerId }
+        return owner?.user?.displayName ?? owner?.email ?? "the trip's owner"
+    }
+
+    private func confirmCharge(_ charge: PendingCharge) {
+        closeCharge()
+        isSaving = true
+        Task {
+            defer { isSaving = false }
+            await commit(charge.body, quote: charge.quote)
+        }
+    }
+
     /// A tappable row showing a date; tapping toggles the inline picker below it.
     private func dateRow(title: String, date: Date, field: DateField) -> some View {
         Button {
@@ -334,28 +477,57 @@ struct TripFormView: View {
         }
         errorMessage = nil
         isSaving = true
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = TripsAPI.CreateRequest(
+            title: name,
+            description: trimmedDescription.isEmpty ? nil : trimmedDescription,
+            startDate: Self.apiDateFormatter.string(from: startDate),
+            endDate: Self.apiDateFormatter.string(from: endDate),
+            // Seed the trip's days with the device's zone on create; PATCH doesn't take it.
+            timezone: isEditing ? nil : TimeZone.current.identifier,
+            areaIds: areaIdsToSave,
+            members: membersToSave,
+            notifyMembers: canNotifyMembers && notifyMembers ? true : nil,
+            extendsTripId: isEditing ? nil : segmentOf?.id
+        )
         Task {
             defer { isSaving = false }
-            do {
-                let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
-                let body = TripsAPI.CreateRequest(
-                    title: name,
-                    description: trimmedDescription.isEmpty ? nil : trimmedDescription,
-                    startDate: Self.apiDateFormatter.string(from: startDate),
-                    endDate: Self.apiDateFormatter.string(from: endDate),
-                    // Seed the trip's days with the device's zone on create; PATCH doesn't take it.
-                    timezone: isEditing ? nil : TimeZone.current.identifier,
-                    areaIds: areaIdsToSave,
-                    members: membersToSave,
-                    notifyMembers: canNotifyMembers && notifyMembers ? true : nil
-                )
-                let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
-                let saved = try await api.send(endpoint, as: Trip.self)
-                onSaved(saved)
-                dismiss()
-            } catch {
-                errorMessage = error.localizedDescription
+            await quoteThenSave(body)
+        }
+    }
+
+    /// Asks the server what the save would cost before making it. Free saves go
+    /// straight through; otherwise the user confirms the charge, or buys credits first
+    /// when they're short (see `chargePopup`).
+    private func quoteThenSave(_ body: TripsAPI.CreateRequest, retrying: Bool = false) async {
+        do {
+            let endpoint = trip.map { TripsAPI.quote(id: $0.id, body) } ?? TripsAPI.quote(body)
+            let quote = try await api.send(endpoint, as: TripQuote.self)
+            if quote.priceCents == 0 {
+                await commit(body, quote: quote, retrying: retrying)
+            } else {
+                withAnimation(.snappy(duration: 0.2)) { pendingCharge = PendingCharge(body: body, quote: quote) }
             }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Saves the trip at the price `quote` showed. If the price or the user's credits
+    /// changed since (409, 402), quotes again once to show the new numbers.
+    private func commit(_ body: TripsAPI.CreateRequest, quote: TripQuote, retrying: Bool = false) async {
+        var body = body
+        body.expectedPriceCents = quote.priceCents
+        do {
+            let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
+            let saved = try await api.send(endpoint, as: Trip.self)
+            onSaved(saved)
+            dismiss()
+        } catch APIError.server(let status, _) where !retrying && (status == 402 || status == 409) {
+            body.expectedPriceCents = nil
+            await quoteThenSave(body, retrying: true)
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -372,4 +544,33 @@ struct TripFormView: View {
 #Preview {
     TripFormView()
         .environment(AuthStore())
+}
+
+/// A trip save that costs credits, with the quote shown for it.
+private struct PendingCharge {
+    let body: TripsAPI.CreateRequest
+    let quote: TripQuote
+
+    /// Whether the user has to buy credits before they can save.
+    var needsCredits: Bool { quote.shortfallCents > 0 }
+}
+
+/// Which part of a group a trip is: the one the group grew from, or an extension
+/// added before or after it.
+enum TripGroupPart {
+    case primary
+    case `extension`
+
+    /// What to tell the user editing `edited`, in a group led by `primary` with
+    /// `extensions`: nothing unless they organize one of the extensions, since only then
+    /// is it unclear which trip the form is for. So an organizer of the primary trip
+    /// who hasn't added on to it sees nothing.
+    static func forEditing(_ edited: Trip, primary: Trip, extensions: [Trip], userId: String?) -> TripGroupPart? {
+        guard let userId, !extensions.isEmpty else { return nil }
+        let organizesAnExtension = extensions.contains { trip in
+            trip.members?.contains { $0.user?.id == userId && $0.role == .organizer } == true
+        }
+        guard organizesAnExtension else { return nil }
+        return edited.id == primary.id ? .primary : .extension
+    }
 }

@@ -8,17 +8,22 @@ import Foundation
 /// `Itinerary` from `GET /trips/{id}/itinerary`: the trip plus a day-by-day breakdown.
 struct Itinerary: Decodable {
     let trip: Trip
+    /// Every trip merged into this view: `trip` and the user's other trips in its group,
+    /// by start date. Each item sits on one of them, with that trip's members.
+    let trips: [Trip]
     let days: [ItineraryDay]
     /// Places whose Google data is due a refresh. The itinerary is usable as is; the
     /// client asks `POST /places/refresh` for these and patches its cards by id.
     let stalePlaceIds: [String]
 
-    private enum CodingKeys: String, CodingKey { case trip, days, stalePlaceIds }
+    private enum CodingKeys: String, CodingKey { case trip, trips, days, stalePlaceIds }
 
-    /// Treats a missing `stale_place_ids` (an older server) as none.
+    /// Treats a missing `stale_place_ids` (an older server) as none, and missing
+    /// `trips` as just `trip`.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         trip = try c.decode(Trip.self, forKey: .trip)
+        trips = try c.decodeIfPresent([Trip].self, forKey: .trips) ?? [trip]
         days = try c.decode([ItineraryDay].self, forKey: .days)
         stalePlaceIds = try c.decodeIfPresent([String].self, forKey: .stalePlaceIds) ?? []
     }
@@ -32,11 +37,18 @@ struct ItineraryDay: Decodable, Identifiable {
     /// The day's timeline. An item can appear more than once across the itinerary (its
     /// departure and arrival, check-in and check-out, layovers), sharing one `item.id`.
     let entries: [ItineraryEntry]
+    /// A day between the user's trips in a group with nothing on it, as the server
+    /// decides. Shown only as a date in the day picker, not as a page. False from a
+    /// server that doesn't send it.
+    let isGap: Bool
+    /// The trip this date belongs to (on a date two trips share, the one the other was
+    /// added to). Nil for a date none covers, or from a server that doesn't send it.
+    let tripId: String?
 
     var id: Int { dayNumber }
 
     private enum CodingKeys: String, CodingKey {
-        case date, dayNumber, lodging
+        case date, dayNumber, lodging, isGap, tripId
         case entries = "items"
     }
 
@@ -47,6 +59,8 @@ struct ItineraryDay: Decodable, Identifiable {
         dayNumber = try c.decode(Int.self, forKey: .dayNumber)
         lodging = try c.decode([LodgingStay].self, forKey: .lodging)
         entries = Self.ordered(try c.decode([ItineraryEntry].self, forKey: .entries))
+        isGap = try c.decodeIfPresent(Bool.self, forKey: .isGap) ?? false
+        tripId = try c.decodeIfPresent(String.self, forKey: .tripId)
     }
 
     /// A day's entries in display order: by the wall clock shown on each card, ties
@@ -71,11 +85,13 @@ struct ItineraryDay: Decodable, Identifiable {
         }
     }
 
-    init(date: String, dayNumber: Int, lodging: [LodgingStay], entries: [ItineraryEntry]) {
+    init(date: String, dayNumber: Int, lodging: [LodgingStay], entries: [ItineraryEntry], isGap: Bool = false, tripId: String? = nil) {
         self.date = date
         self.dayNumber = dayNumber
         self.lodging = lodging
         self.entries = entries
+        self.isGap = isGap
+        self.tripId = tripId
     }
 
     /// This day without any entries or lodging for the given item, e.g. once it's deleted.
@@ -84,7 +100,9 @@ struct ItineraryDay: Decodable, Identifiable {
             date: date,
             dayNumber: dayNumber,
             lodging: lodging.filter { $0.item.id != itemId },
-            entries: entries.filter { $0.item.id != itemId }
+            entries: entries.filter { $0.item.id != itemId },
+            isGap: isGap,
+            tripId: tripId
         )
     }
 

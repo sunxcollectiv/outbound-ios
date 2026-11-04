@@ -156,6 +156,57 @@ struct ServerContractTests {
         #expect(!after.contains { $0.id == trip.id })
     }
 
+    /// Segments: a member adds a trip of their own next to one they're on, and the two
+    /// join one group, whatever their dates.
+    @Test func tripSegments() async throws {
+        let owner = try await register("Contract Owner")
+        let friend = try await register("Contract Friend")
+        let trip = try await makeTrip(owner, with: [friend])
+        defer { Task { try? await owner.api.send(TripsAPI.delete(id: trip.id)) } }
+        #expect(trip.groupId == nil)
+        #expect(trip.extendsTripId == nil)
+        let year = trip.startDate.prefix(4)
+
+        // The friend adds the two days after the trip (Mar 5–6) as their own segment.
+        let segment = try await friend.api.send(TripsAPI.create(.init(
+            title: "Contract segment", description: nil,
+            startDate: "\(year)-03-05", endDate: "\(year)-03-06",
+            timezone: "Asia/Tokyo", extendsTripId: trip.id
+        )), as: Trip.self)
+        defer { Task { try? await friend.api.send(TripsAPI.delete(id: segment.id)) } }
+        #expect(segment.ownerId == friend.user.id)
+        #expect(segment.extendsTripId == trip.id)
+        let groupId = try #require(segment.groupId)
+        #expect(segment.members?.map(\.user?.id) == [friend.user.id])
+
+        // The trip it was added to joins the same group.
+        let ownerList = try await owner.api.send(TripsAPI.list, as: [Trip].self)
+        #expect(ownerList.first { $0.id == trip.id }?.groupId == groupId)
+
+        // A segment needn't touch the trip: one with days between them joins the group too.
+        let gap = try await friend.api.send(TripsAPI.create(.init(
+            title: "Contract gap", description: nil,
+            startDate: "\(year)-03-08", endDate: "\(year)-03-09", extendsTripId: trip.id
+        )), as: Trip.self)
+        defer { Task { try? await friend.api.send(TripsAPI.delete(id: gap.id)) } }
+        #expect(gap.groupId == groupId)
+
+        // The friend's merged itinerary keeps the empty day between their two segments,
+        // marked as a gap.
+        let itinerary = try await friend.api.send(TripsAPI.itinerary(tripId: gap.id), as: Itinerary.self)
+        #expect(itinerary.days.filter(\.isGap).map(\.date) == ["\(year)-03-07"])
+        #expect(itinerary.trips.map(\.id) == [trip.id, segment.id, gap.id])
+
+        // Only people on the trip can add a segment to it.
+        let stranger = try await register("Contract Stranger")
+        await #expect {
+            try await stranger.api.send(TripsAPI.create(.init(
+                title: "Contract stranger", description: nil,
+                startDate: "\(year)-02-27", endDate: "\(year)-02-28", extendsTripId: trip.id
+            )), as: Trip.self)
+        } throws: { status(of: $0) == 404 }
+    }
+
     // MARK: - Items and itinerary
 
     @Test func itemsAndItinerary() async throws {

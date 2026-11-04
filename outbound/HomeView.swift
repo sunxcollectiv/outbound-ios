@@ -94,11 +94,19 @@ struct HomeView: View {
                     TripFormView(onSaved: { store.add($0) })
                 }
                 .sheet(item: $editingTrip) { trip in
-                    TripFormView(trip: trip, onSaved: { store.update($0) }, onDeleted: { store.remove(id: trip.id) })
+                    TripFormView(
+                        trip: trip,
+                        groupPart: TripGroupPart.forEditing(trip, primary: trip, extensions: trip.extensions ?? [], userId: auth.currentUser?.id),
+                        onSaved: { store.update($0) },
+                        onDeleted: { store.remove(id: trip.id) }
+                    )
                 }
                 .navigationDestination(item: $openedTripId) { id in
                     if let trip = store.trips.first(where: { $0.id == id }) {
-                        TripDetailView(trip: trip) {
+                        TripDetailView(trip: trip, groupTrips: trip.extensions ?? [], onSegmentCreated: { _ in
+                            // The list nests a segment under the trip it was added to.
+                            Task { await store.load() }
+                        }) {
                             openedTripId = nil
                             store.remove(id: id)
                         }
