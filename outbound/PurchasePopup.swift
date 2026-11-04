@@ -10,6 +10,8 @@ import SwiftUI
 /// trip form when a save costs more than the user has (`shortfall`), with the amount
 /// that covers it picked.
 struct PurchasePopup: View {
+    @Environment(CreditStore.self) private var credits
+
     let onClose: () -> Void
 
     /// How many people the "usable for" line prices a trip for.
@@ -19,18 +21,29 @@ struct PurchasePopup: View {
     var shortfall: TripQuote?
     /// The trip owner's name when the buyer isn't the owner (see `OwnerRefundNote`).
     var refundsGoTo: String?
+    /// Called once bought credits are on the balance.
+    var onPurchased: () -> Void
 
-    /// The amounts on offer, in cents.
+    /// The amounts on offer, in cents (see `CreditProducts`).
     static let amountsCents = [500, 1_500, 2_500, 5_000]
 
     @State private var selectedCents: Int
     @State private var showingPricing = false
+    /// Why the last purchase didn't put credits on the balance, if it didn't.
+    @State private var notice: String?
 
-    init(onClose: @escaping () -> Void, members: Int = TripPricing.includedMembers, shortfall: TripQuote? = nil, refundsGoTo: String? = nil) {
+    init(
+        onClose: @escaping () -> Void,
+        members: Int = TripPricing.includedMembers,
+        shortfall: TripQuote? = nil,
+        refundsGoTo: String? = nil,
+        onPurchased: @escaping () -> Void = {}
+    ) {
         self.onClose = onClose
         self.members = members
         self.shortfall = shortfall
         self.refundsGoTo = refundsGoTo
+        self.onPurchased = onPurchased
         _selectedCents = State(initialValue: shortfall.map { Self.recommendedCents(covering: $0.shortfallCents) } ?? 1_500)
     }
 
@@ -56,17 +69,35 @@ struct PurchasePopup: View {
                 }
             }
 
-            Button {
-                // TODO: start the purchase once payments are integrated.
-            } label: {
-                Text("Purchase Credits")
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.appBackground, in: .rect(cornerRadius: appFieldCornerRadius))
+            Button(action: purchase) {
+                ZStack {
+                    // Kept for its size while the spinner shows, so the button doesn't jump.
+                    Text("Purchase Credits")
+                        .opacity(isPurchasing ? 0 : 1)
+                    if isPurchasing {
+                        ProgressView()
+                            .tint(Color.appForeground)
+                    }
+                }
+                .font(.body.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Color.appBackground, in: .rect(cornerRadius: appFieldCornerRadius))
             }
             .buttonStyle(.plain)
+            .disabled(isPurchasing)
             .padding(.top, 4)
+            .accessibilityValue(isPurchasing ? "Purchasing" : "")
+
+            if let notice {
+                Text(notice)
+                    .font(.footnote)
+                    .foregroundStyle(Color.appForeground)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(PopupCard.contentTransition)
+            }
 
             Text(Self.usableText(cents: selectedCents, members: members))
                 .font(.footnote)
@@ -87,6 +118,31 @@ struct PurchasePopup: View {
             pricing
         }
         .popupCard(onClose: onClose)
+        .task { await credits.loadProducts() }
+    }
+
+    private var isPurchasing: Bool { credits.purchasingCents != nil }
+
+    /// Buys the picked amount through the App Store; once it's credited, hands over to
+    /// `onPurchased`, and otherwise says what happened.
+    private func purchase() {
+        let cents = selectedCents
+        withAnimation(PopupCard.resizeAnimation) { notice = nil }
+        Task {
+            let outcome = await credits.purchase(cents: cents)
+            let message: String? = switch outcome {
+            case .credited, .cancelled:
+                nil
+            case .awaitingCredit:
+                "Your payment went through. Your credits will be added as soon as we can confirm it."
+            case .pending:
+                "Your purchase is waiting for approval. Your credits will be added once it's approved."
+            case .failed:
+                credits.errorMessage ?? "The purchase couldn't be completed. Please try again."
+            }
+            withAnimation(PopupCard.resizeAnimation) { notice = message }
+            if outcome == .credited { onPurchased() }
+        }
     }
 
     /// Why the picked amount was picked: what the save costs, what the user has, and the
@@ -243,4 +299,5 @@ struct PurchasePopup: View {
         PurchasePopup(onClose: {})
     }
     .background(LinearGradient.tripsBackground)
+    .environment(CreditStore())
 }

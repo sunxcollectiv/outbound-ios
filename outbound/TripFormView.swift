@@ -420,7 +420,12 @@ struct TripFormView: View {
         if let pendingCharge {
             DimmedPopup(onClose: closeCharge) {
                 if pendingCharge.needsCredits {
-                    PurchasePopup(onClose: closeCharge, shortfall: pendingCharge.quote, refundsGoTo: ownerNameIfNotPayer)
+                    PurchasePopup(
+                        onClose: closeCharge,
+                        shortfall: pendingCharge.quote,
+                        refundsGoTo: ownerNameIfNotPayer,
+                        onPurchased: { quoteAfterPurchase(pendingCharge) }
+                    )
                 } else {
                     ChargeConfirmationPopup(
                         tripTitle: pendingCharge.body.title,
@@ -449,6 +454,17 @@ struct TripFormView: View {
         Task {
             defer { isSaving = false }
             await commit(charge.body, quote: charge.quote)
+        }
+    }
+
+    /// Credits were bought to cover `charge`: quote it again, so the user confirms the
+    /// charge against the new balance.
+    private func quoteAfterPurchase(_ charge: PendingCharge) {
+        closeCharge()
+        isSaving = true
+        Task {
+            defer { isSaving = false }
+            await quoteThenSave(charge.body)
         }
     }
 
@@ -544,6 +560,7 @@ struct TripFormView: View {
 #Preview {
     TripFormView()
         .environment(AuthStore())
+        .environment(CreditStore())
 }
 
 /// A trip save that costs credits, with the quote shown for it.

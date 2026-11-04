@@ -5,15 +5,21 @@
 
 import SwiftUI
 
-/// One line in the user's credit ledger: money added, or spent on a trip.
-struct CreditLedgerEntry: Identifiable, Equatable {
+/// One line in the user's credit ledger (`CreditEntryRead`): credits added, or spent
+/// on a trip.
+struct CreditLedgerEntry: Identifiable, Equatable, Codable {
     let id: String
-    /// What the line is for, e.g. "Added credits" or "Unlocked Tokyo 2026".
+    /// What the line is for, e.g. "Credits purchased" or "Unlocked Tokyo 2026".
     let title: String
     /// Whole cents, positive for credits added and negative for credits spent, so
     /// amounts add up exactly.
     let amountCents: Int
     let date: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, amountCents
+        case date = "createdAt"
+    }
 }
 
 extension CreditLedgerEntry {
@@ -22,7 +28,7 @@ extension CreditLedgerEntry {
         entries.reduce(0) { $0 + $1.amountCents }
     }
 
-    /// Placeholder lines until the backend has a ledger, newest first.
+    /// Example lines for previews, newest first.
     static let samples: [CreditLedgerEntry] = {
         let now = Date()
         func daysAgo(_ days: Double) -> Date { now.addingTimeInterval(-days * 86_400) }
@@ -46,9 +52,11 @@ func formatCredits(cents: Int, signed: Bool = false) -> String {
 /// The user's credits, pushed from the drawer: the balance, a button to buy more, and
 /// the activity behind the balance, newest first.
 struct CreditsView: View {
-    var entries: [CreditLedgerEntry] = CreditLedgerEntry.samples
+    @Environment(CreditStore.self) private var credits
 
     @State private var showingPurchase = false
+
+    private var entries: [CreditLedgerEntry] { credits.entries }
 
     var body: some View {
         List {
@@ -59,7 +67,7 @@ struct CreditsView: View {
             }
             Section {
                 if entries.isEmpty {
-                    Text("No activity yet")
+                    Text(credits.credits == nil ? (credits.errorMessage ?? "Loading…") : "No activity yet")
                         .font(.subheadline)
                         .foregroundStyle(Color.appForeground.opacity(0.7))
                         .listRowBackground(Color.clear)
@@ -100,6 +108,8 @@ struct CreditsView: View {
         // Hiding the whole bar would shift the page up under the popup.
         .navigationBarBackButtonHidden(showingPurchase)
         .overlay { purchasePopup }
+        .task { await credits.load() }
+        .refreshable { await credits.load() }
         .offlinePillNearBottom(isActive: showingPurchase)
     }
 
@@ -112,7 +122,7 @@ struct CreditsView: View {
     private var purchasePopup: some View {
         if showingPurchase {
             DimmedPopup(onClose: closePurchase) {
-                PurchasePopup(onClose: closePurchase)
+                PurchasePopup(onClose: closePurchase, onPurchased: closePurchase)
             }
         }
     }
@@ -122,7 +132,7 @@ struct CreditsView: View {
             Text("Balance")
                 .font(.subheadline)
                 .foregroundStyle(Color.appForeground.opacity(0.7))
-            Text(formatCredits(cents: CreditLedgerEntry.balanceCents(of: entries)))
+            Text(credits.balanceCents.map { formatCredits(cents: $0) } ?? "–")
                 .font(.system(size: 44, weight: .bold, design: .rounded))
                 .monospacedDigit()
             Button {
@@ -175,4 +185,5 @@ struct CreditLedgerRow: View {
     NavigationStack {
         CreditsView()
     }
+    .environment(CreditStore())
 }

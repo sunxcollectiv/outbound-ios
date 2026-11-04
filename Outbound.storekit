@@ -1,0 +1,90 @@
+{
+  "identifier": "8F2C1B9A-3D4E-4F60-9A1B-2C3D4E5F6071",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "5.00",
+      "familyShareable": false,
+      "internalID": "10000500",
+      "localizations": [
+        {
+          "description": "$5 of credits for unlocking trips",
+          "displayName": "$5 Credits",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "earth.outbound.credits.500",
+      "referenceName": "Credits 5",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "15.00",
+      "familyShareable": false,
+      "internalID": "10001500",
+      "localizations": [
+        {
+          "description": "$15 of credits for unlocking trips",
+          "displayName": "$15 Credits",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "earth.outbound.credits.1500",
+      "referenceName": "Credits 15",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "25.00",
+      "familyShareable": false,
+      "internalID": "10002500",
+      "localizations": [
+        {
+          "description": "$25 of credits for unlocking trips",
+          "displayName": "$25 Credits",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "earth.outbound.credits.2500",
+      "referenceName": "Credits 25",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "50.00",
+      "familyShareable": false,
+      "internalID": "10005000",
+      "localizations": [
+        {
+          "description": "$50 of credits for unlocking trips",
+          "displayName": "$50 Credits",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "earth.outbound.credits.5000",
+      "referenceName": "Credits 50",
+      "type": "Consumable"
+    }
+  ],
+  "settings": {
+    "_applicationInternalID": "6740000000",
+    "_developerTeamID": "",
+    "_failTransactionsEnabled": false,
+    "_lastSynchronizedDate": 0,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [],
+  "version": {
+    "major": 4,
+    "minor": 0
+  },
+  "appPolicies": {
+    "eula": "",
+    "policies": [
+      {
+        "locale": "en_US",
+        "policyText": "",
+        "policyURL": ""
+      }
+    ]
+  }
+}
