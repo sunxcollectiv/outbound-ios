@@ -44,14 +44,12 @@ struct TripDetailView: View {
     @State private var addItemRequest: AddItemRequest?
     /// The trip open in the edit form: this one, or the extension the viewed day is on.
     @State private var tripToEdit: Trip?
-    /// The trip the delete confirmation is for (see `menuTrip`).
+    /// The trip the delete popup is open for (see `menuTrip`).
     @State private var tripToDelete: Trip?
     /// A pending add-segment sheet, from the day picker's plus at either end.
     @State private var segmentRequest: SegmentRequest?
     /// Whether the dropdown under the header's more button is open.
     @State private var showingTripMenu = false
-    /// Showing the confirmation before the trip is deleted from its menu.
-    @State private var confirmingDeleteTrip = false
     /// The status pill above the day picker (an address copied, a screenshot uploading).
     @State private var toast: TripToast?
     /// Hides the current toast after a moment; replaced whenever a new toast shows.
@@ -103,6 +101,7 @@ struct TripDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var auth
+    @Environment(CreditStore.self) private var credits
 
     private let api = APIClient.shared
     private var connectivity = Connectivity.shared
@@ -210,7 +209,8 @@ struct TripDetailView: View {
         .overlay(alignment: .bottom) { importProgressPill }
         .overlay { lodgingPopup }
         .overlay { addLodgingPopup }
-        .offlinePillNearBottom(isActive: popupLodging != nil || addLodgingDay != nil)
+        .overlay { deleteTripPopup }
+        .offlinePillNearBottom(isActive: popupLodging != nil || addLodgingDay != nil || tripToDelete != nil)
         .photosPicker(isPresented: $showingBookingImagePicker, selection: $bookingImageSelection, matching: .images)
         .onChange(of: bookingImageSelection) { _, item in
             guard let item else { return }
@@ -230,11 +230,6 @@ struct TripDetailView: View {
             } onDeleted: {
                 removeItem(item.id)
             }
-        }
-        .confirmationDialog("Delete this trip?", isPresented: $confirmingDeleteTrip, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { tripToDelete.map(deleteTrip) }
-        } message: {
-            Text("Everything on it is deleted for everyone on the trip. This can't be undone.")
         }
         .sheet(item: $tripToEdit) { edited in
             TripFormView(
@@ -506,6 +501,8 @@ struct TripDetailView: View {
         Task {
             do {
                 try await api.send(TripsAPI.delete(id: target.id))
+                // The refund, if any, is on the balance now.
+                Task { await credits.load() }
                 tripDeleted(target)
             } catch {
                 showToast(TripToast(text: "Couldn't delete the trip", systemImage: "exclamationmark.triangle.fill"))
@@ -581,8 +578,7 @@ struct TripDetailView: View {
                         onShare: { closeTripMenu() },
                         onDeleteTrip: menuTrip.ownerId == auth.currentUser?.id ? {
                             closeTripMenu()
-                            tripToDelete = menuTrip
-                            confirmingDeleteTrip = true
+                            withAnimation(.snappy(duration: 0.2)) { tripToDelete = menuTrip }
                         } : nil
                     )
                     .padding(.top, headerFrame.maxY + 6)
@@ -860,6 +856,23 @@ struct TripDetailView: View {
 
     private func showLodgingPopup(_ item: TripItem) {
         withAnimation(.snappy(duration: 0.25)) { popupLodging = item }
+    }
+
+    private func closeDeleteTrip() {
+        withAnimation(.snappy(duration: 0.2)) { tripToDelete = nil }
+    }
+
+    /// Asks before deleting a trip from its menu, with the credits it refunds.
+    @ViewBuilder
+    private var deleteTripPopup: some View {
+        if let target = tripToDelete {
+            DimmedPopup(onClose: closeDeleteTrip) {
+                DeleteTripPopup(tripId: target.id, onDelete: {
+                    closeDeleteTrip()
+                    deleteTrip(target)
+                }, onClose: closeDeleteTrip)
+            }
+        }
     }
 
     private func closeLodgingPopup() {
@@ -1336,6 +1349,7 @@ private struct DayPager<Content: View>: View {
     }
     .appTheme()
     .environment(AuthStore())
+    .environment(CreditStore())
 }
 
 /// Fades content in, optionally sliding it up, once `isRevealed` turns true.

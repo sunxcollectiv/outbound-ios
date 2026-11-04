@@ -13,6 +13,7 @@ import SwiftUI
 struct TripFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var auth
+    @Environment(CreditStore.self) private var credits
 
     /// The trip being edited, or `nil` when creating a new one.
     private let trip: Trip?
@@ -51,13 +52,15 @@ struct TripFormView: View {
     @State private var activeField: DateField?
     @State private var isSaving = false
     @State private var isDeleting = false
+    /// Showing the delete popup.
+    @State private var confirmingDelete = false
     @State private var errorMessage: String?
     /// Whether an edited trip's own dates are still loading. A trip from the list that
     /// has extensions carries its whole group's span instead, which saving would write
     /// over the trip's real dates, so saving waits for them.
     @State private var isLoadingOwnDates: Bool
-    /// A save that costs credits, waiting on the user: to confirm the charge, or to buy
-    /// credits first when they're short.
+    /// A save that costs or refunds credits, waiting on the user: to confirm the charge
+    /// or refund, or to buy credits first when they're short.
     @State private var pendingCharge: PendingCharge?
 
     private enum DateField { case start, end }
@@ -179,7 +182,8 @@ struct TripFormView: View {
         .task { await loadOwnDates() }
         .overlay { memberInvitePopup }
         .overlay { chargePopup }
-        .offlinePillNearBottom(isActive: showingMemberInvite || pendingCharge != nil)
+        .overlay { deletePopup }
+        .offlinePillNearBottom(isActive: showingMemberInvite || pendingCharge != nil || confirmingDelete)
         .appTheme()
     }
 
@@ -251,7 +255,8 @@ struct TripFormView: View {
                     title: "Delete Trip",
                     confirmation: "Delete this trip?",
                     message: "Everything on it is deleted for everyone on the trip. This can't be undone.",
-                    action: delete
+                    action: delete,
+                    onRequest: { withAnimation(.snappy(duration: 0.2)) { confirmingDelete = true } }
                 )
                 : nil,
             isDeleting: isDeleting,
@@ -278,6 +283,23 @@ struct TripFormView: View {
         }
     }
 
+    private func closeDelete() {
+        withAnimation(.snappy(duration: 0.2)) { confirmingDelete = false }
+    }
+
+    /// Asks before deleting, with the credits it refunds, over the dimmed form.
+    @ViewBuilder
+    private var deletePopup: some View {
+        if confirmingDelete, let trip {
+            DimmedPopup(onClose: closeDelete) {
+                DeleteTripPopup(tripId: trip.id, onDelete: {
+                    closeDelete()
+                    delete()
+                }, onClose: closeDelete)
+            }
+        }
+    }
+
     private func delete() {
         guard let trip else { return }
         errorMessage = nil
@@ -286,6 +308,8 @@ struct TripFormView: View {
             defer { isDeleting = false }
             do {
                 try await api.send(TripsAPI.delete(id: trip.id))
+                // The refund, if any, is on the balance now.
+                Task { await credits.load() }
                 onDeleted()
                 dismiss()
             } catch {
@@ -413,8 +437,8 @@ struct TripFormView: View {
         withAnimation(.snappy(duration: 0.2)) { pendingCharge = nil }
     }
 
-    /// The charge confirmation, or the purchase popup when the user's credits fall
-    /// short, over the dimmed form.
+    /// The charge or refund confirmation, or the purchase popup when the user's credits
+    /// fall short, over the dimmed form.
     @ViewBuilder
     private var chargePopup: some View {
         if let pendingCharge {
@@ -425,6 +449,14 @@ struct TripFormView: View {
                         shortfall: pendingCharge.quote,
                         refundsGoTo: ownerNameIfNotPayer,
                         onPurchased: { quoteAfterPurchase(pendingCharge) }
+                    )
+                } else if pendingCharge.isRefund {
+                    RefundConfirmationPopup(
+                        tripTitle: pendingCharge.body.title,
+                        quote: pendingCharge.quote,
+                        refundsGoTo: ownerNameIfNotPayer,
+                        onConfirm: { confirmCharge(pendingCharge) },
+                        onClose: closeCharge
                     )
                 } else {
                     ChargeConfirmationPopup(
@@ -512,14 +544,14 @@ struct TripFormView: View {
         }
     }
 
-    /// Asks the server what the save would cost before making it. Free saves go
-    /// straight through; otherwise the user confirms the charge, or buys credits first
-    /// when they're short (see `chargePopup`).
+    /// Asks the server what the save would cost before making it. Saves that
+    /// neither cost nor refund go straight through; otherwise the user confirms the
+    /// charge or refund, or buys credits first when they're short (see `chargePopup`).
     private func quoteThenSave(_ body: TripsAPI.CreateRequest, retrying: Bool = false) async {
         do {
             let endpoint = trip.map { TripsAPI.quote(id: $0.id, body) } ?? TripsAPI.quote(body)
             let quote = try await api.send(endpoint, as: TripQuote.self)
-            if quote.priceCents == 0 {
+            if quote.priceCents == 0 && quote.refundCents == 0 {
                 await commit(body, quote: quote, retrying: retrying)
             } else {
                 withAnimation(.snappy(duration: 0.2)) { pendingCharge = PendingCharge(body: body, quote: quote) }
@@ -537,6 +569,10 @@ struct TripFormView: View {
         do {
             let endpoint = trip.map { TripsAPI.update(id: $0.id, body) } ?? TripsAPI.create(body)
             let saved = try await api.send(endpoint, as: Trip.self)
+            if quote.priceCents > 0 || quote.refundCents > 0 {
+                // What was charged or refunded is on the balance now.
+                Task { await credits.load() }
+            }
             onSaved(saved)
             dismiss()
         } catch APIError.server(let status, _) where !retrying && (status == 402 || status == 409) {
@@ -563,13 +599,15 @@ struct TripFormView: View {
         .environment(CreditStore())
 }
 
-/// A trip save that costs credits, with the quote shown for it.
+/// A trip save that costs or refunds credits, with the quote shown for it.
 private struct PendingCharge {
     let body: TripsAPI.CreateRequest
     let quote: TripQuote
 
     /// Whether the user has to buy credits before they can save.
     var needsCredits: Bool { quote.shortfallCents > 0 }
+    /// Whether the save gives credits back instead of costing any, e.g. shorter dates.
+    var isRefund: Bool { quote.priceCents == 0 && quote.refundCents > 0 }
 }
 
 /// Which part of a group a trip is: the one the group grew from, or an extension

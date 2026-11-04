@@ -25,6 +25,12 @@ struct TripQuote: Decodable, Equatable {
     /// The price's breakdown: each trip-day bracket, then each extra-member bracket.
     let tripLines: [TripPricing.Line]
     let memberLines: [TripPricing.Line]
+    /// Net already paid for the trip (charges less refunds); nil for a new trip or a
+    /// server that doesn't send it.
+    var paidCents: Int? = nil
+    /// Whether giving credits back is still possible: until a day after the trip
+    /// starts. Nil from a server that doesn't send it.
+    var refundWindowOpen: Bool? = nil
 
     /// The balance once the price is taken.
     var balanceAfterCents: Int { balanceCents - priceCents }
