@@ -25,6 +25,21 @@ struct DaySelectorBar: View {
     /// The ends that show the plus button; an end left out keeps its empty cell, so the
     /// row's layout doesn't change.
     var segmentEdges: Set<HorizontalEdge> = [.leading, .trailing]
+    /// The trip the screen is for: its days' line is solid, its extensions' hatched.
+    var primaryTripId: String?
+
+    /// How far the row is scrolled, for drawing the trip lines (outside the scroll view,
+    /// so the edge fade doesn't reach them) in step with the days.
+    @State private var scrollOffset: CGFloat = 0
+    /// The room below the row down to the screen's bottom edge, where the trip lines sit.
+    @State private var bottomInset: CGFloat = 0
+    /// The trip line's thickness, and the break between trips.
+    private static let tripLineHeight: CGFloat = 5
+    private static let tripLineBreak: CGFloat = 8
+    /// The screen's corner radius on current iPhones (not public API, so a constant).
+    /// The trip lines fade out across the bottom corners: from where the curve begins,
+    /// to where it has swallowed the line's height.
+    private static let screenCornerRadius: CGFloat = 62
 
     var body: some View {
         GeometryReader { geo in
@@ -68,6 +83,19 @@ struct DaySelectorBar: View {
                 // A static edge gradient fades the content (glass included) near both
                 // sides, so days ease in/out instead of being hard-cut at the edge.
                 .mask(edgeFadeMask(fadeZone: fadeZone, width: geo.size.width))
+                .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, x in
+                    scrollOffset = x
+                }
+                .overlay(alignment: .bottomLeading) {
+                    tripLines(
+                        cellWidth: cellWidth,
+                        // Where the first cell starts on screen.
+                        origin: max(sideInset - cellWidth, 0) - scrollOffset + dragProgress * cellWidth,
+                        width: geo.size.width
+                    )
+                    // Down past the safe area, so the line sits on the screen's bottom edge.
+                    .offset(y: bottomInset)
+                }
                 .onAppear { proxy.scrollTo(selection, anchor: .center) }
                 .onChange(of: selection) { _, newValue in
                     withAnimation(.easeInOut(duration: 0.28)) {
@@ -77,6 +105,7 @@ struct DaySelectorBar: View {
             }
         }
         .frame(height: 56)
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
         .padding(.top, 40)
         .frame(maxWidth: .infinity)
         .background {
@@ -108,6 +137,84 @@ struct DaySelectorBar: View {
             startPoint: .leading,
             endPoint: .trailing
         )
+    }
+
+    /// A white line under each run of days on one trip, reaching the screen edges at the
+    /// ends of the journey, with a short break where one trip meets the next and none
+    /// under gap days. `origin` is where the leading plus cell starts on screen.
+    private func tripLines(cellWidth: CGFloat, origin: CGFloat, width: CGFloat) -> some View {
+        // Each run of cells sharing a trip, by cell index (the plus cell is 0). A day
+        // no trip covers (a flight before the trip, say) joins the run it sits beside.
+        var runs: [(trip: String?, first: Int, last: Int)] = []
+        for (offset, cell) in cells.enumerated() {
+            let index = offset + 1
+            guard case .day(let day) = cell else { continue }
+            if let last = runs.last, last.last == index - 1, day.tripId == nil || last.trip == nil || last.trip == day.tripId {
+                runs[runs.count - 1] = (last.trip ?? day.tripId, last.first, index)
+            } else {
+                runs.append((day.tripId, index, index))
+            }
+        }
+        return ZStack(alignment: .leading) {
+            ForEach(Array(runs.enumerated()), id: \.offset) { position, run in
+                let touchesPrevious = position > 0 && runs[position - 1].last == run.first - 1
+                let touchesNext = position < runs.count - 1 && runs[position + 1].first == run.last + 1
+                // Out to the screen edge at either end of the journey.
+                let start = position == 0 ? min(origin, 0) - 1 : origin + CGFloat(run.first) * cellWidth + (touchesPrevious ? Self.tripLineBreak / 2 : 0)
+                let end = position == runs.count - 1 ? max(origin + CGFloat(cells.count + 2) * cellWidth, width) + 1 : origin + CGFloat(run.last + 1) * cellWidth - (touchesNext ? Self.tripLineBreak / 2 : 0)
+                tripLine(isPrimary: run.trip == nil || run.trip == primaryTripId)
+                    .frame(width: max(end - start, 0), height: Self.tripLineHeight)
+                    .offset(x: start)
+            }
+        }
+        .frame(width: width, alignment: .leading)
+        .clipped()
+        .mask(cornerFadeMask(width: width))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// Clear at each end where the screen's corner curve has cut off the line, opaque from
+    /// where the curve starts.
+    private func cornerFadeMask(width: CGFloat) -> some View {
+        let r = Self.screenCornerRadius
+        // How far in from the edge the curve is at the line's top.
+        let lost = r - (r * r - (r - Self.tripLineHeight) * (r - Self.tripLineHeight)).squareRoot()
+        // The fade starts a little inside the curve, so it's well underway by the corner.
+        let clear = min(lost / width, 0.5), opaque = min((r + 15) / width, 0.5)
+        return LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: clear),
+                .init(color: .white, location: opaque),
+                .init(color: .white, location: 1 - opaque),
+                .init(color: .clear, location: 1 - clear),
+                .init(color: .clear, location: 1),
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    /// One trip's stretch of line: solid for the primary trip, hatched for an extension.
+    @ViewBuilder
+    private func tripLine(isPrimary: Bool) -> some View {
+        if isPrimary {
+            Rectangle().fill(.white.opacity(0.6))
+        } else {
+            Canvas { context, size in
+                var path = Path()
+                let stripe: CGFloat = 2, spacing: CGFloat = 5
+                var x = -size.height
+                while x < size.width {
+                    path.move(to: CGPoint(x: x, y: size.height))
+                    path.addLine(to: CGPoint(x: x + size.height, y: 0))
+                    x += spacing
+                }
+                context.stroke(path, with: .color(.white.opacity(0.5)), lineWidth: stripe)
+            }
+            .clipped()
+        }
     }
 
     /// The row's cells: each day, with every run of gap days between the user's trips

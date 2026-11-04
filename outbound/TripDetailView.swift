@@ -167,7 +167,7 @@ struct TripDetailView: View {
                     .overlay(alignment: .bottom) {
                         DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress, onAddSegment: { edge in
                             segmentRequest = SegmentRequest(edge: edge)
-                        }, segmentEdges: openSegmentEdges)
+                        }, segmentEdges: openSegmentEdges, primaryTripId: trip.id)
                         .revealIn(hasRevealed)
                     }
                     // A task rather than onAppear: the pager settles on the selected day in
