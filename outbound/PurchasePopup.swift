@@ -11,6 +11,7 @@ import SwiftUI
 /// that covers it picked.
 struct PurchasePopup: View {
     @Environment(CreditStore.self) private var credits
+    @Environment(AuthStore.self) private var auth
 
     let onClose: () -> Void
 
@@ -129,7 +130,7 @@ struct PurchasePopup: View {
         let cents = selectedCents
         withAnimation(PopupCard.resizeAnimation) { notice = nil }
         Task {
-            let outcome = await credits.purchase(cents: cents)
+            let outcome = await credits.purchase(cents: cents, accountId: auth.currentUser?.id)
             let message: String? = switch outcome {
             case .credited, .cancelled:
                 nil
@@ -300,4 +301,5 @@ struct PurchasePopup: View {
     }
     .background(LinearGradient.tripsBackground)
     .environment(CreditStore())
+    .environment(AuthStore())
 }

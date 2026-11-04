@@ -87,7 +87,9 @@ final class CreditStore {
     }
 
     /// Buys the product for `cents` of credits and has the server credit it.
-    func purchase(cents: Int) async -> CreditPurchaseOutcome {
+    /// `accountId` (the signed-in user's id) tags the purchase as theirs, so the
+    /// server won't credit it to anyone else.
+    func purchase(cents: Int, accountId: String?) async -> CreditPurchaseOutcome {
         guard purchasingCents == nil else { return .failed }
         await loadProducts()
         guard let product = products[cents] else {
@@ -97,7 +99,10 @@ final class CreditStore {
         purchasingCents = cents
         defer { purchasingCents = nil }
         do {
-            switch try await product.purchase() {
+            let options: Set<Product.PurchaseOption> = accountId
+                .flatMap(UUID.init(uuidString:))
+                .map { [.appAccountToken($0)] } ?? []
+            switch try await product.purchase(options: options) {
             case .success(let result):
                 return await deliver(result)
             case .pending:

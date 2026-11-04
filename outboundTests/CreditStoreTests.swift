@@ -57,7 +57,7 @@ struct CreditStoreTests {
     @Test func aCreditedPurchaseUpdatesTheBalanceAndIsFinished() async {
         let credits = store(serverCredits: true)
 
-        let outcome = await credits.purchase(cents: 1_500)
+        let outcome = await credits.purchase(cents: 1_500, accountId: nil)
 
         #expect(outcome == .credited)
         #expect(credits.balanceCents == 1_500)
@@ -68,7 +68,7 @@ struct CreditStoreTests {
     @Test func aPurchaseTheServerDidntCreditIsKeptAndSentAgain() async {
         let credits = store(serverCredits: false)
 
-        let outcome = await credits.purchase(cents: 500)
+        let outcome = await credits.purchase(cents: 500, accountId: nil)
 
         #expect(outcome == .awaitingCredit)
         #expect(await unfinishedProductIDs() == ["earth.outbound.credits.500"])
