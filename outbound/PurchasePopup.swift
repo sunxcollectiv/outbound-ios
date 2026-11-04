@@ -202,30 +202,36 @@ struct PurchasePopup: View {
                         .fixedSize(horizontal: false, vertical: true)
                     ratesTable(TripPricing.brackets, rateHeader: "Per day")
 
-                    Text("A standard trip includes unlimited collaboration between \(TripPricing.includedMembers) people. Extra people are only charged for the days they're added to, and cost less per day for longer trips.")
+                    Text("A standard trip includes unlimited collaboration between \(TripPricing.includedMembers) people. Additional member costs are calculated per day and decrease with trip length and group size. (example: 3 extra members on a 3-day trip costs the same as 1 extra member on a 9 day trip")
                         .font(.footnote)
                         .foregroundStyle(Color.appForeground.opacity(0.7))
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 4)
-                    ratesTable(TripPricing.memberBrackets, rateHeader: "Per person, per day")
+                    ratesTable(TripPricing.memberBrackets, daysHeader: "Member-days", rateHeader: "Per person, per day", rangesOnly: true)
                 }
                 .transition(PopupCard.contentTransition)
             }
         }
     }
 
-    /// Brackets as a bordered two-column table: the days, then the rate.
-    private func ratesTable(_ brackets: [TripPricing.Bracket], rateHeader: String) -> some View {
+    /// Brackets as a bordered two-column table: the days, then the rate. With
+    /// `rangesOnly`, rows show just the numbers, e.g. "1–7" or "31+".
+    private func ratesTable(
+        _ brackets: [TripPricing.Bracket],
+        daysHeader: String = "Trip days",
+        rateHeader: String,
+        rangesOnly: Bool = false
+    ) -> some View {
         let shape = RoundedRectangle(cornerRadius: appFieldCornerRadius)
         return VStack(spacing: 0) {
-            tableRow(Text("Trip days"), Text(rateHeader), fill: Color.white.opacity(0.08))
+            tableRow(Text(daysHeader), Text(rateHeader), fill: Color.white.opacity(0.08))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.appForeground.opacity(0.6))
 
             ForEach(Array(brackets.enumerated()), id: \.element.firstDay) { index, bracket in
                 // Every other row shaded, so a rate is easy to follow across.
                 tableRow(
-                    Text(Self.daysText(bracket)),
+                    Text(rangesOnly ? Self.rangeText(bracket) : Self.daysText(bracket)),
                     Text(formatCredits(cents: bracket.centsPerDay)).monospacedDigit(),
                     fill: index.isMultiple(of: 2) ? Color.clear : Color.white.opacity(0.04)
                 )
@@ -267,6 +273,12 @@ struct PurchasePopup: View {
     static func daysText(_ bracket: TripPricing.Bracket) -> String {
         guard let lastDay = bracket.lastDay else { return "Day \(bracket.firstDay) and beyond" }
         return "Days \(bracket.firstDay)–\(lastDay)"
+    }
+
+    /// A bracket's days as just numbers, e.g. "1–7" or "31+".
+    static func rangeText(_ bracket: TripPricing.Bracket) -> String {
+        guard let lastDay = bracket.lastDay else { return "\(bracket.firstDay)+" }
+        return "\(bracket.firstDay)–\(lastDay)"
     }
 
     private func amountOption(_ cents: Int) -> some View {
