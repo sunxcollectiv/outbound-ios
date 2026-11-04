@@ -34,6 +34,9 @@ struct Trip: Codable, Identifiable, Equatable {
     /// In the trip list only: the user's other trips in this one's group, by start date.
     /// The list shows them as one entry, whose `startDate`/`endDate` then span them all.
     var extensions: [Trip]?
+    /// The key of the pricing schedule the trip was created under, which it's priced by
+    /// for good (see `PricingStore`). Nil from a server that doesn't send it yet.
+    var priceSchedule: String?
     let createdAt: Date
     let updatedAt: Date
 }

@@ -96,6 +96,34 @@ struct ServerContractTests {
 
     // MARK: - Trips, days, members
 
+    /// The rate tables, current and by key, and that a quote names a schedule the app
+    /// can load and that prices it the same way the server did.
+    @Test func pricingSchedules() async throws {
+        let current = try await client().send(PricingAPI.current, as: PricingSchedule.self)
+        #expect(!current.key.isEmpty)
+        #expect(current.tripBrackets.first?.firstDay == 1)
+        #expect(current.tripBrackets.last?.lastDay == nil)
+        #expect(try await client().send(PricingAPI.schedule(key: current.key), as: PricingSchedule.self) == current)
+
+        let owner = try await register("Contract Pricing")
+        let body = TripsAPI.CreateRequest(title: "Contract quote", description: nil, startDate: "2027-03-01", endDate: "2027-03-07")
+        let quote = try await owner.api.send(TripsAPI.quote(body), as: TripQuote.self)
+        #expect(quote.schedule == current.key)
+        // A new trip has nothing paid yet, so the charge is its whole price.
+        #expect(current.priceCents(days: quote.days, members: quote.members) == quote.priceCents)
+        #expect(current.breakdown(days: quote.days) == quote.tripLines)
+
+        // With extra people, priced by the member-day: 3 beyond the included ones.
+        let emails = (1...(current.includedMembers + 2)).map { "contract-\(UUID().uuidString.lowercased())-\($0)@example.com" }
+        var crowded = body
+        crowded.members = emails.map { TripsAPI.MemberRequest(email: $0) }
+        let crowdedQuote = try await owner.api.send(TripsAPI.quote(crowded), as: TripQuote.self)
+        #expect(crowdedQuote.extraMembers == 3)
+        #expect(current.priceCents(days: crowdedQuote.days, members: crowdedQuote.members) == crowdedQuote.priceCents)
+        let memberDays = current.memberDays(days: crowdedQuote.days, members: crowdedQuote.members)
+        #expect(current.memberBreakdown(memberDays: memberDays) == crowdedQuote.memberLines)
+    }
+
     @Test func tripLifecycle() async throws {
         let owner = try await register("Contract Owner")
         let friend = try await register("Contract Friend")

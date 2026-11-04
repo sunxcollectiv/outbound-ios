@@ -597,6 +597,7 @@ struct TripFormView: View {
     TripFormView()
         .environment(AuthStore())
         .environment(CreditStore())
+        .environment(PricingStore())
 }
 
 /// A trip save that costs or refunds credits, with the quote shown for it.

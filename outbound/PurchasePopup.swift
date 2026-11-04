@@ -12,11 +12,13 @@ import SwiftUI
 struct PurchasePopup: View {
     @Environment(CreditStore.self) private var credits
     @Environment(AuthStore.self) private var auth
+    @Environment(PricingStore.self) private var pricingStore
 
     let onClose: () -> Void
 
-    /// How many people the "usable for" line prices a trip for.
-    var members = TripPricing.includedMembers
+    /// How many people the "usable for" line prices a trip for; nil for the schedule's
+    /// included members.
+    var members: Int?
 
     /// The save that needs more credits, when opened from one.
     var shortfall: TripQuote?
@@ -35,7 +37,7 @@ struct PurchasePopup: View {
 
     init(
         onClose: @escaping () -> Void,
-        members: Int = TripPricing.includedMembers,
+        members: Int? = nil,
         shortfall: TripQuote? = nil,
         refundsGoTo: String? = nil,
         onPurchased: @escaping () -> Void = {}
@@ -51,6 +53,20 @@ struct PurchasePopup: View {
     /// The smallest amount on offer that covers `cents`, or the largest if none does.
     static func recommendedCents(covering cents: Int) -> Int {
         amountsCents.first { $0 >= cents } ?? amountsCents.last!
+    }
+
+    /// The key of the schedule to show: the trip's, when opened from a save that's short
+    /// (its quote names it); nil for the current one, which new trips get.
+    private var scheduleKey: String? { shortfall?.schedule }
+
+    /// The rates to show, once loaded.
+    private var schedule: PricingSchedule? { pricingStore.schedule(key: scheduleKey) }
+
+    /// What to say in place of the rates while they load, or when they can't.
+    private var scheduleStatus: String {
+        pricingStore.isUnavailable(key: scheduleKey)
+            ? "Pricing couldn't be loaded. Check your connection and try again."
+            : "Loading pricing…"
     }
 
     /// One column per amount, so they all sit in a single row.
@@ -100,7 +116,7 @@ struct PurchasePopup: View {
                     .transition(PopupCard.contentTransition)
             }
 
-            Text(Self.usableText(cents: selectedCents, members: members))
+            Text(schedule.map { Self.usableText(cents: selectedCents, members: members ?? $0.includedMembers, schedule: $0) } ?? " ")
                 .font(.footnote)
                 .foregroundStyle(Color.appForeground.opacity(0.7))
                 .frame(maxWidth: .infinity)
@@ -120,6 +136,7 @@ struct PurchasePopup: View {
         }
         .popupCard(onClose: onClose)
         .task { await credits.loadProducts() }
+        .task { await pricingStore.load(key: scheduleKey) }
     }
 
     private var isPurchasing: Bool { credits.purchasingCents != nil }
@@ -174,7 +191,7 @@ struct PurchasePopup: View {
     }
 
     /// How credits are spent, collapsed until asked for: each trip day at its bracket's
-    /// rate, plus each member beyond the included ones at theirs, from `TripPricing`.
+    /// rate, plus each member beyond the included ones at theirs, from the schedule.
     private var pricing: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
@@ -194,22 +211,27 @@ struct PurchasePopup: View {
             .buttonStyle(.plain)
             .accessibilityValue(showingPricing ? "Expanded" : "Collapsed")
 
-            if showingPricing {
+            if showingPricing, let schedule {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("You pay once per trip, based on how many days it is. Each day is priced at the rate for its range, so longer trips cost less per day.")
                         .font(.footnote)
                         .foregroundStyle(Color.appForeground.opacity(0.7))
                         .fixedSize(horizontal: false, vertical: true)
-                    ratesTable(TripPricing.brackets, rateHeader: "Per day")
+                    ratesTable(schedule.tripBrackets, rateHeader: "Per day")
 
-                    Text("A standard trip includes unlimited collaboration between \(TripPricing.includedMembers) people. Additional member costs are calculated per day and decrease with trip length and group size. (example: 3 extra members on a 3-day trip costs the same as 1 extra member on a 9 day trip")
+                    Text("A standard trip includes unlimited collaboration between \(schedule.includedMembers) people. Additional member costs are calculated per day and decrease with trip length and group size. (example: 3 extra members on a 3-day trip costs the same as 1 extra member on a 9 day trip")
                         .font(.footnote)
                         .foregroundStyle(Color.appForeground.opacity(0.7))
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 4)
-                    ratesTable(TripPricing.memberBrackets, daysHeader: "Member-days", rateHeader: "Per person, per day", rangesOnly: true)
+                    ratesTable(schedule.memberBrackets, daysHeader: "Member-days", rateHeader: "Per person, per day", rangesOnly: true)
                 }
                 .transition(PopupCard.contentTransition)
+            } else if showingPricing {
+                Text(scheduleStatus)
+                    .font(.footnote)
+                    .foregroundStyle(Color.appForeground.opacity(0.7))
+                    .transition(PopupCard.contentTransition)
             }
         }
     }
@@ -260,9 +282,9 @@ struct PurchasePopup: View {
 
     /// What an amount pays for, e.g. "Usable for a 17-day trip with up to 5 members"
     /// or "Usable for 3 separate 7-day trips with up to 5 members".
-    static func usableText(cents: Int, members: Int) -> String {
+    static func usableText(cents: Int, members: Int, schedule: PricingSchedule) -> String {
         let trips = tripsPerAmount[cents] ?? 1
-        let days = TripPricing.maxDays(budgetCents: cents / trips, members: members)
+        let days = schedule.maxDays(budgetCents: cents / trips, members: members)
         let who = "\(members) \(members == 1 ? "member" : "members")"
         guard days > 0 else { return "Not enough for a 1-day trip with \(who)" }
         guard trips > 1 else { return "Usable for a \(days)-day trip with up to \(who)" }
@@ -314,4 +336,5 @@ struct PurchasePopup: View {
     .background(LinearGradient.tripsBackground)
     .environment(CreditStore())
     .environment(AuthStore())
+    .environment(PricingStore())
 }

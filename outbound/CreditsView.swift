@@ -186,4 +186,6 @@ struct CreditLedgerRow: View {
         CreditsView()
     }
     .environment(CreditStore())
+    .environment(AuthStore())
+    .environment(PricingStore())
 }

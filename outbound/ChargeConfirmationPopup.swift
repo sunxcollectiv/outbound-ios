@@ -103,8 +103,13 @@ struct ChargeConfirmationPopup: View {
                         lineRow(line, label: Self.daysText(line))
                     }
                     if quote.extraMembers > 0 {
+                        Text(Self.memberDaysText(extraMembers: quote.extraMembers, days: quote.days))
+                            .font(.footnote.weight(.semibold))
+                            .padding(.top, 4)
+                        // Each line already covers everyone extra: the brackets run over
+                        // all their member-days together.
                         ForEach(Array(quote.memberLines.enumerated()), id: \.offset) { _, line in
-                            lineRow(line, label: "\(quote.extraMembers) extra × \(Self.daysText(line).lowercased())", times: quote.extraMembers)
+                            lineRow(line, label: Self.memberDaysRangeText(line))
                         }
                     }
                     Text("Placeholder: a fuller explanation of this charge is coming.")
@@ -124,14 +129,26 @@ struct ChargeConfirmationPopup: View {
         line.firstDay == line.lastDay ? "Day \(line.firstDay)" : "Days \(line.firstDay)–\(line.lastDay)"
     }
 
+    /// How the extra member-days add up, e.g. "3 extra people × 5 days = 15 member-days".
+    static func memberDaysText(extraMembers: Int, days: Int) -> String {
+        let people = extraMembers == 1 ? "1 extra person" : "\(extraMembers) extra people"
+        let total = extraMembers * days
+        return "\(people) × \(days) \(days == 1 ? "day" : "days") = \(total) \(total == 1 ? "member-day" : "member-days")"
+    }
+
+    /// A member bracket's member-days, e.g. "Member-day 1" or "Member-days 1–10".
+    static func memberDaysRangeText(_ line: TripPricing.Line) -> String {
+        line.firstDay == line.lastDay ? "Member-day \(line.firstDay)" : "Member-days \(line.firstDay)–\(line.lastDay)"
+    }
+
     /// One bracket of the price, e.g. "Days 1–3   3 × $1.60   $4.80".
-    private func lineRow(_ line: TripPricing.Line, label: String, times: Int = 1) -> some View {
+    private func lineRow(_ line: TripPricing.Line, label: String) -> some View {
         HStack {
             Text(label)
             Spacer(minLength: 8)
             Text("\(line.days) × \(formatCredits(cents: line.centsPerDay))")
                 .foregroundStyle(Color.appForeground.opacity(0.6))
-            Text(formatCredits(cents: line.cents * times))
+            Text(formatCredits(cents: line.cents))
                 .frame(minWidth: 56, alignment: .trailing)
         }
         .font(.footnote)
@@ -163,10 +180,18 @@ struct OwnerRefundNote: View {
     DimmedPopup(onClose: {}) {
         ChargeConfirmationPopup(
             tripTitle: "Before",
+            // 3 extra people × 5 days = 15 member-days, on the "2026-11" rates.
             quote: TripQuote(
-                days: 3, members: 2, extraMembers: 0, priceCents: 480, refundCents: 0,
+                days: 5, members: 8, extraMembers: 3, priceCents: 915, refundCents: 0,
                 balanceCents: 2_000, shortfallCents: 0,
-                tripLines: TripPricing.breakdown(days: 3), memberLines: []
+                tripLines: [
+                    TripPricing.Line(firstDay: 1, lastDay: 3, centsPerDay: 160),
+                    TripPricing.Line(firstDay: 4, lastDay: 5, centsPerDay: 80),
+                ],
+                memberLines: [
+                    TripPricing.Line(firstDay: 1, lastDay: 10, centsPerDay: 20),
+                    TripPricing.Line(firstDay: 11, lastDay: 15, centsPerDay: 15),
+                ]
             ),
             onConfirm: {}, onClose: {}
         )

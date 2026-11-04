@@ -25,6 +25,8 @@ struct TripQuote: Decodable, Equatable {
     /// The price's breakdown: each trip-day bracket, then each extra-member bracket.
     let tripLines: [TripPricing.Line]
     let memberLines: [TripPricing.Line]
+    /// The key of the pricing schedule the trip is priced under (see `PricingStore`).
+    var schedule: String? = nil
     /// Net already paid for the trip (charges less refunds); nil for a new trip or a
     /// server that doesn't send it.
     var paidCents: Int? = nil
