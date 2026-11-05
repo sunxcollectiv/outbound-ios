@@ -51,8 +51,7 @@ struct LodgingFormView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Room details")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.appForeground.opacity(0.8))
+                    .formLabel()
                 Spacer(minLength: 8)
                 Button { openRoomDetails(nil) } label: {
                     // The plus snug against the words, rather than a label's wide gap.
@@ -102,9 +101,7 @@ struct LodgingFormView: View {
                         .lineLimit(1)
                 }
             }
-            .padding(14)
-            .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
-            .contentShape(Rectangle())
+            .formRow()
         }
         .buttonStyle(.plain)
     }

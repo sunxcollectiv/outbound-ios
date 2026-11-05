@@ -346,13 +346,34 @@ final class TripItemDraft {
     // MARK: - Lodging details
 
     /// The stay's details with the form's property type, keeping whatever else the
-    /// server has (room, guests, phone, …: an imported booking fills them in), since
-    /// a PATCH replaces them whole. Nil for other kinds, and when nothing is known.
+    /// server has (the phone and free-cancellation deadline an imported booking fills
+    /// in), since a PATCH replaces them whole. Rooms go separately (`roomsToSave`).
+    /// Nil for other kinds, and when nothing is known.
     var lodgingToSave: LodgingDetails? {
         guard kind == .lodging else { return nil }
         var details = item?.lodging ?? LodgingDetails()
         details.propertyType = propertyType
         return details.isEmpty ? nil : details
+    }
+
+    /// Whether an edit changes the stay's details, so they're sent (a nil one as
+    /// `null`, clearing them). Untouched, they're left out and stay as stored.
+    var lodgingChanged: Bool {
+        kind == .lodging && propertyType != item?.lodging?.propertyType
+    }
+
+    /// The stay's rooms as sent: all of them, in order, since the server replaces the
+    /// list whole. Nil for other kinds, and for a new stay with none.
+    var roomsToSave: [TripItemsAPI.RoomRequest]? {
+        guard kind == .lodging else { return nil }
+        if item == nil, rooms.isEmpty { return nil }
+        return rooms.map(TripItemsAPI.RoomRequest.init)
+    }
+
+    /// Whether an edit changes the rooms or who's in them, so they're sent (an empty
+    /// list clearing them). Untouched, they're left out and stay as stored.
+    var roomsChanged: Bool {
+        kind == .lodging && rooms.map(TripItemsAPI.RoomRequest.init) != (item?.rooms ?? []).map(TripItemsAPI.RoomRequest.init)
     }
 
     /// Puts an edited room back: in place of the one with its id, else added at the
@@ -417,7 +438,6 @@ final class TripItemDraft {
         )
     }
 
-    /// Whether an edit changes the stay's details, so they're sent (a nil one as
     // MARK: - Real bookings
 
     /// Whether this is a stay with a real booking behind it: any lodging but one
@@ -447,25 +467,6 @@ final class TripItemDraft {
     /// Whether deleting removes a booked stay, so the form asks first.
     var deletesBookedStay: Bool {
         isBookedStay && item != nil
-    }
-
-    /// `null`, clearing them). Untouched, they're left out and stay as stored.
-    var lodgingChanged: Bool {
-        kind == .lodging && propertyType != item?.lodging?.propertyType
-    }
-
-    /// The stay's rooms as sent: all of them, in order, since the server replaces the
-    /// list whole. Nil for other kinds, and for a new stay with none.
-    var roomsToSave: [TripItemsAPI.RoomRequest]? {
-        guard kind == .lodging else { return nil }
-        if item == nil, rooms.isEmpty { return nil }
-        return rooms.map(TripItemsAPI.RoomRequest.init)
-    }
-
-    /// Whether an edit changes the rooms or who's in them, so they're sent (an empty
-    /// list clearing them). Untouched, they're left out and stay as stored.
-    var roomsChanged: Bool {
-        kind == .lodging && rooms.map(TripItemsAPI.RoomRequest.init) != (item?.rooms ?? []).map(TripItemsAPI.RoomRequest.init)
     }
 
     /// Every leg as sent, or nil (with `errorMessage` set) when one has no departure

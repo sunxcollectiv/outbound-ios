@@ -64,6 +64,28 @@ extension View {
         modifier(AppTheme())
     }
 
+    /// A tappable summary row on the dark item forms (Members, a stay's rooms): padded,
+    /// on a faint rounded fill, tappable edge to edge.
+    func formRow() -> some View {
+        padding(14)
+            .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+            .contentShape(Rectangle())
+    }
+
+    /// The small grey label above a form field or section, e.g. "Room details".
+    func formLabel() -> some View {
+        font(.subheadline)
+            .foregroundStyle(Color.appForeground.opacity(0.8))
+    }
+
+    /// Red text spanning the width, for a delete action under a form or in a popup.
+    func inlineDeleteText() -> some View {
+        font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.appError)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+    }
+
     /// White, rounded input field used across forms (auth and trip creation).
     func appField(cornerRadius: CGFloat = appFieldCornerRadius) -> some View {
         foregroundStyle(Color.black.opacity(0.85))

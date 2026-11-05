@@ -175,9 +175,7 @@ struct TripItemFormScaffold<Places: View, AfterTimes: View>: View {
                 Text(draft.memberSelection(currentUserId: currentUserId).summary(of: draft.selectedMemberIds ?? []))
                     .foregroundStyle(Color.appForeground.opacity(0.75))
             }
-            .padding(14)
-            .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
-            .contentShape(Rectangle())
+            .formRow()
         }
         .buttonStyle(.plain)
     }
@@ -341,8 +339,7 @@ struct TripItemPlaceField: View {
         VStack(alignment: .leading, spacing: 8) {
             if let label {
                 Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.appForeground.opacity(0.8))
+                    .formLabel()
             }
             PlaceSearchField(
                 placeholder: placeholder,

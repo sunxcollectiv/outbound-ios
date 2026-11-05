@@ -61,10 +61,7 @@ struct RoomDetailsPopup: View {
     private func deleteButton(_ action: @escaping () -> Void) -> some View {
         Button(role: .destructive, action: action) {
             Text("Delete Room")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.appError)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .contentShape(Rectangle())
+                .inlineDeleteText()
         }
         .buttonStyle(.plain)
     }
@@ -164,8 +161,7 @@ struct RoomDetailsPopup: View {
 
     private func label(_ text: String) -> some View {
         Text(text)
-            .font(.subheadline)
-            .foregroundStyle(Color.appForeground.opacity(0.8))
+            .formLabel()
             .lineLimit(1)
     }
 

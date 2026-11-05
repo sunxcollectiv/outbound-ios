@@ -103,19 +103,16 @@ struct LodgingDetails: Equatable, Codable {
     /// property (the stay's check-in zone), as a floating UTC date like the item's times.
     var freeCancellationUntil: Date?
 
-    init(propertyType: LodgingType? = nil, phone: String? = nil, freeCancellationUntil: Date? = nil) {
-        self.propertyType = propertyType
-        self.phone = phone
-        self.freeCancellationUntil = freeCancellationUntil
-    }
-
     /// Whether nothing is known about the stay, so there's nothing to store.
     var isEmpty: Bool { self == LodgingDetails() }
 
     private enum CodingKeys: String, CodingKey {
         case propertyType, phone, freeCancellationUntil
     }
+}
 
+// Kept out of the type so it keeps its memberwise init.
+extension LodgingDetails {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         // Leniently, so a type added on the server doesn't break the whole item.
@@ -158,18 +155,6 @@ struct LodgingRoom: Identifiable, Equatable, Decodable {
         case id, position, label, roomNumber, roomType, guests, confirmationNumber, occupants
     }
 
-    init(id: String, position: Int = 0, label: String? = nil, roomNumber: String? = nil, roomType: String? = nil, guests: Int? = nil, confirmationNumber: String? = nil, occupants: [String] = [], isNew: Bool = false) {
-        self.id = id
-        self.position = position
-        self.label = label
-        self.roomNumber = roomNumber
-        self.roomType = roomType
-        self.guests = guests
-        self.confirmationNumber = confirmationNumber
-        self.occupants = occupants
-        self.isNew = isNew
-    }
-
     /// A blank room to add, with a local id.
     static func new() -> LodgingRoom {
         LodgingRoom(id: UUID().uuidString, isNew: true)
@@ -195,18 +180,6 @@ struct LodgingRoom: Identifiable, Equatable, Decodable {
         nonBlank(text?.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        position = try c.decodeIfPresent(Int.self, forKey: .position) ?? 0
-        label = try c.decodeIfPresent(String.self, forKey: .label)
-        roomNumber = try c.decodeIfPresent(String.self, forKey: .roomNumber)
-        roomType = try c.decodeIfPresent(String.self, forKey: .roomType)
-        guests = try c.decodeIfPresent(Int.self, forKey: .guests)
-        confirmationNumber = try c.decodeIfPresent(String.self, forKey: .confirmationNumber)
-        occupants = try c.decodeIfPresent([String].self, forKey: .occupants) ?? []
-    }
-
     /// What to call the room: its label, else its number ("Room 412"), else its
     /// place in the list ("Room 1", counting from `number`).
     func title(number: Int) -> String {
@@ -225,6 +198,21 @@ struct LodgingRoom: Identifiable, Equatable, Decodable {
     private static func nonBlank(_ text: String?) -> String? {
         guard let text, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         return text
+    }
+}
+
+// Kept out of the type so it keeps its memberwise init.
+extension LodgingRoom {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        position = try c.decodeIfPresent(Int.self, forKey: .position) ?? 0
+        label = try c.decodeIfPresent(String.self, forKey: .label)
+        roomNumber = try c.decodeIfPresent(String.self, forKey: .roomNumber)
+        roomType = try c.decodeIfPresent(String.self, forKey: .roomType)
+        guests = try c.decodeIfPresent(Int.self, forKey: .guests)
+        confirmationNumber = try c.decodeIfPresent(String.self, forKey: .confirmationNumber)
+        occupants = try c.decodeIfPresent([String].self, forKey: .occupants) ?? []
     }
 }
 
@@ -540,29 +528,6 @@ enum TripItemsAPI {
         var confirmationNumber: String? = nil
         /// Trip-member ids of who's in it. Anyone not on the stay yet is added to it.
         var occupants: [String] = []
-
-        init(id: String? = nil, label: String? = nil, roomNumber: String? = nil, roomType: String? = nil, guests: Int? = nil, confirmationNumber: String? = nil, occupants: [String] = []) {
-            self.id = id
-            self.label = label
-            self.roomNumber = roomNumber
-            self.roomType = roomType
-            self.guests = guests
-            self.confirmationNumber = confirmationNumber
-            self.occupants = occupants
-        }
-
-        /// A room as sent, leaving out the local id of one added in the app.
-        init(_ room: LodgingRoom) {
-            self.init(
-                id: room.isNew ? nil : room.id,
-                label: room.label,
-                roomNumber: room.roomNumber,
-                roomType: room.roomType,
-                guests: room.guests,
-                confirmationNumber: room.confirmationNumber,
-                occupants: room.occupants
-            )
-        }
     }
 
     /// `ParticipantSet` — one member an item is for, by their trip-member id. A nil
@@ -676,6 +641,22 @@ enum TripItemsAPI {
 
     static func delete(tripId: String, itemId: String) -> Endpoint {
         Endpoint(path: "/trips/\(tripId)/items/\(itemId)", method: .delete)
+    }
+}
+
+// Kept out of the type so it keeps its memberwise init.
+extension TripItemsAPI.RoomRequest {
+    /// A room as sent, leaving out the local id of one added in the app.
+    init(_ room: LodgingRoom) {
+        self.init(
+            id: room.isNew ? nil : room.id,
+            label: room.label,
+            roomNumber: room.roomNumber,
+            roomType: room.roomType,
+            guests: room.guests,
+            confirmationNumber: room.confirmationNumber,
+            occupants: room.occupants
+        )
     }
 }
 
