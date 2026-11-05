@@ -262,4 +262,18 @@ struct LodgingDetailsTests {
         room.occupants = ["m1", "m2", "m3", "m4"]
         #expect(draft.occupantNames(of: room, currentUserId: "u1") == "You, m2 and 2 others")
     }
+
+    @Test func removingAParticipantTakesThemOutOfTheirRoom() throws {
+        let draft = try assigningDraft()
+        var room = draft.rooms[0]
+        room.occupants = ["m2"]
+        draft.updateRoom(room)
+        #expect(draft.rooms.map(\.occupants) == [["m2"], ["m1"]])
+
+        draft.selectedMemberIds = ["m2"]
+        #expect(draft.rooms.map(\.occupants) == [["m2"], []])
+        // Adding someone back doesn't put them back in a room.
+        draft.selectedMemberIds = ["m1", "m2"]
+        #expect(draft.rooms.map(\.occupants) == [["m2"], []])
+    }
 }

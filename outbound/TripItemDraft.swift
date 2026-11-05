@@ -67,10 +67,19 @@ final class TripItemDraft {
     /// Ids of the trip members this item is for, toggled in the popup. Nil until
     /// seeded on appear, once the signed-in user is known. Kept by email underneath, so
     /// when a new item's date moves it to another trip, everyone also on that trip
-    /// stays selected (as their member row there).
+    /// stays selected (as their member row there). Anyone taken off the item is taken
+    /// out of their room too.
     var selectedMemberIds: Set<String>? {
         get { selectedEmails.map { emails in Set(members.filter { emails.contains($0.email) }.map(\.id)) } }
-        set { selectedEmails = newValue.map { ids in Set(members.filter { ids.contains($0.id) }.map(\.email)) } }
+        set {
+            let removed = (selectedMemberIds ?? []).subtracting(newValue ?? [])
+            selectedEmails = newValue.map { ids in Set(members.filter { ids.contains($0.id) }.map(\.email)) }
+            if !removed.isEmpty {
+                for index in rooms.indices {
+                    rooms[index].occupants.removeAll { removed.contains($0) }
+                }
+            }
+        }
     }
     private var selectedEmails: Set<String>?
     /// The selection the item was opened with, so an edit only re-sends who's in when
