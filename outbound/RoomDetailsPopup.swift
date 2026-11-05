@@ -18,6 +18,9 @@ struct RoomDetailsPopup: View {
     /// The signed-in user's id, so their row reads "You".
     let currentUserId: String?
     let onClose: () -> Void
+    /// Removes the room from the stay; nil for a room being added, which closing
+    /// without anything typed already discards.
+    var onDelete: (() -> Void)? = nil
 
     /// The fields row's width, so the number can take a fixed share of it.
     @State private var rowWidth: CGFloat = 0
@@ -35,6 +38,9 @@ struct RoomDetailsPopup: View {
         VStack(alignment: .leading, spacing: 20) {
             fieldsRow
             occupantsSection
+            if let onDelete {
+                deleteButton(onDelete)
+            }
         }
         .popupCard(background: .black, onClose: onClose)
     }
@@ -48,6 +54,19 @@ struct RoomDetailsPopup: View {
                 .frame(width: rowWidth > 0 ? numberWidth : nil)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
+    }
+
+    /// Red text across the bottom, like the forms' Delete. No confirmation: nothing
+    /// is lost until the stay is saved.
+    private func deleteButton(_ action: @escaping () -> Void) -> some View {
+        Button(role: .destructive, action: action) {
+            Text("Delete Room")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.appError)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Who's in it

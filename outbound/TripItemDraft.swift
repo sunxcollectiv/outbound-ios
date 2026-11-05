@@ -388,6 +388,14 @@ final class TripItemDraft {
         }
     }
 
+    /// Takes a room off the stay; whoever was in it stays on the stay, in no room.
+    func removeRoom(id: String) {
+        rooms.removeAll { $0.id == id }
+        for index in rooms.indices {
+            rooms[index].position = index
+        }
+    }
+
     /// The trip's members as the room popup lists them for the room with `roomId`: the
     /// stay's own people first, then everyone else on the trip, then whoever is
     /// already in another of its rooms. Each keeps the trip's member order.

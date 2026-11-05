@@ -465,4 +465,15 @@ struct LodgingDetailsTests {
         #expect(dates.question == "Change this stay's dates?")
         #expect(dates.confirmTitle == "Changed with Property")
     }
+
+    @Test func deletingARoomKeepsItsPeopleOnTheStay() throws {
+        let draft = try assigningDraft()
+        draft.removeRoom(id: "r2")
+        #expect(draft.rooms.map(\.id) == ["r1"])
+        #expect(draft.selectedMemberIds == ["m1", "m2"])
+        #expect(draft.roomAssignments(for: "r1").participants.map(\.id) == ["m1", "m2"])
+        // One fewer room is a change to the booking, and sent.
+        #expect(draft.changesBookedRoomCount)
+        #expect(draft.roomsToSave?.map(\.id) == ["r1"])
+    }
 }

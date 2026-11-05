@@ -137,6 +137,20 @@ struct LodgingFormView: View {
         }
     }
 
+    /// Delete Room for a room already on the stay; nil for one being added.
+    private var deleteOpenedRoomAction: (() -> Void)? {
+        guard draft.rooms.contains(where: { $0.id == openedRoom.id }) else { return nil }
+        return deleteOpenedRoom
+    }
+
+    /// Closes the popup, taking its room off the stay.
+    private func deleteOpenedRoom() {
+        withAnimation(.snappy(duration: 0.2)) {
+            draft.removeRoom(id: openedRoom.id)
+            showingRoomDetails = false
+        }
+    }
+
     /// The room details popup over a dimmed form; tapping outside closes it.
     @ViewBuilder
     private var roomDetailsPopup: some View {
@@ -146,7 +160,8 @@ struct LodgingFormView: View {
                     room: $openedRoom,
                     assignments: draft.roomAssignments(for: openedRoom.id),
                     currentUserId: auth.currentUser?.id,
-                    onClose: closeRoomDetails
+                    onClose: closeRoomDetails,
+                    onDelete: deleteOpenedRoomAction
                 )
             }
         }
