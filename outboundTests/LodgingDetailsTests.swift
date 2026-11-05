@@ -368,4 +368,101 @@ struct LodgingDetailsTests {
         #expect(try decodeItem("").source == nil)
         #expect(try decodeItem(#", "source": "fax""#).source == nil)
     }
+
+    // MARK: - Real bookings
+
+    /// A stay from Dec 27, 3 PM to Dec 29, 11 AM, as edited.
+    private func bookedDraft(type: String = "hotel") throws -> TripItemDraft {
+        var item = try decodeItem(#", "lodging": {"property_type": "\#(type)"}"#)
+        // Wall clocks are floating UTC dates.
+        item.endsAtLocal = try #require(ISO8601DateFormatter().date(from: "2026-12-29T11:00:00Z"))
+        return TripItemDraft(tripId: "t", kind: .lodging, item: item)
+    }
+
+    @Test func movingABookedStaysDatesAsksFirst() throws {
+        let draft = try bookedDraft()
+        #expect(!draft.changesBookedDates)
+
+        // A new time on the same day doesn't ask.
+        draft.startsAt = draft.startsAt?.addingTimeInterval(2 * 3600)
+        #expect(!draft.changesBookedDates)
+
+        // A day later does, for check-in or check-out.
+        draft.startsAt = draft.startsAt?.addingTimeInterval(86_400)
+        #expect(draft.changesBookedDates)
+        let checkOut = try bookedDraft()
+        checkOut.endsAt = checkOut.endsAt?.addingTimeInterval(86_400)
+        #expect(checkOut.changesBookedDates)
+        let cleared = try bookedDraft()
+        cleared.endsAt = nil
+        #expect(cleared.changesBookedDates)
+    }
+
+    @Test func otherStaysAndNewOnesDontAsk() throws {
+        let other = try bookedDraft(type: "other")
+        other.startsAt = other.startsAt?.addingTimeInterval(86_400)
+        #expect(!other.changesBookedDates)
+        #expect(!other.deletesBookedStay)
+
+        // Changing a stay to Other while moving it doesn't ask either.
+        let retyped = try bookedDraft()
+        retyped.propertyType = .other
+        retyped.startsAt = retyped.startsAt?.addingTimeInterval(86_400)
+        #expect(!retyped.changesBookedDates)
+
+        let new = TripItemDraft(tripId: "t", kind: .lodging)
+        new.startsAt = new.startsAt?.addingTimeInterval(86_400)
+        #expect(!new.changesBookedDates)
+        #expect(!new.deletesBookedStay)
+
+        let activity = try decodeItem(kind: "activity", "")
+        #expect(!TripItemDraft(tripId: "t", kind: .activity, item: activity).deletesBookedStay)
+    }
+
+    @Test func deletingABookedStayAsksFirst() throws {
+        #expect(try bookedDraft().deletesBookedStay)
+        // A stay with no type set still has a booking as far as we know.
+        let untyped = try decodeItem("")
+        #expect(TripItemDraft(tripId: "t", kind: .lodging, item: untyped).deletesBookedStay)
+    }
+
+    @Test func changingABookedStaysRoomCountAsksFirst() throws {
+        let draft = try assigningDraft()
+        #expect(!draft.changesBookedRoomCount)
+
+        // Who's in which room isn't the property's business.
+        var room = draft.rooms[0]
+        room.occupants = ["m2"]
+        room.roomNumber = "9"
+        draft.updateRoom(room)
+        #expect(!draft.changesBookedRoomCount)
+
+        // Adding or dropping a room is.
+        var added = LodgingRoom.new()
+        added.roomType = "Twin"
+        draft.updateRoom(added)
+        #expect(draft.changesBookedRoomCount)
+        let dropped = try assigningDraft()
+        dropped.rooms.removeLast()
+        #expect(dropped.changesBookedRoomCount)
+
+        let other = try assigningDraft()
+        other.propertyType = .other
+        other.updateRoom(added)
+        #expect(!other.changesBookedRoomCount)
+        #expect(!TripItemDraft(tripId: "t", kind: .lodging).changesBookedRoomCount)
+    }
+
+    @Test func bookingPopupSaysWhatChanged() {
+        #expect(BookingChangePopup.Change.edit(changingDates: false, rooms: false) == nil)
+        let rooms = BookingChangePopup(change: .edit(dates: false, rooms: true), onConfirm: {}, onClose: {})
+        #expect(rooms.question == "Change the number of rooms?")
+        #expect(rooms.explanation.contains("new number of rooms has already been confirmed"))
+        let both = BookingChangePopup(change: .edit(dates: true, rooms: true), onConfirm: {}, onClose: {})
+        #expect(both.question == "Change this stay's dates and rooms?")
+        #expect(both.explanation.contains("new dates and rooms have already been confirmed"))
+        let dates = BookingChangePopup(change: .edit(dates: true, rooms: false), onConfirm: {}, onClose: {})
+        #expect(dates.question == "Change this stay's dates?")
+        #expect(dates.confirmTitle == "Changed with Property")
+    }
 }

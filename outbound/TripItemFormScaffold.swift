@@ -39,6 +39,9 @@ struct TripItemFormScaffold<Places: View, AfterTimes: View>: View {
     @State private var showingMemberPicker = false
     /// Which date row's popup is open, if any.
     @State private var editingTimeField: TimeField?
+    /// Which change to a booked stay is waiting on the user to confirm it's been made
+    /// with the property too, if any.
+    @State private var confirmingBooking: BookingChangePopup.Change?
     /// The sheet's bottom safe area (the home indicator's strip), measured so the
     /// bottom bar can sit partway into it.
     @State private var homeIndicatorInset: CGFloat = 0
@@ -153,7 +156,8 @@ struct TripItemFormScaffold<Places: View, AfterTimes: View>: View {
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { homeIndicatorInset = $0 }
         .overlay { memberPickerPopup }
         .overlay { timePickerPopup }
-        .offlinePillNearBottom(isActive: showingMemberPicker || editingTimeField != nil)
+        .overlay { bookingChangePopup }
+        .offlinePillNearBottom(isActive: showingMemberPicker || editingTimeField != nil || confirmingBooking != nil)
         .appTheme()
         .onAppear { draft.seedSelectedMembers(currentUserId: currentUserId) }
     }
@@ -248,7 +252,9 @@ struct TripItemFormScaffold<Places: View, AfterTimes: View>: View {
                     title: "Delete \(draft.kind.label)",
                     confirmation: "Delete this \(draft.kind.label.lowercased())?",
                     message: "This can't be undone.",
-                    action: delete
+                    action: delete,
+                    // A booked stay asks in its own popup, about the real booking.
+                    onRequest: draft.deletesBookedStay ? { confirmBooking(.delete) } : nil
                 )
                 : nil,
             isDeleting: draft.isDeleting,
@@ -257,7 +263,17 @@ struct TripItemFormScaffold<Places: View, AfterTimes: View>: View {
         )
     }
 
+    /// Saves, after the user confirms the property has the change too when a booked
+    /// stay's dates or number of rooms change.
     private func save() {
+        if let change = BookingChangePopup.Change.edit(changingDates: draft.changesBookedDates, rooms: draft.changesBookedRoomCount) {
+            confirmBooking(change)
+        } else {
+            performSave()
+        }
+    }
+
+    private func performSave() {
         Task {
             guard let saved = await draft.save(currentUserId: currentUserId, missingStartMessage: timeLabels.missingStart) else { return }
             onSaved(saved)
@@ -270,6 +286,33 @@ struct TripItemFormScaffold<Places: View, AfterTimes: View>: View {
             guard await draft.delete() else { return }
             onDeleted()
             dismiss()
+        }
+    }
+
+    // MARK: - Real bookings
+
+    private func confirmBooking(_ change: BookingChangePopup.Change) {
+        withAnimation(.snappy(duration: 0.25)) { confirmingBooking = change }
+    }
+
+    private func closeBookingConfirmation() {
+        withAnimation(.snappy(duration: 0.2)) { confirmingBooking = nil }
+    }
+
+    /// The popup reminding that a stay's real booking isn't changed here; confirming
+    /// goes ahead with the save or delete.
+    @ViewBuilder
+    private var bookingChangePopup: some View {
+        if let change = confirmingBooking {
+            DimmedPopup(onClose: closeBookingConfirmation) {
+                BookingChangePopup(change: change, onConfirm: {
+                    closeBookingConfirmation()
+                    switch change {
+                    case .edit: performSave()
+                    case .delete: delete()
+                    }
+                }, onClose: closeBookingConfirmation)
+            }
         }
     }
 }

@@ -410,6 +410,37 @@ final class TripItemDraft {
     }
 
     /// Whether an edit changes the stay's details, so they're sent (a nil one as
+    // MARK: - Real bookings
+
+    /// Whether this is a stay with a real booking behind it: any lodging but one
+    /// marked Other. Moving or deleting it here doesn't change the booking, so the
+    /// form asks first.
+    private var isBookedStay: Bool {
+        kind == .lodging && propertyType != .other
+    }
+
+    /// Whether saving moves a booked stay to other days: its check-in or check-out
+    /// date changed (adding or clearing a check-out counts; a new time on the same
+    /// day doesn't).
+    var changesBookedDates: Bool {
+        guard isBookedStay, let item else { return false }
+        func day(_ canvas: Date?) -> String? { canvas.map(Self.dayKey.string(from:)) }
+        return day(startsAt) != day(Self.wallClock(of: item.startsAtLocal, in: .gmt))
+            || day(endsAt) != day(Self.wallClock(of: item.endsAtLocal, in: .gmt))
+    }
+
+    /// Whether saving changes how many rooms a booked stay has. Who's in which room
+    /// doesn't count: that's ours to arrange, not the property's.
+    var changesBookedRoomCount: Bool {
+        guard isBookedStay, let item else { return false }
+        return rooms.count != item.rooms.count
+    }
+
+    /// Whether deleting removes a booked stay, so the form asks first.
+    var deletesBookedStay: Bool {
+        isBookedStay && item != nil
+    }
+
     /// `null`, clearing them). Untouched, they're left out and stay as stored.
     var lodgingChanged: Bool {
         kind == .lodging && propertyType != item?.lodging?.propertyType
