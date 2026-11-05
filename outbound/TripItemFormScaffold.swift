@@ -21,8 +21,8 @@ struct TripItemTimeLabels {
 /// (left out for kinds named by their place search or by the server), the kind's own
 /// place fields (`places`), the start/end times (a transit's legs show their own),
 /// notes, and the pinned Save/Delete bar. The per-kind forms supply their places and
-/// time labels.
-struct TripItemFormScaffold<Places: View>: View {
+/// time labels, and anything of their own to show under the times (`afterTimes`).
+struct TripItemFormScaffold<Places: View, AfterTimes: View>: View {
     @Bindable var draft: TripItemDraft
     let timeLabels: TripItemTimeLabels
     /// Called with the created or updated item after a successful save.
@@ -30,6 +30,8 @@ struct TripItemFormScaffold<Places: View>: View {
     /// Called after the item being edited is deleted.
     let onDeleted: () -> Void
     @ViewBuilder let places: () -> Places
+    /// A kind's own blocks under the times, e.g. a stay's room details.
+    @ViewBuilder let afterTimes: () -> AfterTimes
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var auth
@@ -46,12 +48,13 @@ struct TripItemFormScaffold<Places: View>: View {
     /// Scroll target for the error banner, so a failed save brings it into view.
     private static var errorAnchor: String { "error" }
 
-    init(draft: TripItemDraft, timeLabels: TripItemTimeLabels, onSaved: @escaping (TripItem) -> Void, onDeleted: @escaping () -> Void, @ViewBuilder places: @escaping () -> Places) {
+    init(draft: TripItemDraft, timeLabels: TripItemTimeLabels, onSaved: @escaping (TripItem) -> Void, onDeleted: @escaping () -> Void, @ViewBuilder places: @escaping () -> Places, @ViewBuilder afterTimes: @escaping () -> AfterTimes) {
         self.draft = draft
         self.timeLabels = timeLabels
         self.onSaved = onSaved
         self.onDeleted = onDeleted
         self.places = places
+        self.afterTimes = afterTimes
         // SwiftUI can't color segmented picker labels, so set them on the underlying
         // UISegmentedControl: light labels to read on the dark gray sheet, dark on the
         // white selected pill. This is app-wide, but this is the only segmented picker.
@@ -105,6 +108,8 @@ struct TripItemFormScaffold<Places: View>: View {
                                 }
                             }
                         }
+
+                        afterTimes()
 
                         // Sits right under the times (the usual cause) rather than at the
                         // bottom, where the keyboard hides it and Save looks unresponsive.
@@ -266,6 +271,13 @@ struct TripItemFormScaffold<Places: View>: View {
             onDeleted()
             dismiss()
         }
+    }
+}
+
+extension TripItemFormScaffold where AfterTimes == EmptyView {
+    /// A form with nothing of its own under the times.
+    init(draft: TripItemDraft, timeLabels: TripItemTimeLabels, onSaved: @escaping (TripItem) -> Void, onDeleted: @escaping () -> Void, @ViewBuilder places: @escaping () -> Places) {
+        self.init(draft: draft, timeLabels: timeLabels, onSaved: onSaved, onDeleted: onDeleted, places: places) { EmptyView() }
     }
 }
 

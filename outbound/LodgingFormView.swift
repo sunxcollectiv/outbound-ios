@@ -13,6 +13,8 @@ struct LodgingFormView: View {
     var onSaved: (TripItem) -> Void = { _ in }
     var onDeleted: () -> Void = {}
 
+    @State private var showingRoomDetails = false
+
     var body: some View {
         TripItemFormScaffold(
             draft: draft,
@@ -28,6 +30,49 @@ struct LodgingFormView: View {
                 timeZone: $draft.startPlaceZone,
                 typedEntry: $draft.typedName
             )
+        } afterTimes: {
+            roomDetailsButton
+        }
+        .overlay { roomDetailsPopup }
+    }
+
+    // MARK: - Room details
+
+    /// A one-line row under the dates summarizing the room, styled like the members
+    /// row up top; tapping it opens the room details.
+    private var roomDetailsButton: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.25)) { showingRoomDetails = true }
+        } label: {
+            HStack(spacing: 12) {
+                Text("Rooms")
+                Spacer(minLength: 0)
+                Text(draft.roomSummary)
+                    .foregroundStyle(Color.appForeground.opacity(0.75))
+                    .lineLimit(1)
+            }
+            .padding(14)
+            .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func closeRoomDetails() {
+        withAnimation(.snappy(duration: 0.2)) { showingRoomDetails = false }
+    }
+
+    /// The room details popup over a dimmed form; tapping outside closes it. Blank
+    /// for now, until it holds the room type, guests and rooms.
+    @ViewBuilder
+    private var roomDetailsPopup: some View {
+        if showingRoomDetails {
+            DimmedPopup(onClose: closeRoomDetails) {
+                Color.clear
+                    .frame(maxWidth: .infinity, minHeight: 240)
+                    .popupCard(background: .black, onClose: closeRoomDetails)
+                    .accessibilityLabel("Room details")
+            }
         }
     }
 

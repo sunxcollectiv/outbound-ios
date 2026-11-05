@@ -142,4 +142,12 @@ struct LodgingDetailsTests {
         #expect(lodging.cancellationHasPassed(zone: bangkok, now: deadline))
         #expect(!LodgingDetails().cancellationHasPassed(zone: bangkok))
     }
+
+    @Test func roomSummaryFallsBackToNoDetails() throws {
+        #expect(TripItemDraft(tripId: "t", kind: .lodging).roomSummary == "No details")
+        let imported = TripItemDraft(tripId: "t", kind: .lodging, item: try decodeItem(Self.importedHotel))
+        #expect(imported.roomSummary == "1 guest · 1 room")
+        let roomOnly = try decodeItem(#", "lodging": {"room_type": "Deluxe King"}"#)
+        #expect(TripItemDraft(tripId: "t", kind: .lodging, item: roomOnly).roomSummary == "Deluxe King")
+    }
 }

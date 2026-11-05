@@ -341,6 +341,14 @@ final class TripItemDraft {
         return details.isEmpty ? nil : details
     }
 
+    /// The rooms row's summary: who and how much the booking is for ("1 guest ·
+    /// 1 room"), else the room type, else "No details".
+    var roomSummary: String {
+        let lodging = item?.lodging
+        let roomType = lodging?.roomType.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+        return lodging?.occupancyText ?? roomType ?? "No details"
+    }
+
     /// Whether an edit changes the stay's details, so they're sent (a nil one as
     /// `null`, clearing them). Untouched, they're left out and stay as stored.
     var lodgingChanged: Bool {
