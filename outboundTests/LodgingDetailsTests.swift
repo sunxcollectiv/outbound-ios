@@ -343,4 +343,29 @@ struct LodgingDetailsTests {
         #expect(draft.roomsToSave == [TripItemsAPI.RoomRequest(roomNumber: "7")])
         #expect(TripItemDraft(tripId: "t", kind: .activity).roomsToSave == nil)
     }
+
+    // MARK: - Import source
+
+    @Test func decodesImportSource() throws {
+        let imported = try decodeItem(#"""
+        , "source": "email", "has_source": true, "edited_at": "2026-11-05T19:41:17.885521Z",
+          "edited_by": {"id": "u1", "email": "sam@example.com", "display_name": "Sam", "avatar_url": null,
+                        "created_at": "2026-10-01T00:00:00Z"}
+        """#)
+        #expect(imported.source == .email)
+        #expect(imported.source?.importLabel == "Imported from email")
+        #expect(imported.hasSource)
+        #expect(imported.editedAt != nil)
+        #expect(imported.editedBy?.displayName == "Sam")
+
+        let screenshot = try decodeItem(kind: "transit", #", "source": "image", "has_source": false, "edited_at": null"#)
+        #expect(screenshot.source == .image)
+        #expect(!screenshot.hasSource)
+        #expect(screenshot.editedAt == nil)
+
+        #expect(try decodeItem(#", "source": "manual""#).source?.importLabel == nil)
+        // An older server, or a source the app doesn't know yet, leaves it unknown.
+        #expect(try decodeItem("").source == nil)
+        #expect(try decodeItem(#", "source": "fax""#).source == nil)
+    }
 }

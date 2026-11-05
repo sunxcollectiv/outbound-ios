@@ -149,7 +149,38 @@ struct TripItemDetailView: View {
                     tagChips
                 }
             }
+
+            sourceSection
         }
+    }
+
+    /// Where an imported item came from, and whether anyone has changed the booking
+    /// since. Left out for one entered by hand.
+    @ViewBuilder
+    private var sourceSection: some View {
+        if let label = item.source?.importLabel, let source = item.source {
+            detailSection(title: "Source") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(label, systemImage: source.systemImage)
+                    if let edited = editedText {
+                        Text(edited)
+                            .font(.subheadline)
+                            .foregroundStyle(sheetForeground.opacity(0.7))
+                    }
+                }
+            }
+        }
+    }
+
+    /// "Edited since by Sam on Nov 5" (or without the name when nobody's known), or
+    /// nil when the booking hasn't been changed since it was imported.
+    private var editedText: String? {
+        guard let editedAt = item.editedAt else { return nil }
+        let day = editedAt.formatted(.dateTime.month(.abbreviated).day())
+        if let name = item.editedBy?.displayName ?? item.editedBy?.email {
+            return "Edited since by \(name) on \(day)"
+        }
+        return "Edited since on \(day)"
     }
 
     /// Kind and visibility badges across the top.

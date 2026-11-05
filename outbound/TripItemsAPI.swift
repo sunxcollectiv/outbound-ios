@@ -246,6 +246,37 @@ extension LodgingDetails {
     }
 }
 
+/// Where an item came from, matching the server's `TripItemSource`. Fixed when the
+/// item is made: an imported item someone edits is still an import (see `editedAt`).
+enum TripItemSource: String, Codable {
+    /// Entered by hand.
+    case manual
+    /// Imported from a forwarded confirmation email.
+    case email
+    /// Imported from an uploaded screenshot or photo.
+    case image
+
+    /// Whether it was read from a booking rather than typed in.
+    var isImport: Bool { self != .manual }
+
+    /// How the details sheet says where an import came from; nil for one entered by hand.
+    var importLabel: String? {
+        switch self {
+        case .manual: nil
+        case .email: "Imported from email"
+        case .image: "Imported from a screenshot"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .manual: "square.and.pencil"
+        case .email: "envelope.fill"
+        case .image: "photo.fill"
+        }
+    }
+}
+
 /// What people on the trip who aren't participants see of an item, matching
 /// `TripItemVisibility`. Participants always see all of it.
 enum TripItemVisibility: String, Codable, CaseIterable, Identifiable {
@@ -313,6 +344,16 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     var lodging: LodgingDetails? = nil
     /// A stay's rooms, in order; empty for other kinds and a stay that lists none.
     var rooms: [LodgingRoom] = []
+    /// Where it came from; nil from a server that doesn't say.
+    var source: TripItemSource? = nil
+    /// Whether the original it was imported from can still be fetched (by its
+    /// participants, from `GET …/items/{id}/source`).
+    var hasSource = false
+    /// The last time someone changed the booking itself (not who's on it, its
+    /// visibility or notes), and who. On an import, set means it no longer matches
+    /// exactly what the booking said.
+    var editedAt: Date? = nil
+    var editedBy: User? = nil
 
     /// What sort of item this is, for badges: a stay's property type when known
     /// ("Hotel"), else its kind ("Lodging").
@@ -387,7 +428,7 @@ extension TripItem: Decodable {
         case startTimezone, endTimezone
         case startsAt, endsAt, startsAtUtc, endsAtUtc
         case imageUrl, place, endPlace, createdAt, updatedAt, segments, createdBy, participants
-        case transitMode, lodging, rooms
+        case transitMode, lodging, rooms, source, hasSource, editedAt, editedBy
     }
 
     init(from decoder: Decoder) throws {
@@ -413,6 +454,11 @@ extension TripItem: Decodable {
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         segments = (try c.decodeIfPresent([TransitSegment].self, forKey: .segments) ?? [])
             .sorted { $0.position < $1.position }
+        // Leniently, so a source added on the server doesn't break the whole item.
+        source = (try? c.decodeIfPresent(String.self, forKey: .source)).flatMap { $0.flatMap(TripItemSource.init) }
+        hasSource = try c.decodeIfPresent(Bool.self, forKey: .hasSource) ?? false
+        editedAt = try c.decodeIfPresent(Date.self, forKey: .editedAt)
+        editedBy = try c.decodeIfPresent(User.self, forKey: .editedBy)
         createdBy = try c.decodeIfPresent(User.self, forKey: .createdBy)
         participants = try c.decodeIfPresent([TripItemParticipant].self, forKey: .participants) ?? []
         // Leniently, so a mode added on the server doesn't break the whole item.
