@@ -134,6 +134,10 @@ struct TripItemDetailView: View {
                 }
             }
 
+            if item.kind == .lodging, let lodging = item.lodging {
+                staySections(lodging)
+            }
+
             if let notes = item.notes, !notes.isEmpty {
                 detailSection(title: "Notes") {
                     Text(notes)
@@ -196,6 +200,54 @@ struct TripItemDetailView: View {
             content()
                 .font(.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Stay details
+
+    /// What the booking says about a stay beyond its dates and place: the room and
+    /// who it's for, the free-cancellation deadline, and the property's own phone.
+    /// Each block is left out when the booking doesn't state it.
+    @ViewBuilder
+    private func staySections(_ lodging: LodgingDetails) -> some View {
+        let roomType = lodging.roomType.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+        if roomType != nil || lodging.occupancyText != nil {
+            detailSection(title: "Room") {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let roomType {
+                        Text(roomType)
+                    }
+                    if let occupancy = lodging.occupancyText {
+                        Label(occupancy, systemImage: "person.2.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(sheetForeground.opacity(0.7))
+                    }
+                }
+            }
+        }
+
+        if let deadline = lodging.cancellationText(zone: item.startTimezone) {
+            let passed = lodging.cancellationHasPassed(zone: item.startTimezone)
+            detailSection(title: "Free cancellation") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(passed ? "Ended \(deadline)" : "Until \(deadline)")
+                    if passed {
+                        Text("Cancelling now may cost you.")
+                            .font(.subheadline)
+                            .foregroundStyle(sheetForeground.opacity(0.7))
+                    }
+                }
+            }
+        }
+
+        if let phone = lodging.phone, !phone.trimmingCharacters(in: .whitespaces).isEmpty {
+            detailSection(title: "Property phone") {
+                if let url = URL(string: "tel://\(phone.filter { !$0.isWhitespace })") {
+                    Link(destination: url) { Label(phone, systemImage: "phone.fill") }
+                } else {
+                    Text(phone)
+                }
+            }
         }
     }
 

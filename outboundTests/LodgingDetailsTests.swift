@@ -115,4 +115,31 @@ struct LodgingDetailsTests {
         #expect(draft.lodgingToSave == nil)
         #expect(draft.lodgingChanged == false)
     }
+
+    // MARK: - Display
+
+    @Test func occupancyReadsNaturally() {
+        #expect(LodgingDetails(guests: 1, rooms: 1).occupancyText == "1 guest · 1 room")
+        #expect(LodgingDetails(guests: 4).occupancyText == "4 guests")
+        #expect(LodgingDetails(rooms: 2).occupancyText == "2 rooms")
+        #expect(LodgingDetails(propertyType: .hotel).occupancyText == nil)
+    }
+
+    @Test func cancellationDeadlineIsReadAtTheProperty() throws {
+        let item = try decodeItem(Self.importedHotel)
+        let lodging = try #require(item.lodging)
+        let bangkok = try #require(TimeZone(identifier: "Asia/Bangkok"))
+        let text = try #require(lodging.cancellationText(zone: bangkok))
+        // The wall clock as written, whatever the device's zone, with the stay's zone.
+        #expect(text.contains("Dec 29"))
+        #expect(text.contains("11:59"))
+        #expect(text.hasSuffix("GMT+7"))
+        #expect(lodging.cancellationText(zone: nil)?.hasSuffix("PM") == true)
+
+        // 23:59 in Bangkok is 16:59 UTC.
+        let deadline = try #require(ISO8601DateFormatter().date(from: "2026-12-29T16:59:00Z"))
+        #expect(!lodging.cancellationHasPassed(zone: bangkok, now: deadline.addingTimeInterval(-60)))
+        #expect(lodging.cancellationHasPassed(zone: bangkok, now: deadline))
+        #expect(!LodgingDetails().cancellationHasPassed(zone: bangkok))
+    }
 }

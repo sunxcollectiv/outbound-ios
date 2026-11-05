@@ -146,6 +146,34 @@ struct LodgingDetails: Equatable, Codable {
     }
 }
 
+extension LodgingDetails {
+    /// Who and how much the booking is for, e.g. "2 guests · 1 room"; nil when it
+    /// states neither.
+    var occupancyText: String? {
+        let parts = [
+            guests.map { $0 == 1 ? "1 guest" : "\($0) guests" },
+            rooms.map { $0 == 1 ? "1 room" : "\($0) rooms" },
+        ].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The free-cancellation deadline as written at the property, with the stay's
+    /// zone when it has one, e.g. "Tue, Dec 29 at 11:59 PM GMT+7".
+    func cancellationText(zone: TimeZone?) -> String? {
+        guard let until = freeCancellationUntil else { return nil }
+        let text = WallClock.text(until, .dateTime.weekday().month().day().hour().minute())
+        guard let zone else { return text }
+        return "\(text) \(WallClock.zoneAbbreviation(zone, at: WallClock.instant(of: until, in: zone)))"
+    }
+
+    /// Whether the free-cancellation deadline has gone by, read in the stay's zone
+    /// (the device's when it has none). False when there's no deadline.
+    func cancellationHasPassed(zone: TimeZone?, now: Date = .now) -> Bool {
+        guard let until = freeCancellationUntil else { return false }
+        return WallClock.instant(of: until, in: zone ?? .current) <= now
+    }
+}
+
 /// What people on the trip who aren't participants see of an item, matching
 /// `TripItemVisibility`. Participants always see all of it.
 enum TripItemVisibility: String, Codable, CaseIterable, Identifiable {
