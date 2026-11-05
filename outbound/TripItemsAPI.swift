@@ -89,28 +89,22 @@ enum LodgingType: String, Codable, CaseIterable, Identifiable {
 }
 
 /// `LodgingRead` / `LodgingDetails` — a stay's details beyond its check-in/check-out
-/// (the item's times) and property (the item's place). Every field is optional: an
-/// imported booking states what it states, a hand-entered stay may have none.
+/// (the item's times), property (the item's place), people (its participants) and
+/// rooms (the item's `rooms`). Every field is optional: an imported booking states
+/// what it states, a hand-entered stay may have none.
 ///
 /// The server replaces these whole on a PATCH, so an edit sends every field back,
 /// not just the ones the form shows.
 struct LodgingDetails: Equatable, Codable {
     var propertyType: LodgingType?
-    /// As the booking names it, e.g. "Deluxe King, City View".
-    var roomType: String?
-    var guests: Int?
-    var rooms: Int?
     /// The property's own number, as printed.
     var phone: String?
     /// The last moment the stay can be cancelled free of charge: a wall clock at the
     /// property (the stay's check-in zone), as a floating UTC date like the item's times.
     var freeCancellationUntil: Date?
 
-    init(propertyType: LodgingType? = nil, roomType: String? = nil, guests: Int? = nil, rooms: Int? = nil, phone: String? = nil, freeCancellationUntil: Date? = nil) {
+    init(propertyType: LodgingType? = nil, phone: String? = nil, freeCancellationUntil: Date? = nil) {
         self.propertyType = propertyType
-        self.roomType = roomType
-        self.guests = guests
-        self.rooms = rooms
         self.phone = phone
         self.freeCancellationUntil = freeCancellationUntil
     }
@@ -119,44 +113,93 @@ struct LodgingDetails: Equatable, Codable {
     var isEmpty: Bool { self == LodgingDetails() }
 
     private enum CodingKeys: String, CodingKey {
-        case propertyType, roomType, guests, rooms, phone, freeCancellationUntil
+        case propertyType, phone, freeCancellationUntil
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         // Leniently, so a type added on the server doesn't break the whole item.
         propertyType = (try? c.decodeIfPresent(String.self, forKey: .propertyType)).flatMap { $0.flatMap(LodgingType.init) }
-        roomType = try c.decodeIfPresent(String.self, forKey: .roomType)
-        guests = try c.decodeIfPresent(Int.self, forKey: .guests)
-        rooms = try c.decodeIfPresent(Int.self, forKey: .rooms)
         phone = try c.decodeIfPresent(String.self, forKey: .phone)
         freeCancellationUntil = try? c.decodeWallClockIfPresent(forKey: .freeCancellationUntil)
     }
 
     /// Nil fields are sent as `null` (the server's defaults anyway), keeping the body
-    /// a faithful copy of the whole object it replaces.
+    /// a faithful copy of the whole object it replaces. Only these keys: the server
+    /// rejects any others.
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(propertyType, forKey: .propertyType)
-        try c.encode(roomType, forKey: .roomType)
-        try c.encode(guests, forKey: .guests)
-        try c.encode(rooms, forKey: .rooms)
         try c.encode(phone, forKey: .phone)
         try c.encode(freeCancellationUntil.map(WallClock.naiveString), forKey: .freeCancellationUntil)
     }
 }
 
-extension LodgingDetails {
-    /// Who and how much the booking is for, e.g. "2 guests · 1 room"; nil when it
-    /// states neither.
-    var occupancyText: String? {
-        let parts = [
-            guests.map { $0 == 1 ? "1 guest" : "\($0) guests" },
-            rooms.map { $0 == 1 ? "1 room" : "\($0) rooms" },
-        ].compactMap { $0 }
+/// `LodgingRoomRead` — one room of a stay, in the booking's order. Every detail is
+/// optional; an imported booking may list rooms with only a type, or nothing at all.
+struct LodgingRoom: Identifiable, Equatable, Decodable {
+    let id: String
+    var position: Int = 0
+    /// A name for the room, e.g. "Kids' room".
+    var label: String?
+    var roomNumber: String?
+    /// As the booking names it, e.g. "Deluxe King, City View".
+    var roomType: String?
+    var guests: Int?
+    /// The room's own reference, when the booking gives each room one.
+    var confirmationNumber: String?
+    /// Trip-member ids of who's in it (match against `participants[].member.id`).
+    var occupants: [String] = []
+
+    private enum CodingKeys: String, CodingKey {
+        case id, position, label, roomNumber, roomType, guests, confirmationNumber, occupants
+    }
+
+    init(id: String, position: Int = 0, label: String? = nil, roomNumber: String? = nil, roomType: String? = nil, guests: Int? = nil, confirmationNumber: String? = nil, occupants: [String] = []) {
+        self.id = id
+        self.position = position
+        self.label = label
+        self.roomNumber = roomNumber
+        self.roomType = roomType
+        self.guests = guests
+        self.confirmationNumber = confirmationNumber
+        self.occupants = occupants
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        position = try c.decodeIfPresent(Int.self, forKey: .position) ?? 0
+        label = try c.decodeIfPresent(String.self, forKey: .label)
+        roomNumber = try c.decodeIfPresent(String.self, forKey: .roomNumber)
+        roomType = try c.decodeIfPresent(String.self, forKey: .roomType)
+        guests = try c.decodeIfPresent(Int.self, forKey: .guests)
+        confirmationNumber = try c.decodeIfPresent(String.self, forKey: .confirmationNumber)
+        occupants = try c.decodeIfPresent([String].self, forKey: .occupants) ?? []
+    }
+
+    /// What to call the room: its label, else its number ("Room 412"), else its
+    /// place in the list ("Room 1", counting from `number`).
+    func title(number: Int) -> String {
+        if let label = Self.nonBlank(label) { return label }
+        if let roomNumber = Self.nonBlank(roomNumber) { return "Room \(roomNumber)" }
+        return "Room \(number)"
+    }
+
+    /// The line beside or under the title: the room type, then how many guests,
+    /// e.g. "1 King Bed · 1 guest"; nil when the booking says neither.
+    var summary: String? {
+        let parts = [Self.nonBlank(roomType), guests.map { $0 == 1 ? "1 guest" : "\($0) guests" }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    private static func nonBlank(_ text: String?) -> String? {
+        guard let text, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return text
+    }
+}
+
+extension LodgingDetails {
     /// The free-cancellation deadline as written at the property, with the stay's
     /// zone when it has one, e.g. "Tue, Dec 29 at 11:59 PM GMT+7".
     func cancellationText(zone: TimeZone?) -> String? {
@@ -239,6 +282,8 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     var transitMode: TransitMode? = nil
     /// A stay's details; nil for other kinds, a stay with none, and a redacted one.
     var lodging: LodgingDetails? = nil
+    /// A stay's rooms, in order; empty for other kinds and a stay that lists none.
+    var rooms: [LodgingRoom] = []
 
     /// What sort of item this is, for badges: a stay's property type when known
     /// ("Hotel"), else its kind ("Lodging").
@@ -313,7 +358,7 @@ extension TripItem: Decodable {
         case startTimezone, endTimezone
         case startsAt, endsAt, startsAtUtc, endsAtUtc
         case imageUrl, place, endPlace, createdAt, updatedAt, segments, createdBy, participants
-        case transitMode, lodging
+        case transitMode, lodging, rooms
     }
 
     init(from decoder: Decoder) throws {
@@ -345,6 +390,8 @@ extension TripItem: Decodable {
         transitMode = (try? c.decodeIfPresent(String.self, forKey: .transitMode)).flatMap { $0.flatMap(TransitMode.init) }
         // Leniently too: a malformed details object shouldn't hide the stay.
         lodging = (try? c.decodeIfPresent(LodgingDetails.self, forKey: .lodging)) ?? nil
+        rooms = ((try? c.decodeIfPresent([LodgingRoom].self, forKey: .rooms)).flatMap { $0 } ?? [])
+            .sorted { $0.position < $1.position }
         displayTitle = try c.decodeIfPresent(String.self, forKey: .displayTitle)
             ?? title ?? place?.name ?? kind.label
     }

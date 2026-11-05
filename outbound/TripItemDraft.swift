@@ -105,6 +105,9 @@ final class TripItemDraft {
     /// A stay's property type (hotel, vacation rental, …); nil when not picked.
     /// Unused for other kinds.
     var propertyType: LodgingType?
+    /// A stay's rooms, in order; empty until one is added. Not saved yet: shown as
+    /// they came from the server.
+    var rooms: [LodgingRoom] = []
 
     private(set) var isSaving = false
     private(set) var isDeleting = false
@@ -168,6 +171,7 @@ final class TripItemDraft {
         }
         notes = item?.notes ?? ""
         propertyType = item?.lodging?.propertyType
+        rooms = item?.rooms ?? []
         // Load the item's wall clock onto the device-zone canvas (so the rows show
         // the same numbers), or for a new item start on the day being viewed at the
         // current time-of-day (falling back to "now" when no day was supplied).
@@ -339,14 +343,6 @@ final class TripItemDraft {
         var details = item?.lodging ?? LodgingDetails()
         details.propertyType = propertyType
         return details.isEmpty ? nil : details
-    }
-
-    /// The rooms row's summary: who and how much the booking is for ("1 guest ·
-    /// 1 room"), else the room type, else "No details".
-    var roomSummary: String {
-        let lodging = item?.lodging
-        let roomType = lodging?.roomType.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
-        return lodging?.occupancyText ?? roomType ?? "No details"
     }
 
     /// Whether an edit changes the stay's details, so they're sent (a nil one as

@@ -134,8 +134,8 @@ struct TripItemDetailView: View {
                 }
             }
 
-            if item.kind == .lodging, let lodging = item.lodging {
-                staySections(lodging)
+            if item.kind == .lodging {
+                staySections(item.lodging ?? LodgingDetails(), rooms: item.rooms)
             }
 
             if let notes = item.notes, !notes.isEmpty {
@@ -205,22 +205,24 @@ struct TripItemDetailView: View {
 
     // MARK: - Stay details
 
-    /// What the booking says about a stay beyond its dates and place: the room and
-    /// who it's for, the free-cancellation deadline, and the property's own phone.
-    /// Each block is left out when the booking doesn't state it.
+    /// What the booking says about a stay beyond its dates and place: its rooms, the
+    /// free-cancellation deadline, and the property's own phone. Each block is left
+    /// out when the booking doesn't state it.
     @ViewBuilder
-    private func staySections(_ lodging: LodgingDetails) -> some View {
-        let roomType = lodging.roomType.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
-        if roomType != nil || lodging.occupancyText != nil {
-            detailSection(title: "Room") {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let roomType {
-                        Text(roomType)
-                    }
-                    if let occupancy = lodging.occupancyText {
-                        Label(occupancy, systemImage: "person.2.fill")
-                            .font(.subheadline)
-                            .foregroundStyle(sheetForeground.opacity(0.7))
+    private func staySections(_ lodging: LodgingDetails, rooms: [LodgingRoom]) -> some View {
+        if !rooms.isEmpty {
+            detailSection(title: rooms.count == 1 ? "Room" : "Rooms") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(rooms.enumerated()), id: \.element.id) { index, room in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(room.title(number: index + 1))
+                                .font(.body.weight(.semibold))
+                            if let summary = room.summary {
+                                Text(summary)
+                                    .font(.subheadline)
+                                    .foregroundStyle(sheetForeground.opacity(0.7))
+                            }
+                        }
                     }
                 }
             }

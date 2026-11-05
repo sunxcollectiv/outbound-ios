@@ -15,6 +15,9 @@ struct LodgingFormView: View {
 
     @State private var showingRoomDetails = false
 
+    /// "+ add room": a point under subheadline (15pt), scaled with Dynamic Type.
+    @ScaledMetric(relativeTo: .subheadline) private var addRoomSize: CGFloat = 14
+
     var body: some View {
         TripItemFormScaffold(
             draft: draft,
@@ -31,25 +34,60 @@ struct LodgingFormView: View {
                 typedEntry: $draft.typedName
             )
         } afterTimes: {
-            roomDetailsButton
+            roomsSection
         }
         .overlay { roomDetailsPopup }
     }
 
     // MARK: - Room details
 
-    /// A one-line row under the dates summarizing the room, styled like the members
-    /// row up top; tapping it opens the room details.
-    private var roomDetailsButton: some View {
-        Button {
-            withAnimation(.snappy(duration: 0.25)) { showingRoomDetails = true }
-        } label: {
+    /// "Room details" with "+ add room" opposite, over a full-width row per room, or
+    /// a dashed placeholder while the stay has none. Adding a room or tapping one
+    /// opens the room details popup.
+    private var roomsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Room details")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.appForeground.opacity(0.8))
+                Spacer(minLength: 8)
+                Button(action: openRoomDetails) {
+                    // The plus snug against the words, rather than a label's wide gap.
+                    HStack(spacing: 3) {
+                        Image(systemName: "plus")
+                        Text("add room")
+                    }
+                    .font(.system(size: addRoomSize, weight: .semibold))
+                    .foregroundStyle(Color.appForeground)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add room")
+            }
+            if draft.rooms.isEmpty {
+                roomsPlaceholder
+            } else {
+                ForEach(Array(draft.rooms.enumerated()), id: \.element.id) { index, room in
+                    roomButton(room, number: index + 1)
+                }
+            }
+        }
+    }
+
+    /// One room, styled like the members row up top: its name, and its type and
+    /// guests opposite.
+    private func roomButton(_ room: LodgingRoom, number: Int) -> some View {
+        Button(action: openRoomDetails) {
             HStack(spacing: 12) {
-                Text("Rooms")
-                Spacer(minLength: 0)
-                Text(draft.roomSummary)
-                    .foregroundStyle(Color.appForeground.opacity(0.75))
+                Text(room.title(number: number))
                     .lineLimit(1)
+                    .layoutPriority(1)
+                Spacer(minLength: 0)
+                if let summary = room.summary {
+                    Text(summary)
+                        .foregroundStyle(Color.appForeground.opacity(0.75))
+                        .lineLimit(1)
+                }
             }
             .padding(14)
             .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
@@ -58,12 +96,30 @@ struct LodgingFormView: View {
         .buttonStyle(.plain)
     }
 
+    /// Stands in for the rooms until the stay has one: a dashed outline the height of
+    /// a room row. Not a button; rooms are added from "+ add room" above it.
+    private var roomsPlaceholder: some View {
+        Text("No room details yet")
+            .foregroundStyle(Color.appForeground.opacity(0.5))
+            .frame(maxWidth: .infinity)
+            .padding(14)
+            .overlay {
+                RoundedRectangle(cornerRadius: appFieldCornerRadius)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                    .foregroundStyle(Color.appForeground.opacity(0.3))
+            }
+    }
+
+    private func openRoomDetails() {
+        withAnimation(.snappy(duration: 0.25)) { showingRoomDetails = true }
+    }
+
     private func closeRoomDetails() {
         withAnimation(.snappy(duration: 0.2)) { showingRoomDetails = false }
     }
 
     /// The room details popup over a dimmed form; tapping outside closes it. Blank
-    /// for now, until it holds the room type, guests and rooms.
+    /// for now, until it holds a room's details.
     @ViewBuilder
     private var roomDetailsPopup: some View {
         if showingRoomDetails {
