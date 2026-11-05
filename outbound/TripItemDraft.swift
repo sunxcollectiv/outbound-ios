@@ -346,7 +346,8 @@ final class TripItemDraft {
     }
 
     /// Puts an edited room back: in place of the one with its id, else added at the
-    /// end. A new room left blank isn't added.
+    /// end. A new room left blank isn't added. Anyone put in it who wasn't on the stay
+    /// is added to it, as the server would.
     func updateRoom(_ room: LodgingRoom) {
         var room = room.tidied
         if let index = rooms.firstIndex(where: { $0.id == room.id }) {
@@ -354,7 +355,48 @@ final class TripItemDraft {
         } else if !room.isBlank {
             room.position = rooms.count
             rooms.append(room)
+        } else {
+            return
         }
+        if !room.occupants.isEmpty {
+            selectedMemberIds = (selectedMemberIds ?? []).union(room.occupants)
+        }
+    }
+
+    /// Who's in `room`, for its row: "You and Sam", or for more than three the first
+    /// two and a count ("You, Sam and 2 others"). Nil when nobody is. Members go by
+    /// their name, else the start of their email.
+    func occupantNames(of room: LodgingRoom, currentUserId: String?) -> String? {
+        let names = members.filter { room.occupants.contains($0.id) }.map { member in
+            if let userId = member.user?.id, userId == currentUserId { return "You" }
+            return member.user?.displayName ?? String(member.email.prefix { $0 != "@" })
+        }
+        switch names.count {
+        case 0: return nil
+        case 1...3: return names.formatted(.list(type: .and))
+        default: return "\(names[0]), \(names[1]) and \(names.count - 2) others"
+        }
+    }
+
+    /// The trip's members as the room popup lists them for the room with `roomId`: the
+    /// stay's own people first, then everyone else on the trip, then whoever is
+    /// already in another of its rooms. Each keeps the trip's member order.
+    func roomAssignments(for roomId: String) -> RoomAssignments {
+        var otherRooms: [String: String] = [:]
+        for (index, room) in rooms.enumerated() where room.id != roomId {
+            for memberId in room.occupants {
+                otherRooms[memberId] = room.title(number: index + 1)
+            }
+        }
+        let onStay = selectedMemberIds ?? []
+        let free = members.filter { otherRooms[$0.id] == nil }
+        return RoomAssignments(
+            participants: free.filter { onStay.contains($0.id) },
+            others: free.filter { !onStay.contains($0.id) },
+            inOtherRooms: members.compactMap { member in
+                otherRooms[member.id].map { RoomAssignments.Placed(member: member, roomTitle: $0) }
+            }
+        )
     }
 
     /// Whether an edit changes the stay's details, so they're sent (a nil one as
@@ -504,5 +546,21 @@ final class TripItemDraft {
         var target = Calendar(identifier: .gregorian)
         target.timeZone = zone
         return target.date(from: components) ?? canvasDate
+    }
+}
+
+/// Who can go in a room, grouped the way the room popup lists them.
+struct RoomAssignments: Equatable {
+    /// On the stay and in no other room.
+    var participants: [TripMember]
+    /// On the trip but not the stay; putting one in the room adds them to it.
+    var others: [TripMember]
+    /// Already in another of the stay's rooms, with that room's name.
+    var inOtherRooms: [Placed]
+
+    struct Placed: Identifiable, Equatable {
+        let member: TripMember
+        let roomTitle: String
+        var id: String { member.id }
     }
 }

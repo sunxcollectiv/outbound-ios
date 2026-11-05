@@ -59,8 +59,6 @@ struct ItemMembersPopup: View {
 
     private func memberRow(_ member: TripMember) -> some View {
         let isSelected = selectedIds.contains(member.id)
-        let isYou = member.user?.id != nil && member.user?.id == currentUserId
-        let name = member.user?.displayName ?? member.email
         return Button {
             withAnimation(.snappy(duration: 0.15)) {
                 if isSelected {
@@ -71,23 +69,7 @@ struct ItemMembersPopup: View {
             }
         } label: {
             HStack(spacing: 12) {
-                Text(String(name.first(where: \.isLetter) ?? "?").uppercased())
-                    .font(.subheadline.weight(.semibold))
-                    .frame(width: 32, height: 32)
-                    .background(Color.appForeground.opacity(0.18), in: .circle)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isYou ? "\(name) (You)" : name)
-                        .font(.subheadline)
-                        .lineLimit(1)
-                    // Members without an account only have their email, already shown.
-                    if member.user != nil {
-                        Text(member.email)
-                            .font(.caption)
-                            .foregroundStyle(Color.appForeground.opacity(0.6))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
+                MemberIdentity(member: member, currentUserId: currentUserId)
                 Spacer(minLength: 8)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
@@ -99,6 +81,39 @@ struct ItemMembersPopup: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// A member as the member lists show them: an initial in a circle, their name (or
+/// email) with "(You)" for the signed-in user, and their email under a name.
+/// `detail` replaces the email line, e.g. with the room they're in.
+struct MemberIdentity: View {
+    let member: TripMember
+    let currentUserId: String?
+    var detail: String? = nil
+
+    var body: some View {
+        let isYou = member.user?.id != nil && member.user?.id == currentUserId
+        let name = member.user?.displayName ?? member.email
+        HStack(spacing: 12) {
+            Text(String(name.first(where: \.isLetter) ?? "?").uppercased())
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 32, height: 32)
+                .background(Color.appForeground.opacity(0.18), in: .circle)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isYou ? "\(name) (You)" : name)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                // Members without an account only have their email, already shown.
+                if let line = detail ?? (member.user != nil ? member.email : nil) {
+                    Text(line)
+                        .font(.caption)
+                        .foregroundStyle(Color.appForeground.opacity(0.6))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
     }
 }
 

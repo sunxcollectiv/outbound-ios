@@ -203,4 +203,63 @@ struct LodgingDetailsTests {
         #expect(draft.rooms[1].roomNumber == nil)
         #expect(draft.rooms[1].title(number: 2) == "Room 2")
     }
+
+    // MARK: - Room assignments
+
+    private static let roster = ["m1", "m2", "m3", "m4"].map {
+        TripMember(id: $0, email: "\($0)@example.com", user: nil, role: .member)
+    }
+
+    /// A stay with `importedHotel`'s two rooms (r1 empty, r2 holding m1), for
+    /// m1 and m2, on a trip of m1–m4.
+    private func assigningDraft() throws -> TripItemDraft {
+        let draft = TripItemDraft(tripId: "t", kind: .lodging, members: Self.roster, item: try decodeItem(Self.importedHotel))
+        draft.selectedMemberIds = ["m1", "m2"]
+        return draft
+    }
+
+    @Test func roomPopupGroupsTheTrip() throws {
+        let draft = try assigningDraft()
+        let forR1 = draft.roomAssignments(for: "r1")
+        #expect(forR1.participants.map(\.id) == ["m2"])
+        #expect(forR1.others.map(\.id) == ["m3", "m4"])
+        #expect(forR1.inOtherRooms.map(\.id) == ["m1"])
+        #expect(forR1.inOtherRooms.first?.roomTitle == "Room 412")
+
+        // A room's own people aren't "in another room" for it.
+        let forR2 = draft.roomAssignments(for: "r2")
+        #expect(forR2.participants.map(\.id) == ["m1", "m2"])
+        #expect(forR2.inOtherRooms.isEmpty)
+    }
+
+    @Test func assigningSomeoneOffTheStayAddsThem() throws {
+        let draft = try assigningDraft()
+        var room = draft.rooms[0]
+        room.occupants = ["m2", "m3"]
+        draft.updateRoom(room)
+        #expect(draft.rooms[0].occupants == ["m2", "m3"])
+        #expect(draft.selectedMemberIds == ["m1", "m2", "m3"])
+        #expect(draft.roomAssignments(for: "r2").inOtherRooms.map(\.id) == ["m2", "m3"])
+    }
+
+    @Test func blankNewRoomAddsNobody() throws {
+        let draft = try assigningDraft()
+        draft.updateRoom(.new())
+        #expect(draft.rooms.count == 2)
+        #expect(draft.selectedMemberIds == ["m1", "m2"])
+    }
+
+    @Test func roomRowNamesWhosIn() throws {
+        let you = TripMember(id: "m1", email: "me@example.com", user: User(id: "u1", email: "me@example.com", displayName: "Sun", avatarUrl: nil, createdAt: .now), role: .organizer)
+        let roster = [you] + ["m2", "m3", "m4"].map { TripMember(id: $0, email: "\($0)@example.com", user: nil, role: .member) }
+        let draft = TripItemDraft(tripId: "t", kind: .lodging, members: roster)
+        var room = LodgingRoom.new()
+        #expect(draft.occupantNames(of: room, currentUserId: "u1") == nil)
+        room.occupants = ["m2", "m1"]
+        // In trip order, with the signed-in user as "You".
+        #expect(draft.occupantNames(of: room, currentUserId: "u1") == "You and m2")
+        #expect(draft.occupantNames(of: room, currentUserId: nil) == "Sun and m2")
+        room.occupants = ["m1", "m2", "m3", "m4"]
+        #expect(draft.occupantNames(of: room, currentUserId: "u1") == "You, m2 and 2 others")
+    }
 }

@@ -14,6 +14,7 @@ struct LodgingFormView: View {
     var onDeleted: () -> Void = {}
 
     @State private var showingRoomDetails = false
+    @Environment(AuthStore.self) private var auth
     /// The room the popup edits: a copy of one of the stay's, or a new blank one.
     @State private var openedRoom = LodgingRoom.new()
 
@@ -76,14 +77,24 @@ struct LodgingFormView: View {
         }
     }
 
-    /// One room, styled like the members row up top: its name, and its type and
-    /// guests opposite.
+    /// One room, styled like the members row up top: its name with who's in it
+    /// underneath, and its type and guests opposite.
     private func roomButton(_ room: LodgingRoom, number: Int) -> some View {
         Button { openRoomDetails(room) } label: {
             HStack(spacing: 12) {
-                Text(room.title(number: number))
-                    .lineLimit(1)
-                    .layoutPriority(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(room.title(number: number))
+                        .lineLimit(1)
+                    // Who's in it, under its name.
+                    if let names = draft.occupantNames(of: room, currentUserId: auth.currentUser?.id) {
+                        Label(names, systemImage: "person.fill")
+                            .labelStyle(.titleAndIcon)
+                            .font(.caption)
+                            .foregroundStyle(Color.appForeground.opacity(0.6))
+                            .lineLimit(1)
+                    }
+                }
+                .layoutPriority(1)
                 Spacer(minLength: 0)
                 if let summary = room.summary {
                     Text(summary)
@@ -131,7 +142,12 @@ struct LodgingFormView: View {
     private var roomDetailsPopup: some View {
         if showingRoomDetails {
             DimmedPopup(onClose: closeRoomDetails) {
-                RoomDetailsPopup(room: $openedRoom, onClose: closeRoomDetails)
+                RoomDetailsPopup(
+                    room: $openedRoom,
+                    assignments: draft.roomAssignments(for: openedRoom.id),
+                    currentUserId: auth.currentUser?.id,
+                    onClose: closeRoomDetails
+                )
             }
         }
     }
