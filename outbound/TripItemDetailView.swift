@@ -152,18 +152,26 @@ struct TripItemDetailView: View {
     private var header: some View {
         HStack(spacing: 8) {
             badge(item.kind.label.uppercased())
+            if item.kind == .lodging, let type = item.lodging?.propertyType {
+                badge(type.label.uppercased(), systemImage: type.systemImage)
+            }
             badge(item.visibility.label.uppercased())
             Spacer()
         }
     }
 
-    private func badge(_ text: String) -> some View {
-        Text(text)
-            .font(.caption.weight(.bold))
-            .tracking(1.5)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(sheetForeground.opacity(0.1), in: .capsule)
+    private func badge(_ text: String, systemImage: String? = nil) -> some View {
+        HStack(spacing: 5) {
+            if let systemImage {
+                Image(systemName: systemImage)
+            }
+            Text(text)
+        }
+        .font(.caption.weight(.bold))
+        .tracking(1.5)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(sheetForeground.opacity(0.1), in: .capsule)
     }
 
     private var tagChips: some View {

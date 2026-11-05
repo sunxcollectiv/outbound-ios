@@ -52,6 +52,100 @@ enum TransitMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// What kind of place a stay is at, matching the server's `LodgingType`.
+enum LodgingType: String, Codable, CaseIterable, Identifiable {
+    case hotel
+    case vacationRental = "vacation_rental"
+    case hostel
+    case other
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .hotel: "Hotel"
+        case .vacationRental: "Vacation rental"
+        case .hostel: "Hostel"
+        case .other: "Other"
+        }
+    }
+
+    /// A shorter label for tight spots (the form's picker).
+    var shortLabel: String {
+        switch self {
+        case .vacationRental: "Rental"
+        default: label
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .hotel: "building.2.fill"
+        case .vacationRental: "house.fill"
+        case .hostel: "bed.double.fill"
+        case .other: "ellipsis"
+        }
+    }
+}
+
+/// `LodgingRead` / `LodgingDetails` — a stay's details beyond its check-in/check-out
+/// (the item's times) and property (the item's place). Every field is optional: an
+/// imported booking states what it states, a hand-entered stay may have none.
+///
+/// The server replaces these whole on a PATCH, so an edit sends every field back,
+/// not just the ones the form shows.
+struct LodgingDetails: Equatable, Codable {
+    var propertyType: LodgingType?
+    /// As the booking names it, e.g. "Deluxe King, City View".
+    var roomType: String?
+    var guests: Int?
+    var rooms: Int?
+    /// The property's own number, as printed.
+    var phone: String?
+    /// The last moment the stay can be cancelled free of charge: a wall clock at the
+    /// property (the stay's check-in zone), as a floating UTC date like the item's times.
+    var freeCancellationUntil: Date?
+
+    init(propertyType: LodgingType? = nil, roomType: String? = nil, guests: Int? = nil, rooms: Int? = nil, phone: String? = nil, freeCancellationUntil: Date? = nil) {
+        self.propertyType = propertyType
+        self.roomType = roomType
+        self.guests = guests
+        self.rooms = rooms
+        self.phone = phone
+        self.freeCancellationUntil = freeCancellationUntil
+    }
+
+    /// Whether nothing is known about the stay, so there's nothing to store.
+    var isEmpty: Bool { self == LodgingDetails() }
+
+    private enum CodingKeys: String, CodingKey {
+        case propertyType, roomType, guests, rooms, phone, freeCancellationUntil
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Leniently, so a type added on the server doesn't break the whole item.
+        propertyType = (try? c.decodeIfPresent(String.self, forKey: .propertyType)).flatMap { $0.flatMap(LodgingType.init) }
+        roomType = try c.decodeIfPresent(String.self, forKey: .roomType)
+        guests = try c.decodeIfPresent(Int.self, forKey: .guests)
+        rooms = try c.decodeIfPresent(Int.self, forKey: .rooms)
+        phone = try c.decodeIfPresent(String.self, forKey: .phone)
+        freeCancellationUntil = try? c.decodeWallClockIfPresent(forKey: .freeCancellationUntil)
+    }
+
+    /// Nil fields are sent as `null` (the server's defaults anyway), keeping the body
+    /// a faithful copy of the whole object it replaces.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(propertyType, forKey: .propertyType)
+        try c.encode(roomType, forKey: .roomType)
+        try c.encode(guests, forKey: .guests)
+        try c.encode(rooms, forKey: .rooms)
+        try c.encode(phone, forKey: .phone)
+        try c.encode(freeCancellationUntil.map(WallClock.naiveString), forKey: .freeCancellationUntil)
+    }
+}
+
 /// What people on the trip who aren't participants see of an item, matching
 /// `TripItemVisibility`. Participants always see all of it.
 enum TripItemVisibility: String, Codable, CaseIterable, Identifiable {
@@ -115,6 +209,14 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     var participants: [TripItemParticipant] = []
     /// How a transit moves; nil when unknown or for other kinds.
     var transitMode: TransitMode? = nil
+    /// A stay's details; nil for other kinds, a stay with none, and a redacted one.
+    var lodging: LodgingDetails? = nil
+
+    /// What sort of item this is, for badges: a stay's property type when known
+    /// ("Hotel"), else its kind ("Lodging").
+    var typeLabel: String {
+        kind == .lodging ? lodging?.propertyType?.label ?? kind.label : kind.label
+    }
 }
 
 enum RsvpStatus: String, Codable {
@@ -183,7 +285,7 @@ extension TripItem: Decodable {
         case startTimezone, endTimezone
         case startsAt, endsAt, startsAtUtc, endsAtUtc
         case imageUrl, place, endPlace, createdAt, updatedAt, segments, createdBy, participants
-        case transitMode
+        case transitMode, lodging
     }
 
     init(from decoder: Decoder) throws {
@@ -213,6 +315,8 @@ extension TripItem: Decodable {
         participants = try c.decodeIfPresent([TripItemParticipant].self, forKey: .participants) ?? []
         // Leniently, so a mode added on the server doesn't break the whole item.
         transitMode = (try? c.decodeIfPresent(String.self, forKey: .transitMode)).flatMap { $0.flatMap(TransitMode.init) }
+        // Leniently too: a malformed details object shouldn't hide the stay.
+        lodging = (try? c.decodeIfPresent(LodgingDetails.self, forKey: .lodging)) ?? nil
         displayTitle = try c.decodeIfPresent(String.self, forKey: .displayTitle)
             ?? title ?? place?.name ?? kind.label
     }
@@ -247,6 +351,8 @@ enum TripItemsAPI {
         /// A transit's legs, in order. When set, the item's own times, places and mode
         /// are left out: the server takes them from the legs.
         var segments: [SegmentRequest]? = nil
+        /// Lodging only: the stay's details. Omitted when nil.
+        var lodging: LodgingDetails? = nil
         /// Exactly who the item is for; nobody is implied. Omitted when nil, which makes
         /// the item just for its creator.
         var participants: [ParticipantRequest]? = nil
@@ -300,6 +406,11 @@ enum TripItemsAPI {
         var transitMode: TransitMode? = nil
         /// Replaces a transit's legs; see `CreateRequest.segments`.
         var segments: [SegmentRequest]? = nil
+        /// Replaces a stay's details whole when sent (only when `sendsLodging`).
+        var lodging: LodgingDetails? = nil
+        /// Whether to send `lodging` at all: false leaves the stored details as they
+        /// are; true sends it, a nil one as `null`, clearing them.
+        var sendsLodging = false
         var participants: [ParticipantRequest]? = nil
         /// Tell the trip's other members what changed. Omitted unless true.
         var notifyMembers: Bool? = nil
@@ -310,7 +421,7 @@ enum TripItemsAPI {
 
         private enum CodingKeys: String, CodingKey {
             case kind, visibility, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
-            case transitMode, segments, participants, notifyMembers
+            case transitMode, segments, lodging, participants, notifyMembers
         }
 
         func encode(to encoder: Encoder) throws {
@@ -335,6 +446,9 @@ enum TripItemsAPI {
                 try encode(placeId, forKey: .placeId, in: &c)
                 try c.encodeIfPresent(endPlaceId, forKey: .endPlaceId)
                 try c.encodeIfPresent(transitMode, forKey: .transitMode)
+            }
+            if sendsLodging {
+                try c.encode(lodging, forKey: .lodging)
             }
             try c.encodeIfPresent(participants, forKey: .participants)
             try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
@@ -370,7 +484,7 @@ enum TripItemsAPI {
 extension TripItemsAPI.UpdateRequest {
     /// An update carrying the same fields as `create`, so a form can build its body
     /// once for both. Kept in an extension to leave the memberwise init in place.
-    init(_ create: TripItemsAPI.CreateRequest, nullsTitleAndPlace: Bool = false) {
+    init(_ create: TripItemsAPI.CreateRequest, nullsTitleAndPlace: Bool = false, sendsLodging: Bool = false) {
         self.init(
             kind: create.kind,
             visibility: create.visibility,
@@ -384,6 +498,8 @@ extension TripItemsAPI.UpdateRequest {
             endPlaceId: create.endPlaceId,
             transitMode: create.transitMode,
             segments: create.segments,
+            lodging: create.lodging,
+            sendsLodging: sendsLodging,
             participants: create.participants,
             notifyMembers: create.notifyMembers,
             nullsTitleAndPlace: nullsTitleAndPlace

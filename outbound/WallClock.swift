@@ -76,6 +76,12 @@ enum WallClock {
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         return formatter
     }()
+
+    /// A floating UTC date (as decoded by `decodeWallClock`) back to its naive wall
+    /// clock, e.g. "2026-11-01T11:00:00", for sending it on unchanged.
+    static func naiveString(_ floating: Date) -> String {
+        formatter.string(from: floating)
+    }
 }
 
 /// Something that runs from a start to an optional end, each a wall clock with its own

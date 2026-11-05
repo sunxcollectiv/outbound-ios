@@ -889,6 +889,7 @@ struct TripDetailView: View {
             DimmedPopup(onClose: closeLodgingPopup) {
                 LodgingPopup(
                     name: name,
+                    propertyType: item.lodging?.propertyType,
                     address: address,
                     googlePlaceId: place?.googlePlaceId,
                     onEdit: {
@@ -959,7 +960,7 @@ struct TripDetailView: View {
             if stay.phase == .checkIn {
                 lodgingArrow.padding(.trailing, 7)
             }
-            Image(systemName: "bed.double.fill")
+            Image(systemName: stay.item.lodging?.propertyType?.systemImage ?? "bed.double.fill")
                 .font(.caption)
             Text(lodgingName(stay))
                 .font(.subheadline.weight(.semibold))

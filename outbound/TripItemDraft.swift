@@ -102,6 +102,10 @@ final class TripItemDraft {
     /// times and mode, and the item's own start, end and place fields go unused.
     var legs: [TransitLeg] = []
 
+    /// A stay's property type (hotel, vacation rental, …); nil when not picked.
+    /// Unused for other kinds.
+    var propertyType: LodgingType?
+
     private(set) var isSaving = false
     private(set) var isDeleting = false
     var errorMessage: String?
@@ -163,6 +167,7 @@ final class TripItemDraft {
             }
         }
         notes = item?.notes ?? ""
+        propertyType = item?.lodging?.propertyType
         // Load the item's wall clock onto the device-zone canvas (so the rows show
         // the same numbers), or for a new item start on the day being viewed at the
         // current time-of-day (falling back to "now" when no day was supplied).
@@ -303,6 +308,7 @@ final class TripItemDraft {
             placeId: span ? startPlace?.id : nil,
             endPlaceId: nil,
             segments: segments,
+            lodging: lodgingToSave,
             participants: participants,
             notifyMembers: notify
         )
@@ -311,7 +317,7 @@ final class TripItemDraft {
         // selection didn't change. A `titleOrPlace` kind sends both, nulls included,
         // so whichever it has replaces the other.
         let endpoint = if let item {
-            TripItemsAPI.update(tripId: tripId, itemId: item.id, TripItemsAPI.UpdateRequest(body, nullsTitleAndPlace: titleOrPlace))
+            TripItemsAPI.update(tripId: tripId, itemId: item.id, TripItemsAPI.UpdateRequest(body, nullsTitleAndPlace: titleOrPlace, sendsLodging: lodgingChanged))
         } else {
             TripItemsAPI.create(tripId: tripId, body)
         }
@@ -321,6 +327,24 @@ final class TripItemDraft {
             fail(error.localizedDescription)
             return nil
         }
+    }
+
+    // MARK: - Lodging details
+
+    /// The stay's details with the form's property type, keeping whatever else the
+    /// server has (room, guests, phone, …: an imported booking fills them in), since
+    /// a PATCH replaces them whole. Nil for other kinds, and when nothing is known.
+    var lodgingToSave: LodgingDetails? {
+        guard kind == .lodging else { return nil }
+        var details = item?.lodging ?? LodgingDetails()
+        details.propertyType = propertyType
+        return details.isEmpty ? nil : details
+    }
+
+    /// Whether an edit changes the stay's details, so they're sent (a nil one as
+    /// `null`, clearing them). Untouched, they're left out and stay as stored.
+    var lodgingChanged: Bool {
+        kind == .lodging && propertyType != item?.lodging?.propertyType
     }
 
     /// Every leg as sent, or nil (with `errorMessage` set) when one has no departure
