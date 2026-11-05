@@ -276,4 +276,71 @@ struct LodgingDetailsTests {
         draft.selectedMemberIds = ["m1", "m2"]
         #expect(draft.rooms.map(\.occupants) == [["m2"], []])
     }
+
+    // MARK: - Saving rooms
+
+    private func lodgingCreate(rooms: [TripItemsAPI.RoomRequest]?) -> TripItemsAPI.CreateRequest {
+        TripItemsAPI.CreateRequest(kind: .lodging, title: "Stay", notes: nil, startsAt: "2026-12-27T15:00:00",
+                                   startTimezone: nil, endsAt: nil, endTimezone: nil, placeId: nil,
+                                   endPlaceId: nil, rooms: rooms)
+    }
+
+    @Test func roomsAreSentInTheServersShape() throws {
+        var new = LodgingRoom.new()
+        new.roomType = "Twin"
+        new.occupants = ["m2"]
+        let rooms = [TripItemsAPI.RoomRequest(LodgingRoom(id: "r1", roomNumber: "412")), TripItemsAPI.RoomRequest(new)]
+        let sent = try #require(try encode(lodgingCreate(rooms: rooms))["rooms"] as? [[String: Any]])
+        // A stored room keeps its id; a new one goes without its local one.
+        #expect(sent[0]["id"] as? String == "r1")
+        #expect(sent[0]["room_number"] as? String == "412")
+        #expect(sent[0]["room_type"] == nil)
+        #expect(sent[1]["id"] == nil)
+        #expect(sent[1]["room_type"] as? String == "Twin")
+        #expect(sent[1]["occupants"] as? [String] == ["m2"])
+        #expect(try encode(lodgingCreate(rooms: nil))["rooms"] == nil)
+    }
+
+    @Test func updateSendsRoomsOnlyWhenAsked() throws {
+        let create = lodgingCreate(rooms: [])
+        #expect(try encode(TripItemsAPI.UpdateRequest(create))["rooms"] == nil)
+        // Sent empty, it clears them.
+        #expect(try encode(TripItemsAPI.UpdateRequest(create, sendsRooms: true))["rooms"] as? [Any] != nil)
+        #expect((try encode(TripItemsAPI.UpdateRequest(create, sendsRooms: true))["rooms"] as? [Any])?.isEmpty == true)
+    }
+
+    @Test func untouchedRoomsAreLeftOut() throws {
+        let draft = try assigningDraft()
+        #expect(!draft.roomsChanged)
+        // Reopening a room and closing it without changes doesn't count.
+        draft.updateRoom(draft.rooms[0])
+        #expect(!draft.roomsChanged)
+    }
+
+    @Test func editedRoomsAreSentWhole() throws {
+        let draft = try assigningDraft()
+        var room = draft.rooms[0]
+        room.occupants = ["m2"]
+        draft.updateRoom(room)
+        #expect(draft.roomsChanged)
+        let sent = try #require(draft.roomsToSave)
+        #expect(sent.map(\.id) == ["r1", "r2"])
+        #expect(sent.map(\.occupants) == [["m2"], ["m1"]])
+
+        // Taking someone off the stay empties their room, which is a change too.
+        let other = try assigningDraft()
+        other.selectedMemberIds = ["m2"]
+        #expect(other.roomsChanged)
+        #expect(other.roomsToSave?.map(\.occupants) == [[], []])
+    }
+
+    @Test func newStaySendsRoomsOnlyWhenItHasSome() {
+        let draft = TripItemDraft(tripId: "t", kind: .lodging, members: Self.roster)
+        #expect(draft.roomsToSave == nil)
+        var room = LodgingRoom.new()
+        room.roomNumber = "7"
+        draft.updateRoom(room)
+        #expect(draft.roomsToSave == [TripItemsAPI.RoomRequest(roomNumber: "7")])
+        #expect(TripItemDraft(tripId: "t", kind: .activity).roomsToSave == nil)
+    }
 }

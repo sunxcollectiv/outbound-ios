@@ -114,8 +114,8 @@ final class TripItemDraft {
     /// A stay's property type (hotel, vacation rental, …); nil when not picked.
     /// Unused for other kinds.
     var propertyType: LodgingType?
-    /// A stay's rooms, in order; empty until one is added. Edited in the form but not
-    /// saved to the server yet.
+    /// A stay's rooms, in order; empty until one is added. Saved with the item when
+    /// they've changed.
     var rooms: [LodgingRoom] = []
 
     private(set) var isSaving = false
@@ -322,6 +322,7 @@ final class TripItemDraft {
             endPlaceId: nil,
             segments: segments,
             lodging: lodgingToSave,
+            rooms: roomsToSave,
             participants: participants,
             notifyMembers: notify
         )
@@ -330,7 +331,7 @@ final class TripItemDraft {
         // selection didn't change. A `titleOrPlace` kind sends both, nulls included,
         // so whichever it has replaces the other.
         let endpoint = if let item {
-            TripItemsAPI.update(tripId: tripId, itemId: item.id, TripItemsAPI.UpdateRequest(body, nullsTitleAndPlace: titleOrPlace, sendsLodging: lodgingChanged))
+            TripItemsAPI.update(tripId: tripId, itemId: item.id, TripItemsAPI.UpdateRequest(body, nullsTitleAndPlace: titleOrPlace, sendsLodging: lodgingChanged, sendsRooms: roomsChanged))
         } else {
             TripItemsAPI.create(tripId: tripId, body)
         }
@@ -412,6 +413,20 @@ final class TripItemDraft {
     /// `null`, clearing them). Untouched, they're left out and stay as stored.
     var lodgingChanged: Bool {
         kind == .lodging && propertyType != item?.lodging?.propertyType
+    }
+
+    /// The stay's rooms as sent: all of them, in order, since the server replaces the
+    /// list whole. Nil for other kinds, and for a new stay with none.
+    var roomsToSave: [TripItemsAPI.RoomRequest]? {
+        guard kind == .lodging else { return nil }
+        if item == nil, rooms.isEmpty { return nil }
+        return rooms.map(TripItemsAPI.RoomRequest.init)
+    }
+
+    /// Whether an edit changes the rooms or who's in them, so they're sent (an empty
+    /// list clearing them). Untouched, they're left out and stay as stored.
+    var roomsChanged: Bool {
+        kind == .lodging && rooms.map(TripItemsAPI.RoomRequest.init) != (item?.rooms ?? []).map(TripItemsAPI.RoomRequest.init)
     }
 
     /// Every leg as sent, or nil (with `errorMessage` set) when one has no departure

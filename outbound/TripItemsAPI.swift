@@ -457,6 +457,8 @@ enum TripItemsAPI {
         var segments: [SegmentRequest]? = nil
         /// Lodging only: the stay's details. Omitted when nil.
         var lodging: LodgingDetails? = nil
+        /// Lodging only: its rooms, in order, with who's in each. Omitted when nil.
+        var rooms: [RoomRequest]? = nil
         /// Exactly who the item is for; nobody is implied. Omitted when nil, which makes
         /// the item just for its creator.
         var participants: [ParticipantRequest]? = nil
@@ -478,6 +480,43 @@ enum TripItemsAPI {
         var carrier: String? = nil
         var flightNumber: String? = nil
         var confirmationNumber: String? = nil
+    }
+
+    /// `LodgingRoomSet` — one room of a stay, as sent. `id` is only for a room the
+    /// server already has; a new one goes without. Nil fields are omitted, which the
+    /// server takes as empty.
+    struct RoomRequest: Encodable, Equatable {
+        var id: String? = nil
+        var label: String? = nil
+        var roomNumber: String? = nil
+        var roomType: String? = nil
+        var guests: Int? = nil
+        var confirmationNumber: String? = nil
+        /// Trip-member ids of who's in it. Anyone not on the stay yet is added to it.
+        var occupants: [String] = []
+
+        init(id: String? = nil, label: String? = nil, roomNumber: String? = nil, roomType: String? = nil, guests: Int? = nil, confirmationNumber: String? = nil, occupants: [String] = []) {
+            self.id = id
+            self.label = label
+            self.roomNumber = roomNumber
+            self.roomType = roomType
+            self.guests = guests
+            self.confirmationNumber = confirmationNumber
+            self.occupants = occupants
+        }
+
+        /// A room as sent, leaving out the local id of one added in the app.
+        init(_ room: LodgingRoom) {
+            self.init(
+                id: room.isNew ? nil : room.id,
+                label: room.label,
+                roomNumber: room.roomNumber,
+                roomType: room.roomType,
+                guests: room.guests,
+                confirmationNumber: room.confirmationNumber,
+                occupants: room.occupants
+            )
+        }
     }
 
     /// `ParticipantSet` — one member an item is for, by their trip-member id. A nil
@@ -515,6 +554,11 @@ enum TripItemsAPI {
         /// Whether to send `lodging` at all: false leaves the stored details as they
         /// are; true sends it, a nil one as `null`, clearing them.
         var sendsLodging = false
+        /// Replaces a stay's rooms when sent (only when `sendsRooms`): rooms with an
+        /// `id` are kept and updated, new ones made, any left out dropped, and an
+        /// empty list clears them. Left out, the stored rooms stay as they are.
+        var rooms: [RoomRequest]? = nil
+        var sendsRooms = false
         var participants: [ParticipantRequest]? = nil
         /// Tell the trip's other members what changed. Omitted unless true.
         var notifyMembers: Bool? = nil
@@ -525,7 +569,7 @@ enum TripItemsAPI {
 
         private enum CodingKeys: String, CodingKey {
             case kind, visibility, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
-            case transitMode, segments, lodging, participants, notifyMembers
+            case transitMode, segments, lodging, rooms, participants, notifyMembers
         }
 
         func encode(to encoder: Encoder) throws {
@@ -553,6 +597,10 @@ enum TripItemsAPI {
             }
             if sendsLodging {
                 try c.encode(lodging, forKey: .lodging)
+            }
+            if sendsRooms {
+                // An empty list, not null, clears them: always a list when sent.
+                try c.encode(rooms ?? [], forKey: .rooms)
             }
             try c.encodeIfPresent(participants, forKey: .participants)
             try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
@@ -588,7 +636,7 @@ enum TripItemsAPI {
 extension TripItemsAPI.UpdateRequest {
     /// An update carrying the same fields as `create`, so a form can build its body
     /// once for both. Kept in an extension to leave the memberwise init in place.
-    init(_ create: TripItemsAPI.CreateRequest, nullsTitleAndPlace: Bool = false, sendsLodging: Bool = false) {
+    init(_ create: TripItemsAPI.CreateRequest, nullsTitleAndPlace: Bool = false, sendsLodging: Bool = false, sendsRooms: Bool = false) {
         self.init(
             kind: create.kind,
             visibility: create.visibility,
@@ -604,6 +652,8 @@ extension TripItemsAPI.UpdateRequest {
             segments: create.segments,
             lodging: create.lodging,
             sendsLodging: sendsLodging,
+            rooms: create.rooms,
+            sendsRooms: sendsRooms,
             participants: create.participants,
             notifyMembers: create.notifyMembers,
             nullsTitleAndPlace: nullsTitleAndPlace
