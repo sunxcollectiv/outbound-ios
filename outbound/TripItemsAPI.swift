@@ -150,12 +150,15 @@ struct LodgingRoom: Identifiable, Equatable, Decodable {
     var confirmationNumber: String?
     /// Trip-member ids of who's in it (match against `participants[].member.id`).
     var occupants: [String] = []
+    /// Added in the app and not on the server yet, so its `id` is only a local one
+    /// (never sent: the server gives a new room its own).
+    var isNew = false
 
     private enum CodingKeys: String, CodingKey {
         case id, position, label, roomNumber, roomType, guests, confirmationNumber, occupants
     }
 
-    init(id: String, position: Int = 0, label: String? = nil, roomNumber: String? = nil, roomType: String? = nil, guests: Int? = nil, confirmationNumber: String? = nil, occupants: [String] = []) {
+    init(id: String, position: Int = 0, label: String? = nil, roomNumber: String? = nil, roomType: String? = nil, guests: Int? = nil, confirmationNumber: String? = nil, occupants: [String] = [], isNew: Bool = false) {
         self.id = id
         self.position = position
         self.label = label
@@ -164,6 +167,32 @@ struct LodgingRoom: Identifiable, Equatable, Decodable {
         self.guests = guests
         self.confirmationNumber = confirmationNumber
         self.occupants = occupants
+        self.isNew = isNew
+    }
+
+    /// A blank room to add, with a local id.
+    static func new() -> LodgingRoom {
+        LodgingRoom(id: UUID().uuidString, isNew: true)
+    }
+
+    /// Whether the room says nothing at all, so there's no point keeping it.
+    var isBlank: Bool {
+        [label, roomNumber, roomType, confirmationNumber].allSatisfy { Self.nonBlank($0) == nil }
+            && guests == nil && occupants.isEmpty
+    }
+
+    /// The room with its text fields trimmed, and blank ones cleared to nil.
+    var tidied: LodgingRoom {
+        var room = self
+        room.label = Self.trimmed(label)
+        room.roomNumber = Self.trimmed(roomNumber)
+        room.roomType = Self.trimmed(roomType)
+        room.confirmationNumber = Self.trimmed(confirmationNumber)
+        return room
+    }
+
+    private static func trimmed(_ text: String?) -> String? {
+        nonBlank(text?.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     init(from decoder: Decoder) throws {

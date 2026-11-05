@@ -14,6 +14,8 @@ struct LodgingFormView: View {
     var onDeleted: () -> Void = {}
 
     @State private var showingRoomDetails = false
+    /// The room the popup edits: a copy of one of the stay's, or a new blank one.
+    @State private var openedRoom = LodgingRoom.new()
 
     /// "+ add room": a point under subheadline (15pt), scaled with Dynamic Type.
     @ScaledMetric(relativeTo: .subheadline) private var addRoomSize: CGFloat = 14
@@ -51,7 +53,7 @@ struct LodgingFormView: View {
                     .font(.subheadline)
                     .foregroundStyle(Color.appForeground.opacity(0.8))
                 Spacer(minLength: 8)
-                Button(action: openRoomDetails) {
+                Button { openRoomDetails(nil) } label: {
                     // The plus snug against the words, rather than a label's wide gap.
                     HStack(spacing: 3) {
                         Image(systemName: "plus")
@@ -77,7 +79,7 @@ struct LodgingFormView: View {
     /// One room, styled like the members row up top: its name, and its type and
     /// guests opposite.
     private func roomButton(_ room: LodgingRoom, number: Int) -> some View {
-        Button(action: openRoomDetails) {
+        Button { openRoomDetails(room) } label: {
             HStack(spacing: 12) {
                 Text(room.title(number: number))
                     .lineLimit(1)
@@ -110,24 +112,26 @@ struct LodgingFormView: View {
             }
     }
 
-    private func openRoomDetails() {
+    /// Opens the popup on `room`, or on a blank new one to add.
+    private func openRoomDetails(_ room: LodgingRoom?) {
+        openedRoom = room ?? .new()
         withAnimation(.snappy(duration: 0.25)) { showingRoomDetails = true }
     }
 
+    /// Closes the popup, putting what was typed back on the stay's rooms.
     private func closeRoomDetails() {
-        withAnimation(.snappy(duration: 0.2)) { showingRoomDetails = false }
+        withAnimation(.snappy(duration: 0.2)) {
+            draft.updateRoom(openedRoom)
+            showingRoomDetails = false
+        }
     }
 
-    /// The room details popup over a dimmed form; tapping outside closes it. Blank
-    /// for now, until it holds a room's details.
+    /// The room details popup over a dimmed form; tapping outside closes it.
     @ViewBuilder
     private var roomDetailsPopup: some View {
         if showingRoomDetails {
             DimmedPopup(onClose: closeRoomDetails) {
-                Color.clear
-                    .frame(maxWidth: .infinity, minHeight: 240)
-                    .popupCard(background: .black, onClose: closeRoomDetails)
-                    .accessibilityLabel("Room details")
+                RoomDetailsPopup(room: $openedRoom, onClose: closeRoomDetails)
             }
         }
     }

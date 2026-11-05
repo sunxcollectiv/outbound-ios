@@ -105,8 +105,8 @@ final class TripItemDraft {
     /// A stay's property type (hotel, vacation rental, …); nil when not picked.
     /// Unused for other kinds.
     var propertyType: LodgingType?
-    /// A stay's rooms, in order; empty until one is added. Not saved yet: shown as
-    /// they came from the server.
+    /// A stay's rooms, in order; empty until one is added. Edited in the form but not
+    /// saved to the server yet.
     var rooms: [LodgingRoom] = []
 
     private(set) var isSaving = false
@@ -343,6 +343,18 @@ final class TripItemDraft {
         var details = item?.lodging ?? LodgingDetails()
         details.propertyType = propertyType
         return details.isEmpty ? nil : details
+    }
+
+    /// Puts an edited room back: in place of the one with its id, else added at the
+    /// end. A new room left blank isn't added.
+    func updateRoom(_ room: LodgingRoom) {
+        var room = room.tidied
+        if let index = rooms.firstIndex(where: { $0.id == room.id }) {
+            rooms[index] = room
+        } else if !room.isBlank {
+            room.position = rooms.count
+            rooms.append(room)
+        }
     }
 
     /// Whether an edit changes the stay's details, so they're sent (a nil one as

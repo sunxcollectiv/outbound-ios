@@ -160,4 +160,47 @@ struct LodgingDetailsTests {
         #expect(lodging.cancellationHasPassed(zone: bangkok, now: deadline))
         #expect(!LodgingDetails().cancellationHasPassed(zone: bangkok))
     }
+
+    // MARK: - Editing rooms
+
+    @Test func editedRoomReplacesItsRow() throws {
+        let draft = TripItemDraft(tripId: "t", kind: .lodging, item: try decodeItem(Self.importedHotel))
+        var room = draft.rooms[0]
+        room.roomNumber = " 1201 "
+        draft.updateRoom(room)
+        #expect(draft.rooms.count == 2)
+        #expect(draft.rooms[0].roomNumber == "1201")
+        #expect(draft.rooms[0].title(number: 1) == "Room 1201")
+        #expect(draft.rooms[0].roomType == "1 King Bed, City view")
+    }
+
+    @Test func newRoomIsAddedUnlessBlank() {
+        let draft = TripItemDraft(tripId: "t", kind: .lodging)
+        draft.updateRoom(.new())
+        var blank = LodgingRoom.new()
+        blank.roomType = "   "
+        draft.updateRoom(blank)
+        #expect(draft.rooms.isEmpty)
+
+        var room = LodgingRoom.new()
+        room.roomType = "Twin"
+        draft.updateRoom(room)
+        #expect(draft.rooms.count == 1)
+        #expect(draft.rooms[0].isNew)
+        #expect(draft.rooms[0].title(number: 1) == "Room 1")
+
+        // Edited again, it stays one room.
+        room.roomNumber = "7"
+        draft.updateRoom(room)
+        #expect(draft.rooms.map(\.roomNumber) == ["7"])
+    }
+
+    @Test func clearedTextFieldsBecomeNil() throws {
+        let draft = TripItemDraft(tripId: "t", kind: .lodging, item: try decodeItem(Self.importedHotel))
+        var room = draft.rooms[1]
+        room.roomNumber = ""
+        draft.updateRoom(room)
+        #expect(draft.rooms[1].roomNumber == nil)
+        #expect(draft.rooms[1].title(number: 2) == "Room 2")
+    }
 }
