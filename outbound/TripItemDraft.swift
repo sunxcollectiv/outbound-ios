@@ -67,10 +67,19 @@ final class TripItemDraft {
     /// Ids of the trip members this item is for, toggled in the popup. Nil until
     /// seeded on appear, once the signed-in user is known. Kept by email underneath, so
     /// when a new item's date moves it to another trip, everyone also on that trip
-    /// stays selected (as their member row there).
+    /// stays selected (as their member row there). Anyone taken off the item is taken
+    /// out of their room too.
     var selectedMemberIds: Set<String>? {
         get { selectedEmails.map { emails in Set(members.filter { emails.contains($0.email) }.map(\.id)) } }
-        set { selectedEmails = newValue.map { ids in Set(members.filter { ids.contains($0.id) }.map(\.email)) } }
+        set {
+            let removed = (selectedMemberIds ?? []).subtracting(newValue ?? [])
+            selectedEmails = newValue.map { ids in Set(members.filter { ids.contains($0.id) }.map(\.email)) }
+            if !removed.isEmpty {
+                for index in rooms.indices {
+                    rooms[index].occupants.removeAll { removed.contains($0) }
+                }
+            }
+        }
     }
     private var selectedEmails: Set<String>?
     /// The selection the item was opened with, so an edit only re-sends who's in when
@@ -101,6 +110,13 @@ final class TripItemDraft {
     /// A transit's legs, in order; empty for other kinds. Each has its own places,
     /// times and mode, and the item's own start, end and place fields go unused.
     var legs: [TransitLeg] = []
+
+    /// A stay's property type (hotel, vacation rental, …); nil when not picked.
+    /// Unused for other kinds.
+    var propertyType: LodgingType?
+    /// A stay's rooms, in order; empty until one is added. Saved with the item when
+    /// they've changed.
+    var rooms: [LodgingRoom] = []
 
     private(set) var isSaving = false
     private(set) var isDeleting = false
@@ -163,6 +179,8 @@ final class TripItemDraft {
             }
         }
         notes = item?.notes ?? ""
+        propertyType = item?.lodging?.propertyType
+        rooms = item?.rooms ?? []
         // Load the item's wall clock onto the device-zone canvas (so the rows show
         // the same numbers), or for a new item start on the day being viewed at the
         // current time-of-day (falling back to "now" when no day was supplied).
@@ -303,6 +321,8 @@ final class TripItemDraft {
             placeId: span ? startPlace?.id : nil,
             endPlaceId: nil,
             segments: segments,
+            lodging: lodgingToSave,
+            rooms: roomsToSave,
             participants: participants,
             notifyMembers: notify
         )
@@ -311,7 +331,7 @@ final class TripItemDraft {
         // selection didn't change. A `titleOrPlace` kind sends both, nulls included,
         // so whichever it has replaces the other.
         let endpoint = if let item {
-            TripItemsAPI.update(tripId: tripId, itemId: item.id, TripItemsAPI.UpdateRequest(body, nullsTitleAndPlace: titleOrPlace))
+            TripItemsAPI.update(tripId: tripId, itemId: item.id, TripItemsAPI.UpdateRequest(body, nullsTitleAndPlace: titleOrPlace, sendsLodging: lodgingChanged, sendsRooms: roomsChanged))
         } else {
             TripItemsAPI.create(tripId: tripId, body)
         }
@@ -321,6 +341,132 @@ final class TripItemDraft {
             fail(error.localizedDescription)
             return nil
         }
+    }
+
+    // MARK: - Lodging details
+
+    /// The stay's details with the form's property type, keeping whatever else the
+    /// server has (the phone and free-cancellation deadline an imported booking fills
+    /// in), since a PATCH replaces them whole. Rooms go separately (`roomsToSave`).
+    /// Nil for other kinds, and when nothing is known.
+    var lodgingToSave: LodgingDetails? {
+        guard kind == .lodging else { return nil }
+        var details = item?.lodging ?? LodgingDetails()
+        details.propertyType = propertyType
+        return details.isEmpty ? nil : details
+    }
+
+    /// Whether an edit changes the stay's details, so they're sent (a nil one as
+    /// `null`, clearing them). Untouched, they're left out and stay as stored.
+    var lodgingChanged: Bool {
+        kind == .lodging && propertyType != item?.lodging?.propertyType
+    }
+
+    /// The stay's rooms as sent: all of them, in order, since the server replaces the
+    /// list whole. Nil for other kinds, and for a new stay with none.
+    var roomsToSave: [TripItemsAPI.RoomRequest]? {
+        guard kind == .lodging else { return nil }
+        if item == nil, rooms.isEmpty { return nil }
+        return rooms.map(TripItemsAPI.RoomRequest.init)
+    }
+
+    /// Whether an edit changes the rooms or who's in them, so they're sent (an empty
+    /// list clearing them). Untouched, they're left out and stay as stored.
+    var roomsChanged: Bool {
+        kind == .lodging && rooms.map(TripItemsAPI.RoomRequest.init) != (item?.rooms ?? []).map(TripItemsAPI.RoomRequest.init)
+    }
+
+    /// Puts an edited room back: in place of the one with its id, else added at the
+    /// end. A new room left blank isn't added. Anyone put in it who wasn't on the stay
+    /// is added to it, as the server would.
+    func updateRoom(_ room: LodgingRoom) {
+        var room = room.tidied
+        if let index = rooms.firstIndex(where: { $0.id == room.id }) {
+            rooms[index] = room
+        } else if !room.isBlank {
+            room.position = rooms.count
+            rooms.append(room)
+        } else {
+            return
+        }
+        if !room.occupants.isEmpty {
+            selectedMemberIds = (selectedMemberIds ?? []).union(room.occupants)
+        }
+    }
+
+    /// Who's in `room`, for its row: "You and Sam", or for more than three the first
+    /// two and a count ("You, Sam and 2 others"). Nil when nobody is. Members go by
+    /// their name, else the start of their email.
+    func occupantNames(of room: LodgingRoom, currentUserId: String?) -> String? {
+        let names = members.filter { room.occupants.contains($0.id) }.map { member in
+            if let userId = member.user?.id, userId == currentUserId { return "You" }
+            return member.user?.displayName ?? String(member.email.prefix { $0 != "@" })
+        }
+        switch names.count {
+        case 0: return nil
+        case 1...3: return names.formatted(.list(type: .and))
+        default: return "\(names[0]), \(names[1]) and \(names.count - 2) others"
+        }
+    }
+
+    /// Takes a room off the stay; whoever was in it stays on the stay, in no room.
+    func removeRoom(id: String) {
+        rooms.removeAll { $0.id == id }
+        for index in rooms.indices {
+            rooms[index].position = index
+        }
+    }
+
+    /// The trip's members as the room popup lists them for the room with `roomId`: the
+    /// stay's own people first, then everyone else on the trip, then whoever is
+    /// already in another of its rooms. Each keeps the trip's member order.
+    func roomAssignments(for roomId: String) -> RoomAssignments {
+        var otherRooms: [String: String] = [:]
+        for (index, room) in rooms.enumerated() where room.id != roomId {
+            for memberId in room.occupants {
+                otherRooms[memberId] = room.title(number: index + 1)
+            }
+        }
+        let onStay = selectedMemberIds ?? []
+        let free = members.filter { otherRooms[$0.id] == nil }
+        return RoomAssignments(
+            participants: free.filter { onStay.contains($0.id) },
+            others: free.filter { !onStay.contains($0.id) },
+            inOtherRooms: members.compactMap { member in
+                otherRooms[member.id].map { RoomAssignments.Placed(member: member, roomTitle: $0) }
+            }
+        )
+    }
+
+    // MARK: - Real bookings
+
+    /// Whether this is a stay with a real booking behind it: any lodging but one
+    /// marked Other. Moving or deleting it here doesn't change the booking, so the
+    /// form asks first.
+    private var isBookedStay: Bool {
+        kind == .lodging && propertyType != .other
+    }
+
+    /// Whether saving moves a booked stay to other days: its check-in or check-out
+    /// date changed (adding or clearing a check-out counts; a new time on the same
+    /// day doesn't).
+    var changesBookedDates: Bool {
+        guard isBookedStay, let item else { return false }
+        func day(_ canvas: Date?) -> String? { canvas.map(Self.dayKey.string(from:)) }
+        return day(startsAt) != day(Self.wallClock(of: item.startsAtLocal, in: .gmt))
+            || day(endsAt) != day(Self.wallClock(of: item.endsAtLocal, in: .gmt))
+    }
+
+    /// Whether saving changes how many rooms a booked stay has. Who's in which room
+    /// doesn't count: that's ours to arrange, not the property's.
+    var changesBookedRoomCount: Bool {
+        guard isBookedStay, let item else { return false }
+        return rooms.count != item.rooms.count
+    }
+
+    /// Whether deleting removes a booked stay, so the form asks first.
+    var deletesBookedStay: Bool {
+        isBookedStay && item != nil
     }
 
     /// Every leg as sent, or nil (with `errorMessage` set) when one has no departure
@@ -464,5 +610,21 @@ final class TripItemDraft {
         var target = Calendar(identifier: .gregorian)
         target.timeZone = zone
         return target.date(from: components) ?? canvasDate
+    }
+}
+
+/// Who can go in a room, grouped the way the room popup lists them.
+struct RoomAssignments: Equatable {
+    /// On the stay and in no other room.
+    var participants: [TripMember]
+    /// On the trip but not the stay; putting one in the room adds them to it.
+    var others: [TripMember]
+    /// Already in another of the stay's rooms, with that room's name.
+    var inOtherRooms: [Placed]
+
+    struct Placed: Identifiable, Equatable {
+        let member: TripMember
+        let roomTitle: String
+        var id: String { member.id }
     }
 }

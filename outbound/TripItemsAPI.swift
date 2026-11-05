@@ -52,6 +52,219 @@ enum TransitMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// What kind of place a stay is at, matching the server's `LodgingType`.
+enum LodgingType: String, Codable, CaseIterable, Identifiable {
+    case hotel
+    case vacationRental = "vacation_rental"
+    case hostel
+    case other
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .hotel: "Hotel"
+        case .vacationRental: "Vacation rental"
+        case .hostel: "Hostel"
+        case .other: "Other"
+        }
+    }
+
+    /// A shorter label for tight spots (the form's picker).
+    var shortLabel: String {
+        switch self {
+        case .vacationRental: "Rental"
+        default: label
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .hotel: "building.2.fill"
+        case .vacationRental: "house.fill"
+        case .hostel: "bed.double.fill"
+        case .other: "ellipsis"
+        }
+    }
+}
+
+/// `LodgingRead` / `LodgingDetails` — a stay's details beyond its check-in/check-out
+/// (the item's times), property (the item's place), people (its participants) and
+/// rooms (the item's `rooms`). Every field is optional: an imported booking states
+/// what it states, a hand-entered stay may have none.
+///
+/// The server replaces these whole on a PATCH, so an edit sends every field back,
+/// not just the ones the form shows.
+struct LodgingDetails: Equatable, Codable {
+    var propertyType: LodgingType?
+    /// The property's own number, as printed.
+    var phone: String?
+    /// The last moment the stay can be cancelled free of charge: a wall clock at the
+    /// property (the stay's check-in zone), as a floating UTC date like the item's times.
+    var freeCancellationUntil: Date?
+
+    /// Whether nothing is known about the stay, so there's nothing to store.
+    var isEmpty: Bool { self == LodgingDetails() }
+
+    private enum CodingKeys: String, CodingKey {
+        case propertyType, phone, freeCancellationUntil
+    }
+}
+
+// Kept out of the type so it keeps its memberwise init.
+extension LodgingDetails {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Leniently, so a type added on the server doesn't break the whole item.
+        propertyType = (try? c.decodeIfPresent(String.self, forKey: .propertyType)).flatMap { $0.flatMap(LodgingType.init) }
+        phone = try c.decodeIfPresent(String.self, forKey: .phone)
+        freeCancellationUntil = try? c.decodeWallClockIfPresent(forKey: .freeCancellationUntil)
+    }
+
+    /// Nil fields are sent as `null` (the server's defaults anyway), keeping the body
+    /// a faithful copy of the whole object it replaces. Only these keys: the server
+    /// rejects any others.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(propertyType, forKey: .propertyType)
+        try c.encode(phone, forKey: .phone)
+        try c.encode(freeCancellationUntil.map(WallClock.naiveString), forKey: .freeCancellationUntil)
+    }
+}
+
+/// `LodgingRoomRead` — one room of a stay, in the booking's order. Every detail is
+/// optional; an imported booking may list rooms with only a type, or nothing at all.
+struct LodgingRoom: Identifiable, Equatable, Decodable {
+    let id: String
+    var position: Int = 0
+    /// A name for the room, e.g. "Kids' room".
+    var label: String?
+    var roomNumber: String?
+    /// As the booking names it, e.g. "Deluxe King, City View".
+    var roomType: String?
+    var guests: Int?
+    /// The room's own reference, when the booking gives each room one.
+    var confirmationNumber: String?
+    /// Trip-member ids of who's in it (match against `participants[].member.id`).
+    var occupants: [String] = []
+    /// Added in the app and not on the server yet, so its `id` is only a local one
+    /// (never sent: the server gives a new room its own).
+    var isNew = false
+
+    private enum CodingKeys: String, CodingKey {
+        case id, position, label, roomNumber, roomType, guests, confirmationNumber, occupants
+    }
+
+    /// A blank room to add, with a local id.
+    static func new() -> LodgingRoom {
+        LodgingRoom(id: UUID().uuidString, isNew: true)
+    }
+
+    /// Whether the room says nothing at all, so there's no point keeping it.
+    var isBlank: Bool {
+        [label, roomNumber, roomType, confirmationNumber].allSatisfy { Self.nonBlank($0) == nil }
+            && guests == nil && occupants.isEmpty
+    }
+
+    /// The room with its text fields trimmed, and blank ones cleared to nil.
+    var tidied: LodgingRoom {
+        var room = self
+        room.label = Self.trimmed(label)
+        room.roomNumber = Self.trimmed(roomNumber)
+        room.roomType = Self.trimmed(roomType)
+        room.confirmationNumber = Self.trimmed(confirmationNumber)
+        return room
+    }
+
+    private static func trimmed(_ text: String?) -> String? {
+        nonBlank(text?.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// What to call the room: its label, else its number ("Room 412"), else its
+    /// place in the list ("Room 1", counting from `number`).
+    func title(number: Int) -> String {
+        if let label = Self.nonBlank(label) { return label }
+        if let roomNumber = Self.nonBlank(roomNumber) { return "Room \(roomNumber)" }
+        return "Room \(number)"
+    }
+
+    /// The line beside or under the title: the room type, then how many guests,
+    /// e.g. "1 King Bed · 1 guest"; nil when the booking says neither.
+    var summary: String? {
+        let parts = [Self.nonBlank(roomType), guests.map { $0 == 1 ? "1 guest" : "\($0) guests" }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private static func nonBlank(_ text: String?) -> String? {
+        guard let text, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return text
+    }
+}
+
+// Kept out of the type so it keeps its memberwise init.
+extension LodgingRoom {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        position = try c.decodeIfPresent(Int.self, forKey: .position) ?? 0
+        label = try c.decodeIfPresent(String.self, forKey: .label)
+        roomNumber = try c.decodeIfPresent(String.self, forKey: .roomNumber)
+        roomType = try c.decodeIfPresent(String.self, forKey: .roomType)
+        guests = try c.decodeIfPresent(Int.self, forKey: .guests)
+        confirmationNumber = try c.decodeIfPresent(String.self, forKey: .confirmationNumber)
+        occupants = try c.decodeIfPresent([String].self, forKey: .occupants) ?? []
+    }
+}
+
+extension LodgingDetails {
+    /// The free-cancellation deadline as written at the property, with the stay's
+    /// zone when it has one, e.g. "Tue, Dec 29 at 11:59 PM GMT+7".
+    func cancellationText(zone: TimeZone?) -> String? {
+        guard let until = freeCancellationUntil else { return nil }
+        let text = WallClock.text(until, .dateTime.weekday().month().day().hour().minute())
+        guard let zone else { return text }
+        return "\(text) \(WallClock.zoneAbbreviation(zone, at: WallClock.instant(of: until, in: zone)))"
+    }
+
+    /// Whether the free-cancellation deadline has gone by, read in the stay's zone
+    /// (the device's when it has none). False when there's no deadline.
+    func cancellationHasPassed(zone: TimeZone?, now: Date = .now) -> Bool {
+        guard let until = freeCancellationUntil else { return false }
+        return WallClock.instant(of: until, in: zone ?? .current) <= now
+    }
+}
+
+/// Where an item came from, matching the server's `TripItemSource`. Fixed when the
+/// item is made: an imported item someone edits is still an import (see `editedAt`).
+enum TripItemSource: String, Codable {
+    /// Entered by hand.
+    case manual
+    /// Imported from a forwarded confirmation email.
+    case email
+    /// Imported from an uploaded screenshot or photo.
+    case image
+
+    /// Whether it was read from a booking rather than typed in.
+    var isImport: Bool { self != .manual }
+
+    /// How the details sheet says where an import came from; nil for one entered by hand.
+    var importLabel: String? {
+        switch self {
+        case .manual: nil
+        case .email: "Imported from email"
+        case .image: "Imported from a screenshot"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .manual: "square.and.pencil"
+        case .email: "envelope.fill"
+        case .image: "photo.fill"
+        }
+    }
+}
+
 /// What people on the trip who aren't participants see of an item, matching
 /// `TripItemVisibility`. Participants always see all of it.
 enum TripItemVisibility: String, Codable, CaseIterable, Identifiable {
@@ -115,6 +328,26 @@ struct TripItem: Identifiable, Equatable, WallClockSpan {
     var participants: [TripItemParticipant] = []
     /// How a transit moves; nil when unknown or for other kinds.
     var transitMode: TransitMode? = nil
+    /// A stay's details; nil for other kinds, a stay with none, and a redacted one.
+    var lodging: LodgingDetails? = nil
+    /// A stay's rooms, in order; empty for other kinds and a stay that lists none.
+    var rooms: [LodgingRoom] = []
+    /// Where it came from; nil from a server that doesn't say.
+    var source: TripItemSource? = nil
+    /// Whether the original it was imported from can still be fetched (by its
+    /// participants, from `GET …/items/{id}/source`).
+    var hasSource = false
+    /// The last time someone changed the booking itself (not who's on it, its
+    /// visibility or notes), and who. On an import, set means it no longer matches
+    /// exactly what the booking said.
+    var editedAt: Date? = nil
+    var editedBy: User? = nil
+
+    /// What sort of item this is, for badges: a stay's property type when known
+    /// ("Hotel"), else its kind ("Lodging").
+    var typeLabel: String {
+        kind == .lodging ? lodging?.propertyType?.label ?? kind.label : kind.label
+    }
 }
 
 enum RsvpStatus: String, Codable {
@@ -183,7 +416,7 @@ extension TripItem: Decodable {
         case startTimezone, endTimezone
         case startsAt, endsAt, startsAtUtc, endsAtUtc
         case imageUrl, place, endPlace, createdAt, updatedAt, segments, createdBy, participants
-        case transitMode
+        case transitMode, lodging, rooms, source, hasSource, editedAt, editedBy
     }
 
     init(from decoder: Decoder) throws {
@@ -209,10 +442,19 @@ extension TripItem: Decodable {
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         segments = (try c.decodeIfPresent([TransitSegment].self, forKey: .segments) ?? [])
             .sorted { $0.position < $1.position }
+        // Leniently, so a source added on the server doesn't break the whole item.
+        source = (try? c.decodeIfPresent(String.self, forKey: .source)).flatMap { $0.flatMap(TripItemSource.init) }
+        hasSource = try c.decodeIfPresent(Bool.self, forKey: .hasSource) ?? false
+        editedAt = try c.decodeIfPresent(Date.self, forKey: .editedAt)
+        editedBy = try c.decodeIfPresent(User.self, forKey: .editedBy)
         createdBy = try c.decodeIfPresent(User.self, forKey: .createdBy)
         participants = try c.decodeIfPresent([TripItemParticipant].self, forKey: .participants) ?? []
         // Leniently, so a mode added on the server doesn't break the whole item.
         transitMode = (try? c.decodeIfPresent(String.self, forKey: .transitMode)).flatMap { $0.flatMap(TransitMode.init) }
+        // Leniently too: a malformed details object shouldn't hide the stay.
+        lodging = (try? c.decodeIfPresent(LodgingDetails.self, forKey: .lodging)) ?? nil
+        rooms = ((try? c.decodeIfPresent([LodgingRoom].self, forKey: .rooms)).flatMap { $0 } ?? [])
+            .sorted { $0.position < $1.position }
         displayTitle = try c.decodeIfPresent(String.self, forKey: .displayTitle)
             ?? title ?? place?.name ?? kind.label
     }
@@ -247,6 +489,10 @@ enum TripItemsAPI {
         /// A transit's legs, in order. When set, the item's own times, places and mode
         /// are left out: the server takes them from the legs.
         var segments: [SegmentRequest]? = nil
+        /// Lodging only: the stay's details. Omitted when nil.
+        var lodging: LodgingDetails? = nil
+        /// Lodging only: its rooms, in order, with who's in each. Omitted when nil.
+        var rooms: [RoomRequest]? = nil
         /// Exactly who the item is for; nobody is implied. Omitted when nil, which makes
         /// the item just for its creator.
         var participants: [ParticipantRequest]? = nil
@@ -268,6 +514,20 @@ enum TripItemsAPI {
         var carrier: String? = nil
         var flightNumber: String? = nil
         var confirmationNumber: String? = nil
+    }
+
+    /// `LodgingRoomSet` — one room of a stay, as sent. `id` is only for a room the
+    /// server already has; a new one goes without. Nil fields are omitted, which the
+    /// server takes as empty.
+    struct RoomRequest: Encodable, Equatable {
+        var id: String? = nil
+        var label: String? = nil
+        var roomNumber: String? = nil
+        var roomType: String? = nil
+        var guests: Int? = nil
+        var confirmationNumber: String? = nil
+        /// Trip-member ids of who's in it. Anyone not on the stay yet is added to it.
+        var occupants: [String] = []
     }
 
     /// `ParticipantSet` — one member an item is for, by their trip-member id. A nil
@@ -300,6 +560,16 @@ enum TripItemsAPI {
         var transitMode: TransitMode? = nil
         /// Replaces a transit's legs; see `CreateRequest.segments`.
         var segments: [SegmentRequest]? = nil
+        /// Replaces a stay's details whole when sent (only when `sendsLodging`).
+        var lodging: LodgingDetails? = nil
+        /// Whether to send `lodging` at all: false leaves the stored details as they
+        /// are; true sends it, a nil one as `null`, clearing them.
+        var sendsLodging = false
+        /// Replaces a stay's rooms when sent (only when `sendsRooms`): rooms with an
+        /// `id` are kept and updated, new ones made, any left out dropped, and an
+        /// empty list clears them. Left out, the stored rooms stay as they are.
+        var rooms: [RoomRequest]? = nil
+        var sendsRooms = false
         var participants: [ParticipantRequest]? = nil
         /// Tell the trip's other members what changed. Omitted unless true.
         var notifyMembers: Bool? = nil
@@ -310,7 +580,7 @@ enum TripItemsAPI {
 
         private enum CodingKeys: String, CodingKey {
             case kind, visibility, title, notes, startsAt, startTimezone, endsAt, endTimezone, placeId, endPlaceId
-            case transitMode, segments, participants, notifyMembers
+            case transitMode, segments, lodging, rooms, participants, notifyMembers
         }
 
         func encode(to encoder: Encoder) throws {
@@ -335,6 +605,13 @@ enum TripItemsAPI {
                 try encode(placeId, forKey: .placeId, in: &c)
                 try c.encodeIfPresent(endPlaceId, forKey: .endPlaceId)
                 try c.encodeIfPresent(transitMode, forKey: .transitMode)
+            }
+            if sendsLodging {
+                try c.encode(lodging, forKey: .lodging)
+            }
+            if sendsRooms {
+                // An empty list, not null, clears them: always a list when sent.
+                try c.encode(rooms ?? [], forKey: .rooms)
             }
             try c.encodeIfPresent(participants, forKey: .participants)
             try c.encodeIfPresent(notifyMembers, forKey: .notifyMembers)
@@ -367,10 +644,26 @@ enum TripItemsAPI {
     }
 }
 
+// Kept out of the type so it keeps its memberwise init.
+extension TripItemsAPI.RoomRequest {
+    /// A room as sent, leaving out the local id of one added in the app.
+    init(_ room: LodgingRoom) {
+        self.init(
+            id: room.isNew ? nil : room.id,
+            label: room.label,
+            roomNumber: room.roomNumber,
+            roomType: room.roomType,
+            guests: room.guests,
+            confirmationNumber: room.confirmationNumber,
+            occupants: room.occupants
+        )
+    }
+}
+
 extension TripItemsAPI.UpdateRequest {
     /// An update carrying the same fields as `create`, so a form can build its body
     /// once for both. Kept in an extension to leave the memberwise init in place.
-    init(_ create: TripItemsAPI.CreateRequest, nullsTitleAndPlace: Bool = false) {
+    init(_ create: TripItemsAPI.CreateRequest, nullsTitleAndPlace: Bool = false, sendsLodging: Bool = false, sendsRooms: Bool = false) {
         self.init(
             kind: create.kind,
             visibility: create.visibility,
@@ -384,6 +677,10 @@ extension TripItemsAPI.UpdateRequest {
             endPlaceId: create.endPlaceId,
             transitMode: create.transitMode,
             segments: create.segments,
+            lodging: create.lodging,
+            sendsLodging: sendsLodging,
+            rooms: create.rooms,
+            sendsRooms: sendsRooms,
             participants: create.participants,
             notifyMembers: create.notifyMembers,
             nullsTitleAndPlace: nullsTitleAndPlace

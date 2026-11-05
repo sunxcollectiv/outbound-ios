@@ -120,10 +120,7 @@ struct FormBottomBar: View {
                     Text(delete.title)
                 }
             }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.appError)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .contentShape(Rectangle())
+            .inlineDeleteText()
         }
         .buttonStyle(.plain)
         .disabled(isSaving || isDeleting)

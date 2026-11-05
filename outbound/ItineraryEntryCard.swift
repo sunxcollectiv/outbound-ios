@@ -63,10 +63,22 @@ struct ItineraryEntryCard: View {
         }
     }
 
-    /// The label top-right of a card: the spot the entry stands for (e.g. "CHECK-IN"),
-    /// else the item's first tag (e.g. "RESERVED"), else its kind.
+    /// The label top-right of a card: the spot the entry stands for (e.g. "CHECK-IN",
+    /// with a stay's property type after it: "CHECK-IN · HOTEL"), else the item's first
+    /// tag (e.g. "RESERVED"), else its type ("HOTEL", or the kind).
     private var badge: String {
-        (entry.phase?.label ?? item.tags.first ?? item.kind.label).uppercased()
+        let label: String
+        if let phase = entry.phase {
+            label = [phase.label, propertyTypeLabel].compactMap { $0 }.joined(separator: " · ")
+        } else {
+            label = item.tags.first ?? item.typeLabel
+        }
+        return label.uppercased()
+    }
+
+    /// A stay's property type ("Hotel"), when it has one.
+    private var propertyTypeLabel: String? {
+        item.kind == .lodging ? item.lodging?.propertyType?.label : nil
     }
 
     // MARK: - Full-width cards
@@ -199,7 +211,7 @@ struct ItineraryEntryCard: View {
                 .font(.caption.weight(.bold))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.75))
-            Text(title.isEmpty ? item.kind.label : title)
+            Text(title.isEmpty ? item.typeLabel : title)
                 .font(.system(size: condensedTitleSize, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
@@ -225,7 +237,7 @@ struct ItineraryEntryCard: View {
         let phase = entry.phase?.label ?? item.kind.label
         // You arrive at a place but check out from one.
         let preposition = entry.phase == .checkOut ? "from" : "at"
-        let reference = item.displayTitle == name ? item.kind.label : item.displayTitle
+        let reference = item.displayTitle == name ? item.typeLabel : item.displayTitle
         return compactCard(
             badge: reference.uppercased(),
             title: name.map { "\(phase) \(preposition) \($0)" } ?? phase,

@@ -134,6 +134,10 @@ struct TripItemDetailView: View {
                 }
             }
 
+            if item.kind == .lodging {
+                staySections(item.lodging ?? LodgingDetails(), rooms: item.rooms)
+            }
+
             if let notes = item.notes, !notes.isEmpty {
                 detailSection(title: "Notes") {
                     Text(notes)
@@ -145,25 +149,64 @@ struct TripItemDetailView: View {
                     tagChips
                 }
             }
+
+            sourceSection
         }
+    }
+
+    /// Where an imported item came from, and whether anyone has changed the booking
+    /// since. Left out for one entered by hand.
+    @ViewBuilder
+    private var sourceSection: some View {
+        if let label = item.source?.importLabel, let source = item.source {
+            detailSection(title: "Source") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(label, systemImage: source.systemImage)
+                    if let edited = editedText {
+                        Text(edited)
+                            .font(.subheadline)
+                            .foregroundStyle(sheetForeground.opacity(0.7))
+                    }
+                }
+            }
+        }
+    }
+
+    /// "Edited since by Sam on Nov 5" (or without the name when nobody's known), or
+    /// nil when the booking hasn't been changed since it was imported.
+    private var editedText: String? {
+        guard let editedAt = item.editedAt else { return nil }
+        let day = editedAt.formatted(.dateTime.month(.abbreviated).day())
+        if let name = item.editedBy?.displayName ?? item.editedBy?.email {
+            return "Edited since by \(name) on \(day)"
+        }
+        return "Edited since on \(day)"
     }
 
     /// Kind and visibility badges across the top.
     private var header: some View {
         HStack(spacing: 8) {
             badge(item.kind.label.uppercased())
+            if item.kind == .lodging, let type = item.lodging?.propertyType {
+                badge(type.label.uppercased(), systemImage: type.systemImage)
+            }
             badge(item.visibility.label.uppercased())
             Spacer()
         }
     }
 
-    private func badge(_ text: String) -> some View {
-        Text(text)
-            .font(.caption.weight(.bold))
-            .tracking(1.5)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(sheetForeground.opacity(0.1), in: .capsule)
+    private func badge(_ text: String, systemImage: String? = nil) -> some View {
+        HStack(spacing: 5) {
+            if let systemImage {
+                Image(systemName: systemImage)
+            }
+            Text(text)
+        }
+        .font(.caption.weight(.bold))
+        .tracking(1.5)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(sheetForeground.opacity(0.1), in: .capsule)
     }
 
     private var tagChips: some View {
@@ -188,6 +231,56 @@ struct TripItemDetailView: View {
             content()
                 .font(.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Stay details
+
+    /// What the booking says about a stay beyond its dates and place: its rooms, the
+    /// free-cancellation deadline, and the property's own phone. Each block is left
+    /// out when the booking doesn't state it.
+    @ViewBuilder
+    private func staySections(_ lodging: LodgingDetails, rooms: [LodgingRoom]) -> some View {
+        if !rooms.isEmpty {
+            detailSection(title: rooms.count == 1 ? "Room" : "Rooms") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(rooms.enumerated()), id: \.element.id) { index, room in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(room.title(number: index + 1))
+                                .font(.body.weight(.semibold))
+                            if let summary = room.summary {
+                                Text(summary)
+                                    .font(.subheadline)
+                                    .foregroundStyle(sheetForeground.opacity(0.7))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let deadline = lodging.cancellationText(zone: item.startTimezone) {
+            let passed = lodging.cancellationHasPassed(zone: item.startTimezone)
+            detailSection(title: "Free cancellation") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(passed ? "Ended \(deadline)" : "Until \(deadline)")
+                    if passed {
+                        Text("Cancelling now may cost you.")
+                            .font(.subheadline)
+                            .foregroundStyle(sheetForeground.opacity(0.7))
+                    }
+                }
+            }
+        }
+
+        if let phone = lodging.phone, !phone.trimmingCharacters(in: .whitespaces).isEmpty {
+            detailSection(title: "Property phone") {
+                if let url = URL(string: "tel://\(phone.filter { !$0.isWhitespace })") {
+                    Link(destination: url) { Label(phone, systemImage: "phone.fill") }
+                } else {
+                    Text(phone)
+                }
+            }
         }
     }
 

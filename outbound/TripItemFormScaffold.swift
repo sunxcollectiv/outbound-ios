@@ -21,8 +21,8 @@ struct TripItemTimeLabels {
 /// (left out for kinds named by their place search or by the server), the kind's own
 /// place fields (`places`), the start/end times (a transit's legs show their own),
 /// notes, and the pinned Save/Delete bar. The per-kind forms supply their places and
-/// time labels.
-struct TripItemFormScaffold<Places: View>: View {
+/// time labels, and anything of their own to show under the times (`afterTimes`).
+struct TripItemFormScaffold<Places: View, AfterTimes: View>: View {
     @Bindable var draft: TripItemDraft
     let timeLabels: TripItemTimeLabels
     /// Called with the created or updated item after a successful save.
@@ -30,6 +30,8 @@ struct TripItemFormScaffold<Places: View>: View {
     /// Called after the item being edited is deleted.
     let onDeleted: () -> Void
     @ViewBuilder let places: () -> Places
+    /// A kind's own blocks under the times, e.g. a stay's room details.
+    @ViewBuilder let afterTimes: () -> AfterTimes
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var auth
@@ -37,6 +39,9 @@ struct TripItemFormScaffold<Places: View>: View {
     @State private var showingMemberPicker = false
     /// Which date row's popup is open, if any.
     @State private var editingTimeField: TimeField?
+    /// Which change to a booked stay is waiting on the user to confirm it's been made
+    /// with the property too, if any.
+    @State private var confirmingBooking: BookingChangePopup.Change?
     /// The sheet's bottom safe area (the home indicator's strip), measured so the
     /// bottom bar can sit partway into it.
     @State private var homeIndicatorInset: CGFloat = 0
@@ -46,12 +51,13 @@ struct TripItemFormScaffold<Places: View>: View {
     /// Scroll target for the error banner, so a failed save brings it into view.
     private static var errorAnchor: String { "error" }
 
-    init(draft: TripItemDraft, timeLabels: TripItemTimeLabels, onSaved: @escaping (TripItem) -> Void, onDeleted: @escaping () -> Void, @ViewBuilder places: @escaping () -> Places) {
+    init(draft: TripItemDraft, timeLabels: TripItemTimeLabels, onSaved: @escaping (TripItem) -> Void, onDeleted: @escaping () -> Void, @ViewBuilder places: @escaping () -> Places, @ViewBuilder afterTimes: @escaping () -> AfterTimes) {
         self.draft = draft
         self.timeLabels = timeLabels
         self.onSaved = onSaved
         self.onDeleted = onDeleted
         self.places = places
+        self.afterTimes = afterTimes
         // SwiftUI can't color segmented picker labels, so set them on the underlying
         // UISegmentedControl: light labels to read on the dark gray sheet, dark on the
         // white selected pill. This is app-wide, but this is the only segmented picker.
@@ -106,6 +112,8 @@ struct TripItemFormScaffold<Places: View>: View {
                             }
                         }
 
+                        afterTimes()
+
                         // Sits right under the times (the usual cause) rather than at the
                         // bottom, where the keyboard hides it and Save looks unresponsive.
                         if let errorMessage = draft.errorMessage {
@@ -148,7 +156,8 @@ struct TripItemFormScaffold<Places: View>: View {
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { homeIndicatorInset = $0 }
         .overlay { memberPickerPopup }
         .overlay { timePickerPopup }
-        .offlinePillNearBottom(isActive: showingMemberPicker || editingTimeField != nil)
+        .overlay { bookingChangePopup }
+        .offlinePillNearBottom(isActive: showingMemberPicker || editingTimeField != nil || confirmingBooking != nil)
         .appTheme()
         .onAppear { draft.seedSelectedMembers(currentUserId: currentUserId) }
     }
@@ -166,9 +175,7 @@ struct TripItemFormScaffold<Places: View>: View {
                 Text(draft.memberSelection(currentUserId: currentUserId).summary(of: draft.selectedMemberIds ?? []))
                     .foregroundStyle(Color.appForeground.opacity(0.75))
             }
-            .padding(14)
-            .background(Color.appForeground.opacity(0.08), in: .rect(cornerRadius: appFieldCornerRadius))
-            .contentShape(Rectangle())
+            .formRow()
         }
         .buttonStyle(.plain)
     }
@@ -243,7 +250,9 @@ struct TripItemFormScaffold<Places: View>: View {
                     title: "Delete \(draft.kind.label)",
                     confirmation: "Delete this \(draft.kind.label.lowercased())?",
                     message: "This can't be undone.",
-                    action: delete
+                    action: delete,
+                    // A booked stay asks in its own popup, about the real booking.
+                    onRequest: draft.deletesBookedStay ? { confirmBooking(.delete) } : nil
                 )
                 : nil,
             isDeleting: draft.isDeleting,
@@ -252,7 +261,17 @@ struct TripItemFormScaffold<Places: View>: View {
         )
     }
 
+    /// Saves, after the user confirms the property has the change too when a booked
+    /// stay's dates or number of rooms change.
     private func save() {
+        if let change = BookingChangePopup.Change.edit(changingDates: draft.changesBookedDates, rooms: draft.changesBookedRoomCount) {
+            confirmBooking(change)
+        } else {
+            performSave()
+        }
+    }
+
+    private func performSave() {
         Task {
             guard let saved = await draft.save(currentUserId: currentUserId, missingStartMessage: timeLabels.missingStart) else { return }
             onSaved(saved)
@@ -266,6 +285,40 @@ struct TripItemFormScaffold<Places: View>: View {
             onDeleted()
             dismiss()
         }
+    }
+
+    // MARK: - Real bookings
+
+    private func confirmBooking(_ change: BookingChangePopup.Change) {
+        withAnimation(.snappy(duration: 0.25)) { confirmingBooking = change }
+    }
+
+    private func closeBookingConfirmation() {
+        withAnimation(.snappy(duration: 0.2)) { confirmingBooking = nil }
+    }
+
+    /// The popup reminding that a stay's real booking isn't changed here; confirming
+    /// goes ahead with the save or delete.
+    @ViewBuilder
+    private var bookingChangePopup: some View {
+        if let change = confirmingBooking {
+            DimmedPopup(onClose: closeBookingConfirmation) {
+                BookingChangePopup(change: change, onConfirm: {
+                    closeBookingConfirmation()
+                    switch change {
+                    case .edit: performSave()
+                    case .delete: delete()
+                    }
+                }, onClose: closeBookingConfirmation)
+            }
+        }
+    }
+}
+
+extension TripItemFormScaffold where AfterTimes == EmptyView {
+    /// A form with nothing of its own under the times.
+    init(draft: TripItemDraft, timeLabels: TripItemTimeLabels, onSaved: @escaping (TripItem) -> Void, onDeleted: @escaping () -> Void, @ViewBuilder places: @escaping () -> Places) {
+        self.init(draft: draft, timeLabels: timeLabels, onSaved: onSaved, onDeleted: onDeleted, places: places) { EmptyView() }
     }
 }
 
@@ -286,8 +339,7 @@ struct TripItemPlaceField: View {
         VStack(alignment: .leading, spacing: 8) {
             if let label {
                 Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.appForeground.opacity(0.8))
+                    .formLabel()
             }
             PlaceSearchField(
                 placeholder: placeholder,

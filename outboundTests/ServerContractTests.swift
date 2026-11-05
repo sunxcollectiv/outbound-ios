@@ -346,6 +346,83 @@ struct ServerContractTests {
         }
     }
 
+    // MARK: - Lodging details and rooms
+
+    @Test func lodgingDetailsAndRooms() async throws {
+        let owner = try await register("Contract Host")
+        let friend = try await register("Contract Roommate")
+        let trip = try await makeTrip(owner, with: [friend])
+        defer { Task { try? await owner.api.send(TripsAPI.delete(id: trip.id)) } }
+        let me = try #require(trip.members?.first { $0.user?.id == owner.user.id })
+        let them = try #require(trip.members?.first { $0.email == friend.user.email })
+
+        // A hotel with two rooms; the friend isn't on the stay, so rooming them adds them.
+        let stay = try await owner.api.send(TripItemsAPI.create(tripId: trip.id, .init(
+            kind: .lodging, title: "Hotel Gracery", notes: nil,
+            startsAt: wallClock(trip, day: 0, "15:00:00"), startTimezone: "Asia/Tokyo",
+            endsAt: wallClock(trip, day: 2, "11:00:00"), endTimezone: "Asia/Tokyo",
+            placeId: nil, endPlaceId: nil,
+            lodging: LodgingDetails(propertyType: .hotel, phone: "+81 3 6833 2489"),
+            rooms: [
+                .init(roomNumber: "1204", roomType: "Double", occupants: [me.id]),
+                .init(roomType: "Twin", occupants: [them.id]),
+            ],
+            participants: [.init(memberId: me.id)]
+        )), as: TripItem.self)
+        #expect(stay.lodging?.propertyType == .hotel)
+        #expect(stay.lodging?.phone == "+81 3 6833 2489")
+        #expect(stay.rooms.map(\.roomNumber) == ["1204", nil])
+        #expect(stay.rooms.map(\.occupants) == [[me.id], [them.id]])
+        #expect(Set(stay.participants.map(\.member.id)) == [me.id, them.id])
+
+        // The app's own edit: change the type only; the rooms aren't sent, so stay put.
+        let draft = TripItemDraft(tripId: trip.id, kind: .lodging, members: trip.members ?? [], item: stay)
+        draft.seedSelectedMembers(currentUserId: owner.user.id)
+        draft.propertyType = .vacationRental
+        #expect(!draft.roomsChanged)
+        var update = TripItemsAPI.UpdateRequest(TripItemsAPI.CreateRequest(
+            kind: .lodging, title: "Hotel Gracery", notes: nil,
+            startsAt: wallClock(trip, day: 0, "15:00:00"), startTimezone: "Asia/Tokyo",
+            endsAt: wallClock(trip, day: 2, "11:00:00"), endTimezone: "Asia/Tokyo",
+            placeId: nil, endPlaceId: nil,
+            lodging: draft.lodgingToSave, rooms: draft.roomsToSave
+        ), sendsLodging: draft.lodgingChanged, sendsRooms: draft.roomsChanged)
+        let retyped = try await owner.api.send(TripItemsAPI.update(tripId: trip.id, itemId: stay.id, update), as: TripItem.self)
+        #expect(retyped.lodging?.propertyType == .vacationRental)
+        #expect(retyped.lodging?.phone == "+81 3 6833 2489")
+        #expect(retyped.rooms == stay.rooms)
+
+        // Rooms edited in the app: the first keeps its id and takes the friend too, the
+        // second goes, and a new one (sent without its local id) is added.
+        let roomer = TripItemDraft(tripId: trip.id, kind: .lodging, members: trip.members ?? [], item: retyped)
+        roomer.seedSelectedMembers(currentUserId: owner.user.id)
+        var first = roomer.rooms[0]
+        first.occupants = [me.id, them.id]
+        roomer.updateRoom(first)
+        roomer.rooms.remove(at: 1)
+        var added = LodgingRoom.new()
+        added.label = "Spare"
+        roomer.updateRoom(added)
+        #expect(roomer.roomsChanged)
+        update = TripItemsAPI.UpdateRequest(TripItemsAPI.CreateRequest(
+            kind: .lodging, title: "Hotel Gracery", notes: nil,
+            startsAt: wallClock(trip, day: 0, "15:00:00"), startTimezone: "Asia/Tokyo",
+            endsAt: wallClock(trip, day: 2, "11:00:00"), endTimezone: "Asia/Tokyo",
+            placeId: nil, endPlaceId: nil, rooms: roomer.roomsToSave
+        ), sendsRooms: true)
+        let reroomed = try await owner.api.send(TripItemsAPI.update(tripId: trip.id, itemId: stay.id, update), as: TripItem.self)
+        #expect(reroomed.rooms.count == 2)
+        #expect(reroomed.rooms[0].id == stay.rooms[0].id)
+        #expect(reroomed.rooms[0].occupants == [me.id, them.id])
+        #expect(reroomed.rooms[1].label == "Spare")
+        #expect(reroomed.rooms[1].id != added.id)
+
+        // An empty list clears them.
+        update.rooms = []
+        let cleared = try await owner.api.send(TripItemsAPI.update(tripId: trip.id, itemId: stay.id, update), as: TripItem.self)
+        #expect(cleared.rooms.isEmpty)
+    }
+
     // MARK: - Places and areas
 
     @Test func placesAndAreas() async throws {

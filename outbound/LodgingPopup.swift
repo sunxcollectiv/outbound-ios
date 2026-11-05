@@ -10,6 +10,8 @@ import SwiftUI
 /// Maps. Shown over the itinerary when its lodging bar is tapped.
 struct LodgingPopup: View {
     let name: String
+    /// Names the header ("Hotel") in place of "Lodging" when known.
+    var propertyType: LodgingType? = nil
     let address: String?
     let googlePlaceId: String?
     let onEdit: () -> Void
@@ -20,7 +22,7 @@ struct LodgingPopup: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center, spacing: 4) {
-                Label("Lodging", systemImage: "bed.double.fill")
+                Label(propertyType?.label ?? "Lodging", systemImage: propertyType?.systemImage ?? "bed.double.fill")
                     .font(.caption.weight(.semibold))
                     .textCase(.uppercase)
                     .tracking(1)
