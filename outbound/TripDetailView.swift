@@ -149,6 +149,13 @@ struct TripDetailView: View {
     /// the opened card into place.
     private static let expandDuration: Double = 0.27
 
+    /// The curve a card's details fold open or shut on, with the page scrolling
+    /// alongside: a steep ease in and out (cubic bezier 0.85, 0, 0.15, 1), slow at
+    /// each end and quick through the middle, close to an expo in-out.
+    private static var expandAnimation: Animation {
+        .timingCurve(0.85, 0, 0.15, 1, duration: expandDuration)
+    }
+
     /// The least space left between the pinned block and an opened card too tall to
     /// center.
     private static let expandedHeaderGap: CGFloat = 20
@@ -844,7 +851,7 @@ struct TripDetailView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             guard autoScrollID == id, measuringEntryID == entry.id else { return }
             measuringEntryID = nil
-            withAnimation(.snappy(duration: Self.expandDuration)) {
+            withAnimation(Self.expandAnimation) {
                 expandedEntryID = entry.id
             }
             endAutoScroll(id, on: day.dayNumber)
@@ -883,7 +890,7 @@ struct TripDetailView: View {
             y = min(max(scroll.y + finalTop - expandedRowTop(rowHeight: finalHeight), 0), scroll.maxY(contentHeight: finalContentHeight))
         }
 
-        withAnimation(.snappy(duration: Self.expandDuration)) {
+        withAnimation(Self.expandAnimation) {
             expandedEntryID = entry.id
             if let y {
                 scrollPositions[dayNumber, default: ScrollPosition()].scrollTo(y: y)
@@ -933,7 +940,7 @@ struct TripDetailView: View {
             // long press skips them and goes straight to editing the item.
             .onTapGesture {
                 if isExpanded {
-                    withAnimation(.snappy(duration: Self.expandDuration)) {
+                    withAnimation(Self.expandAnimation) {
                         expandedEntryID = nil
                     }
                 } else {
