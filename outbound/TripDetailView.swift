@@ -228,8 +228,8 @@ struct TripDetailView: View {
                         DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress, onAddSegment: { edge in
                             segmentRequest = SegmentRequest(edge: edge)
                         }, segmentEdges: openSegmentEdges, primaryTripId: trip.id)
-                        // Below its 40pt fade, where the circles start.
-                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.detailSpace)).minY + 40 } action: { dayPickerTop = $0 }
+                        // Below its fade, where the circles start.
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.detailSpace)).minY + DaySelectorBar.fadeHeight } action: { dayPickerTop = $0 }
                         .revealIn(hasRevealed)
                     }
                     // A task rather than onAppear: the pager settles on the selected day in
@@ -847,12 +847,17 @@ struct TripDetailView: View {
         measuredRowFrame = nil
         measuredPanelHeight = nil
         measuringEntryID = entry.id
-        // Should the measuring never finish, don't leave the page stuck.
+        // A backstop, whatever happened since: if the measuring never finished, open
+        // the card anyway; either way, end the auto-scroll, so a measure cut short (a
+        // day change landing mid-tap clears it) can't leave the page untouchable.
+        // Harmless after a normal open, which has already ended it by now.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            guard autoScrollID == id, measuringEntryID == entry.id else { return }
-            measuringEntryID = nil
-            withAnimation(Self.expandAnimation) {
-                expandedEntryID = entry.id
+            guard autoScrollID == id else { return }
+            if measuringEntryID == entry.id {
+                measuringEntryID = nil
+                withAnimation(Self.expandAnimation) {
+                    expandedEntryID = entry.id
+                }
             }
             endAutoScroll(id, on: day.dayNumber)
         }
@@ -955,7 +960,7 @@ struct TripDetailView: View {
             .zIndex(1)
 
             if isExpanded {
-                TripItemDetailPanel(item: places.resolving(entry.item), anchor: panelAnchor) {
+                TripItemDetailPanel(item: places.resolving(entry.item), anchor: panelAnchor, placeDetails: placeDetails) {
                     editItem(entry.item)
                 }
                 // In place of the card's bottom padding, which the panel covers.
@@ -976,7 +981,7 @@ struct TripDetailView: View {
                         finishOpening(entry, on: day, anchor: panelAnchor)
                     }
                     .overlay(alignment: .top) {
-                        TripItemDetailPanel(item: places.resolving(entry.item), anchor: panelAnchor) {}
+                        TripItemDetailPanel(item: places.resolving(entry.item), anchor: panelAnchor, placeDetails: placeDetails, loadsMissingDetails: false) {}
                             .padding(.bottom, 6)
                             .fixedSize(horizontal: false, vertical: true)
                             .hidden()

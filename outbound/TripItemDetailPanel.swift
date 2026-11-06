@@ -19,6 +19,11 @@ struct TripItemDetailPanel: View {
     /// How far the panel's top sits up behind the card (see the static `anchor`);
     /// zero under a see-through card, where it would show through.
     var anchor: CGFloat = TripItemDetailPanel.anchor
+    /// Google Place Details the itinerary already has, by google place id (see
+    /// `TripItemDetailContent.knownDetails`).
+    var placeDetails: [String: PlaceDetails] = [:]
+    /// Off for a copy laid out only to be measured, so it doesn't fetch too.
+    var loadsMissingDetails = true
     var onEdit: () -> Void
 
     private static let shape = UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16)
@@ -30,7 +35,7 @@ struct TripItemDetailPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            TripItemDetailContent(item: item)
+            TripItemDetailContent(item: item, knownDetails: placeDetails, loadsMissingDetails: loadsMissingDetails)
             Button("Edit", action: onEdit)
                 .buttonStyle(DarkPillButtonStyle())
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -64,6 +69,14 @@ struct UnfoldTransition: Transition {
 /// Place Details for its place(s) itself.
 struct TripItemDetailContent: View {
     let item: TripItem
+    /// Google Place Details already fetched elsewhere (the itinerary's cache), by
+    /// google place id. Used straight away, so the details lay out at their full
+    /// height from the first frame instead of growing once a fetch lands; that
+    /// first height is what the itinerary measures to scroll an opened card into
+    /// place.
+    var knownDetails: [String: PlaceDetails] = [:]
+    /// Whether to fetch details `knownDetails` doesn't have.
+    var loadsMissingDetails = true
 
     /// A light gray, a step darker than the light cards (`CompactCardStyle.light`), so
     /// an open card stands apart from the details beneath it; near-black text on it.
@@ -71,10 +84,18 @@ struct TripItemDetailContent: View {
     static let foreground = Color(white: 0.1)
     private let textColor = TripItemDetailContent.foreground
 
-    /// Google Place Details for the item's place and (for transit) its destination,
-    /// loaded on appear when a google place id is present.
-    @State private var startDetails: PlaceDetails?
-    @State private var endDetails: PlaceDetails?
+    /// Google Place Details fetched here, for a place `knownDetails` doesn't cover.
+    @State private var fetchedStartDetails: PlaceDetails?
+    @State private var fetchedEndDetails: PlaceDetails?
+
+    /// Details for the item's place and (for transit) its destination: the known
+    /// ones if there are any, else whatever was fetched here.
+    private var startDetails: PlaceDetails? {
+        item.place?.googlePlaceId.flatMap { knownDetails[$0] } ?? fetchedStartDetails
+    }
+    private var endDetails: PlaceDetails? {
+        item.endPlace?.googlePlaceId.flatMap { knownDetails[$0] } ?? fetchedEndDetails
+    }
 
     var body: some View {
         content
@@ -281,13 +302,14 @@ struct TripItemDetailContent: View {
     /// Loads Google Place Details for whichever places have a google place id. Failures
     /// are ignored — the section falls back to the stored place fields.
     private func loadPlaceDetails() async {
-        startDetails = nil
-        endDetails = nil
-        if let gid = item.place?.googlePlaceId {
-            startDetails = try? await GooglePlacesClient.shared.placeDetails(placeId: gid)
+        fetchedStartDetails = nil
+        fetchedEndDetails = nil
+        guard loadsMissingDetails else { return }
+        if let gid = item.place?.googlePlaceId, knownDetails[gid] == nil {
+            fetchedStartDetails = try? await GooglePlacesClient.shared.placeDetails(placeId: gid)
         }
-        if item.kind == .transit, let gid = item.endPlace?.googlePlaceId {
-            endDetails = try? await GooglePlacesClient.shared.placeDetails(placeId: gid)
+        if item.kind == .transit, let gid = item.endPlace?.googlePlaceId, knownDetails[gid] == nil {
+            fetchedEndDetails = try? await GooglePlacesClient.shared.placeDetails(placeId: gid)
         }
     }
 
