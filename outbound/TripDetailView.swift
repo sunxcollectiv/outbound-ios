@@ -1490,11 +1490,18 @@ private struct DayPager<Content: View>: View {
             let scrollLocked = (dragDecided && dragHorizontal) || isAnimating
 
             HStack(spacing: 0) {
+                // Each page flattened into one layer before it fades, so it fades as a
+                // whole. Otherwise every view in it fades on its own, and wherever two
+                // overlap (an open card over the top of its details) the two half-faded
+                // layers stack into a darker band.
                 slot(for: -1, width: w, scrollLocked: scrollLocked)
+                    .compositingGroup()
                     .opacity(slotOpacity(for: -1, width: w))
                 slot(for: 0, width: w, scrollLocked: scrollLocked)
+                    .compositingGroup()
                     .opacity(slotOpacity(for: 0, width: w))
                 slot(for: 1, width: w, scrollLocked: scrollLocked)
+                    .compositingGroup()
                     .opacity(slotOpacity(for: 1, width: w))
             }
             .frame(width: w * 3, alignment: .leading)
