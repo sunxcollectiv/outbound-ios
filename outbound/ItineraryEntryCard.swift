@@ -34,6 +34,16 @@ struct ItineraryEntryCard: View {
     /// How many are going, which picks the box's icon.
     var membersCount: Int = 0
     var isCondensed = false
+    /// Whether the item's details are folded open beneath the card. The card's
+    /// bottom corners square off so the panel below reads as its continuation.
+    var isExpanded = false
+
+    /// Every card's outline: rounded all round, or only along the top while the
+    /// details panel hangs off its bottom edge.
+    private var cardShape: UnevenRoundedRectangle {
+        let bottom: CGFloat = isExpanded ? 0 : 16
+        return UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: bottom, bottomTrailingRadius: bottom, topTrailingRadius: 16)
+    }
 
     /// The condensed card's title: a point under subheadline (15pt), scaled with
     /// Dynamic Type like the text styles around it.
@@ -112,7 +122,7 @@ struct ItineraryEntryCard: View {
             }
         }
         .background(Color.appCard)
-        .clipShape(.rect(cornerRadius: 16))
+        .clipShape(cardShape)
         .padding(.vertical, 6)
     }
 
@@ -149,7 +159,7 @@ struct ItineraryEntryCard: View {
                 infoStrip
             }
         }
-        .clipShape(.rect(cornerRadius: 16))
+        .clipShape(cardShape)
         .padding(.vertical, 6)
     }
 
@@ -223,8 +233,8 @@ struct ItineraryEntryCard: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.3), in: .rect(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white, lineWidth: 0.5))
+        .background(Color.white.opacity(0.3), in: cardShape)
+        .overlay(cardShape.strokeBorder(.white, lineWidth: 0.5))
         .padding(.vertical, 6)
     }
 
@@ -324,7 +334,7 @@ struct ItineraryEntryCard: View {
         .foregroundStyle(style.foreground)
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(style.background, in: .rect(cornerRadius: 16))
+        .background(style.background, in: cardShape)
         .padding(.vertical, 6)
     }
 

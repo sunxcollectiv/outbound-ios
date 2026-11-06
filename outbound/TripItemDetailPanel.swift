@@ -1,100 +1,84 @@
 //
-//  TripItemDetailView.swift
+//  TripItemDetailPanel.swift
 //  outbound
 //
 
 import SwiftUI
 import MapKit
 
-/// A sheet showing the details of a single trip item — an activity, a piece of
-/// lodging, or a transit leg.
+/// An item's details, folded open beneath its card in the itinerary: a soft
+/// off-white panel that grows down out of the card's bottom edge, with the item's
+/// details and an Edit button. Tapping the card again folds it away.
 ///
-/// For now the layout is generic across all three kinds. The `content` switch is
-/// the seam for later: each `TripItemKind` will grow its own tailored layout
-/// (e.g. check-in/check-out emphasis for lodging, route/leg details for transit).
-struct TripItemDetailView: View {
-    @State private var item: TripItem
+/// Square along the top and rounded along the bottom, so with the card's bottom
+/// corners squared off too (`ItineraryEntryCard.isExpanded`) the two read as one
+/// card. Its top sits up behind the card, so there's white behind the card's
+/// corners while they animate square.
+struct TripItemDetailPanel: View {
+    let item: TripItem
+    /// How far the panel's top sits up behind the card (see the static `anchor`);
+    /// zero under a see-through card, where it would show through.
+    var anchor: CGFloat = TripItemDetailPanel.anchor
+    var onEdit: () -> Void
 
-    /// Everyone on the item's trip, passed through to the edit form.
-    private let members: [TripMember]
+    private static let shape = UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16)
 
-    /// The trip's first through last day, passed through to the edit form's calendar.
-    private let tripDates: ClosedRange<Date>?
+    /// How far above its card's bottom edge the panel's top is pinned, hidden
+    /// behind the card. The panel only grows downward from there, so as it opens
+    /// (and the card's corners square off) there's always white under the seam.
+    static let anchor: CGFloat = 20
 
-    /// The itinerary day this was opened from, passed through to the edit form.
-    private let viewedDay: Date?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            TripItemDetailContent(item: item)
+            Button("Edit", action: onEdit)
+                .buttonStyle(DarkPillButtonStyle())
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.horizontal, 20)
+        // Clear the part hidden behind the card.
+        .padding(.top, 20 + anchor)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(TripItemDetailContent.foreground)
+        .tint(Color.appAccent)
+        .background(TripItemDetailContent.background, in: Self.shape)
+    }
+}
 
-    /// Called with the updated item after an edit is saved, so the presenter can
-    /// refresh its itinerary.
-    var onSaved: (TripItem) -> Void
+/// Unfolds a view downward from its top edge: the top stays put and only the
+/// visible height grows (or shrinks back), like a drawer opening, with nothing
+/// sliding.
+struct UnfoldTransition: Transition {
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        content
+            .mask(alignment: .top) {
+                Rectangle()
+                    .scaleEffect(x: 1, y: phase.isIdentity ? 1 : 0, anchor: .top)
+            }
+    }
+}
 
-    /// Called after the item is deleted from its edit form; this sheet closes with it.
-    var onDeleted: () -> Void
+/// The body of an item's details — badges, place(s), times, stay details, notes,
+/// tags and source — shown in the inline panel under its itinerary card. Loads Google
+/// Place Details for its place(s) itself.
+struct TripItemDetailContent: View {
+    let item: TripItem
 
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var showingEdit = false
+    /// A soft off-white — 90% white so it reads as light without the glare of pure
+    /// white — with near-black text for contrast.
+    static let background = Color(white: 0.9)
+    static let foreground = Color(white: 0.1)
+    private let textColor = TripItemDetailContent.foreground
 
     /// Google Place Details for the item's place and (for transit) its destination,
     /// loaded on appear when a google place id is present.
     @State private var startDetails: PlaceDetails?
     @State private var endDetails: PlaceDetails?
 
-    /// A soft off-white sheet — 90% white so it reads as light without the glare
-    /// of pure white — with near-black text for contrast.
-    private let sheetBackground = Color(white: 0.9)
-    private let sheetForeground = Color(white: 0.1)
-
-    init(item: TripItem, members: [TripMember] = [], tripDates: ClosedRange<Date>? = nil, viewedDay: Date? = nil, onSaved: @escaping (TripItem) -> Void = { _ in }, onDeleted: @escaping () -> Void = {}) {
-        _item = State(initialValue: item)
-        self.members = members
-        self.tripDates = tripDates
-        self.viewedDay = viewedDay
-        self.onSaved = onSaved
-        self.onDeleted = onDeleted
-    }
-
     var body: some View {
-        NavigationStack {
-            ZStack {
-                sheetBackground.ignoresSafeArea()
-                ScrollView {
-                    content
-                        .padding(24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .offlinePillNearBottom()
-            .foregroundStyle(sheetForeground)
-            .tint(Color.appAccent)
+        content
             .task(id: placeTaskKey) { await loadPlaceDetails() }
-            .navigationTitle(item.displayTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(sheetBackground, for: .navigationBar)
-            .toolbarColorScheme(.light, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Edit") { showingEdit = true }
-                        .buttonStyle(DarkPillButtonStyle())
-                }
-                .sharedBackgroundVisibility(.hidden)
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .buttonStyle(DarkPillButtonStyle())
-                }
-                .sharedBackgroundVisibility(.hidden)
-            }
-        }
-        .presentationBackground(sheetBackground)
-        .sheet(isPresented: $showingEdit) {
-            TripItemFormView(tripId: item.tripId, members: members, tripDates: tripDates, item: item, viewedDay: viewedDay) { updated in
-                item = updated
-                onSaved(updated)
-            } onDeleted: {
-                onDeleted()
-                dismiss()
-            }
-        }
     }
 
     /// The per-kind body. Every kind currently funnels to the same generic layout;
@@ -165,7 +149,7 @@ struct TripItemDetailView: View {
                     if let edited = editedText {
                         Text(edited)
                             .font(.subheadline)
-                            .foregroundStyle(sheetForeground.opacity(0.7))
+                            .foregroundStyle(textColor.opacity(0.7))
                     }
                 }
             }
@@ -206,7 +190,7 @@ struct TripItemDetailView: View {
         .tracking(1.5)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(sheetForeground.opacity(0.1), in: .capsule)
+        .background(textColor.opacity(0.1), in: .capsule)
     }
 
     private var tagChips: some View {
@@ -216,7 +200,7 @@ struct TripItemDetailView: View {
                     .font(.caption)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(sheetForeground.opacity(0.1), in: .capsule)
+                    .background(textColor.opacity(0.1), in: .capsule)
             }
         }
     }
@@ -227,7 +211,7 @@ struct TripItemDetailView: View {
             Text(title.uppercased())
                 .font(.caption.weight(.semibold))
                 .tracking(1)
-                .foregroundStyle(sheetForeground.opacity(0.6))
+                .foregroundStyle(textColor.opacity(0.6))
             content()
                 .font(.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -251,7 +235,7 @@ struct TripItemDetailView: View {
                             if let summary = room.summary {
                                 Text(summary)
                                     .font(.subheadline)
-                                    .foregroundStyle(sheetForeground.opacity(0.7))
+                                    .foregroundStyle(textColor.opacity(0.7))
                             }
                         }
                     }
@@ -267,7 +251,7 @@ struct TripItemDetailView: View {
                     if passed {
                         Text("Cancelling now may cost you.")
                             .font(.subheadline)
-                            .foregroundStyle(sheetForeground.opacity(0.7))
+                            .foregroundStyle(textColor.opacity(0.7))
                     }
                 }
             }
@@ -330,7 +314,7 @@ struct TripItemDetailView: View {
                                 Image(systemName: "star.fill").foregroundStyle(.yellow)
                                 Text(String(format: "%.1f", rating))
                                 if let count = details?.userRatingCount {
-                                    Text("(\(count.formatted()))").foregroundStyle(sheetForeground.opacity(0.6))
+                                    Text("(\(count.formatted()))").foregroundStyle(textColor.opacity(0.6))
                                 }
                             }
                         }
@@ -339,7 +323,7 @@ struct TripItemDetailView: View {
                 }
 
                 if let address {
-                    Text(address).foregroundStyle(sheetForeground.opacity(0.85))
+                    Text(address).foregroundStyle(textColor.opacity(0.85))
                 }
 
                 if let details, !details.weekdayHours.isEmpty {
@@ -403,7 +387,7 @@ struct TripItemDetailView: View {
                 }
             }
         }
-        .tint(sheetForeground)
+        .tint(textColor)
     }
 
     @ViewBuilder
@@ -424,8 +408,8 @@ struct TripItemDetailView: View {
     }
 }
 
-/// A compact toolbar button: light text on a dark pill, so the top actions read
-/// clearly against the light sheet background.
+/// A compact button: light text on a dark pill, so it reads clearly against the
+/// light panel background.
 private struct DarkPillButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -440,6 +424,10 @@ private struct DarkPillButtonStyle: ButtonStyle {
 }
 
 #Preview {
-    TripItemDetailView(item: .sample)
-        .environment(AuthStore())
+    ScrollView {
+        TripItemDetailPanel(item: .sample, anchor: 0) {}
+            .padding()
+    }
+    .background(Color.appBackground)
+    .environment(AuthStore())
 }

@@ -61,7 +61,11 @@ struct TripDetailView: View {
     @State private var importID = UUID()
     /// The header chip's frame on screen, to hang the trip menu just below its trailing edge.
     @State private var headerFrame: CGRect = .zero
-    @State private var selectedItem: TripItem?
+    /// The entry whose details are folded open beneath its card, from tapping it;
+    /// tapping it again (or another card) folds them away. Keyed by entry, not item,
+    /// so the panel opens under the card that was tapped (a transit's departure or
+    /// its arrival).
+    @State private var expandedEntryID: ItineraryEntry.ID?
     /// The stay whose lodging popup is open, from tapping its lodging bar.
     @State private var popupLodging: TripItem?
     /// An item opened straight into its edit form: long-pressing its card or lodging
@@ -252,13 +256,6 @@ struct TripDetailView: View {
                 // The itinerary merges the user's trips in a group, so it now has the new days.
                 Task { await load() }
                 showToast(TripToast(text: "Added \(segment.title)", systemImage: "checkmark.circle.fill"))
-            }
-        }
-        .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: places.resolving(item), members: members(onTripOf: item.tripId), tripDates: trip.dateRange, viewedDay: selectedDay?.calendarDate) { saved in
-                Task { await load(focusItemId: saved.id) }
-            } onDeleted: {
-                removeItem(item.id)
             }
         }
         .task { if days == nil || savedCopyDate != nil { await load() } }
@@ -708,22 +705,48 @@ struct TripDetailView: View {
     private func itemRow(_ entry: ItineraryEntry, topFade: CGFloat) -> some View {
         let itemMembers = memberSelection(onTripOf: entry.item.tripId)
         let going = itemMembers.initialSelection(for: entry.item)
-        return ItineraryEntryCard(
-            entry: entry,
-            places: places,
-            placeDetails: placeDetails,
-            // A redacted item's participants are blanked, so there's no one to count.
-            membersSummary: entry.item.redacted ? nil : itemMembers.summary(of: going),
-            membersCount: going.count,
-            // Open items others are doing shrink to a one-line card.
-            isCondensed: entry.item.visibility == .open && itemMembers.includesCurrentUser(entry.item) == false
-        )
-        .contentShape(.rect)
-        // Every entry of an item (each end, each layover) opens the same record; a
-        // long press skips the detail view and goes straight to editing it.
-        .onTapGesture { selectedItem = entry.item }
-        .onLongPressGesture { editItem(entry.item) }
-        .accessibilityAction(named: "Edit") { editItem(entry.item) }
+        // Open items others are doing shrink to a one-line card.
+        let isCondensed = entry.item.visibility == .open && itemMembers.includesCurrentUser(entry.item) == false
+        let isExpanded = expandedEntryID == entry.id
+        // The condensed card is see-through, so the panel can't sit up behind it.
+        let panelAnchor = isCondensed ? 0 : TripItemDetailPanel.anchor
+        // Pulls the panel's top up over the card's own 6pt bottom padding, then
+        // `panelAnchor` further, behind the card's bottom edge.
+        return VStack(spacing: -(6 + panelAnchor)) {
+            ItineraryEntryCard(
+                entry: entry,
+                places: places,
+                placeDetails: placeDetails,
+                // A redacted item's participants are blanked, so there's no one to count.
+                membersSummary: entry.item.redacted ? nil : itemMembers.summary(of: going),
+                membersCount: going.count,
+                isCondensed: isCondensed,
+                isExpanded: isExpanded
+            )
+            .contentShape(.rect)
+            // Tapping folds the item's details open beneath the card, or shut again; a
+            // long press skips them and goes straight to editing the item.
+            .onTapGesture {
+                withAnimation(.snappy(duration: 0.27)) {
+                    expandedEntryID = isExpanded ? nil : entry.id
+                }
+            }
+            .onLongPressGesture { editItem(entry.item) }
+            .accessibilityAction(named: "Edit") { editItem(entry.item) }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(isExpanded ? "Hides details" : "Shows details")
+            // Over the panel, whose top sits behind the card's bottom edge.
+            .zIndex(1)
+
+            if isExpanded {
+                TripItemDetailPanel(item: places.resolving(entry.item), anchor: panelAnchor) {
+                    editItem(entry.item)
+                }
+                // In place of the card's bottom padding, which the panel covers.
+                .padding(.bottom, 6)
+                .transition(UnfoldTransition())
+            }
+        }
         .mask {
             GeometryReader { geo in
                 let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
