@@ -282,6 +282,8 @@ struct ItineraryEntryCard: View {
         let foreground: Color
 
         static let regular = CompactCardStyle(background: .appCard, foreground: .appForeground)
+        /// A step lighter than the details panel (`TripItemDetailContent.background`),
+        /// so an open light card stands apart from the details beneath it.
         static let light = CompactCardStyle(background: Color(white: 0.9), foreground: Color(white: 0.1))
     }
 

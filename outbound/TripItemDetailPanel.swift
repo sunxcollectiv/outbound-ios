@@ -65,9 +65,9 @@ struct UnfoldTransition: Transition {
 struct TripItemDetailContent: View {
     let item: TripItem
 
-    /// A soft off-white — 90% white so it reads as light without the glare of pure
-    /// white — with near-black text for contrast.
-    static let background = Color(white: 0.9)
+    /// A light gray, a step darker than the light cards (`CompactCardStyle.light`), so
+    /// an open card stands apart from the details beneath it; near-black text on it.
+    static let background = Color(white: 0.82)
     static let foreground = Color(white: 0.1)
     private let textColor = TripItemDetailContent.foreground
 
