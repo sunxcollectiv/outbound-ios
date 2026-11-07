@@ -14,6 +14,10 @@ import SwiftUI
 /// can be slid freely to any day. Whenever `selection` changes (a tap here, or a
 /// swipe of the itinerary itself), the selected day animates back to center.
 struct DaySelectorBar: View {
+    /// The fade above the row of day circles. The itinerary reads it to know where
+    /// the circles start, the bottom of the band it centers an opened card in.
+    static let fadeHeight: CGFloat = 40
+
     let days: [ItineraryDay]
     @Binding var selection: Int
     /// Live itinerary-swipe progress in day-units (-1…1); pulls the row along as the
@@ -106,7 +110,7 @@ struct DaySelectorBar: View {
         }
         .frame(height: 56)
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
-        .padding(.top, 40)
+        .padding(.top, Self.fadeHeight)
         .frame(maxWidth: .infinity)
         .background {
             LinearGradient(

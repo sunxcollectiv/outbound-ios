@@ -61,7 +61,11 @@ struct TripDetailView: View {
     @State private var importID = UUID()
     /// The header chip's frame on screen, to hang the trip menu just below its trailing edge.
     @State private var headerFrame: CGRect = .zero
-    @State private var selectedItem: TripItem?
+    /// The entry whose details are folded open beneath its card, from tapping it;
+    /// tapping it again (or another card) folds them away. Keyed by entry, not item,
+    /// so the panel opens under the card that was tapped (a transit's departure or
+    /// its arrival).
+    @State private var expandedEntryID: ItineraryEntry.ID?
     /// The stay whose lodging popup is open, from tapping its lodging bar.
     @State private var popupLodging: TripItem?
     /// An item opened straight into its edit form: long-pressing its card or lodging
@@ -98,6 +102,63 @@ struct TripDetailView: View {
 
     /// How far below the pinned block cards start fading once a page is scrolled.
     private static let topFadeReach: CGFloat = 60
+
+    /// The space under the pinned block before the itinerary starts.
+    private static let pinnedBlockBottomPadding: CGFloat = 8
+
+    /// Where the day picker's circles start, in the detail space: the top of the
+    /// band the itinerary is fully visible in.
+    @State private var dayPickerTop: CGFloat = 0
+
+    /// While the page scrolls an opened card into view; touch scrolling is off so the
+    /// two don't fight.
+    @State private var isAutoScrolling = false
+
+    /// The card just tapped open, while its details are laid out unseen to measure
+    /// them. Nothing moves until that's done; then the details open, any open card
+    /// closes and the page scrolls, all in one animation, so they stay in step.
+    @State private var measuringEntryID: ItineraryEntry.ID?
+    /// The tapped card's row as it sits now, and its details' height, from that
+    /// unseen layout.
+    @State private var measuredRowFrame: CGRect?
+    @State private var measuredPanelHeight: CGFloat?
+
+    /// How much taller the open card's row is than the card alone, so opening
+    /// another card can allow for this one closing.
+    @State private var openRowExtra: CGFloat = 0
+
+    /// The latest open's id, so a stale cleanup from an earlier one leaves a newer
+    /// one alone.
+    @State private var autoScrollID = UUID()
+
+    /// Each day page's scroll position and current scroll geometry, by day number.
+    /// (A position is only held while an opened card scrolls into place; see
+    /// `scrollPositionBinding`.)
+    @State private var scrollPositions: [Int: ScrollPosition] = [:]
+    @State private var pageScroll: [Int: PageScroll] = [:]
+
+    /// Extra blank space under a day's itinerary while an opened card scrolls into
+    /// place. The page's real height only catches up once the details finish
+    /// unfolding, so without it a scroll that starts alongside them is cut short at
+    /// the old bottom. Removed once the scroll lands, which never goes past the real
+    /// bottom, so nothing moves when it goes.
+    @State private var scrollRunway: [Int: CGFloat] = [:]
+    private static let scrollRunwayHeight: CGFloat = 2000
+
+    /// How long a card's details take to fold open or shut, and the page to scroll
+    /// the opened card into place.
+    private static let expandDuration: Double = 0.27
+
+    /// The curve a card's details fold open or shut on, with the page scrolling
+    /// alongside: a steep ease in and out (cubic bezier 0.85, 0, 0.15, 1), slow at
+    /// each end and quick through the middle, close to an expo in-out.
+    private static var expandAnimation: Animation {
+        .timingCurve(0.85, 0, 0.15, 1, duration: expandDuration)
+    }
+
+    /// The least space left between the pinned block and an opened card too tall to
+    /// center.
+    private static let expandedHeaderGap: CGFloat = 20
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var auth
@@ -167,6 +228,8 @@ struct TripDetailView: View {
                         DaySelectorBar(days: days, selection: $selection, dragProgress: pageDragProgress, onAddSegment: { edge in
                             segmentRequest = SegmentRequest(edge: edge)
                         }, segmentEdges: openSegmentEdges, primaryTripId: trip.id)
+                        // Below its fade, where the circles start.
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.detailSpace)).minY + DaySelectorBar.fadeHeight } action: { dayPickerTop = $0 }
                         .revealIn(hasRevealed)
                     }
                     // A task rather than onAppear: the pager settles on the selected day in
@@ -199,7 +262,7 @@ struct TripDetailView: View {
                 }
             }
             .padding(.horizontal)
-            .padding(.bottom, 8)
+            .padding(.bottom, Self.pinnedBlockBottomPadding)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pinnedHeight = $0 }
             .revealIn(hasRevealed || days == nil)
         }
@@ -252,13 +315,6 @@ struct TripDetailView: View {
                 // The itinerary merges the user's trips in a group, so it now has the new days.
                 Task { await load() }
                 showToast(TripToast(text: "Added \(segment.title)", systemImage: "checkmark.circle.fill"))
-            }
-        }
-        .sheet(item: $selectedItem) { item in
-            TripItemDetailView(item: places.resolving(item), members: members(onTripOf: item.tripId), tripDates: trip.dateRange, viewedDay: selectedDay?.calendarDate) { saved in
-                Task { await load(focusItemId: saved.id) }
-            } onDeleted: {
-                removeItem(item.id)
             }
         }
         .task { if days == nil || savedCopyDate != nil { await load() } }
@@ -619,8 +675,22 @@ struct TripDetailView: View {
 
     private func dayPager(_ days: [ItineraryDay]) -> some View {
         // Gap days between the user's trips show only in the day picker.
-        DayPager(days: days.filter { !$0.isGap }, selection: $selection, dragProgress: $pageDragProgress) { day, scrollLocked in
+        DayPager(days: days.filter { !$0.isGap }, selection: $selection, dragProgress: $pageDragProgress, onSettled: collapseOpenCard) { day, scrollLocked in
             dayPage(day, scrollLocked: scrollLocked)
+        }
+    }
+
+    /// Once a day change has landed, folds away any open card's details, without
+    /// animating: the day it was on is off screen by then, and comes back as it
+    /// first appears, at the top with every card shut. Left alone until then so the
+    /// page doesn't change as it slides away.
+    private func collapseOpenCard() {
+        guard expandedEntryID != nil || measuringEntryID != nil else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            expandedEntryID = nil
+            measuringEntryID = nil
         }
     }
 
@@ -641,7 +711,7 @@ struct TripDetailView: View {
                             zoneChangeDivider(zone, at: entry.displayInstant)
                                 .revealIn(hasRevealed, delay: Self.cardRevealDelay(index))
                         }
-                        itemRow(entry, topFade: topFadeProgress[day.dayNumber] ?? 0)
+                        itemRow(entry, on: day, topFade: topFadeProgress[day.dayNumber] ?? 0)
                             .revealIn(hasRevealed, delay: Self.cardRevealDelay(index), slide: 16)
                     }
                 }
@@ -673,13 +743,17 @@ struct TripDetailView: View {
 
                 // Clear the bottom day-picker bar and the offline pill just above it,
                 // whether or not the pill is showing, so the end of the day never shifts.
-                Color.clear.frame(height: 168)
+                Color.clear.frame(height: 168 + (scrollRunway[day.dayNumber] ?? 0))
             }
             .padding(.horizontal)
             .padding(.top, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollPosition(scrollPositionBinding(for: day.dayNumber))
         .scrollDisabled(scrollLocked)
+        // Untouchable while an opened card scrolls into place, so a finger can't fight
+        // it. (Not `scrollDisabled`, which would stop the programmatic scroll too.)
+        .allowsHitTesting(!isAutoScrolling)
         // Let cards keep drawing as they scroll up past the top, under the pinned block.
         .scrollClipDisabled()
         // Clamped, so it stops updating once scrolled past the reach.
@@ -687,6 +761,26 @@ struct TripDetailView: View {
             min(max((geometry.contentOffset.y + geometry.contentInsets.top) / Self.topFadeReach, 0), 1)
         } action: { _, progress in
             topFadeProgress[day.dayNumber] = progress
+        }
+        // One scroll view per day. The pager's three slots are reused as days slide
+        // through them, and without this a slot's scroll view would carry the last
+        // day's offset over to the next one for a frame before snapping to the top.
+        .id(day.dayNumber)
+        .onScrollGeometryChange(for: PageScroll.self) { PageScroll($0) } action: { _, scroll in
+            pageScroll[day.dayNumber] = scroll
+        }
+    }
+
+    /// A day page's scroll position, kept per day so an opened card can scroll its
+    /// own page.
+    private func scrollPositionBinding(for dayNumber: Int) -> Binding<ScrollPosition> {
+        Binding {
+            scrollPositions[dayNumber] ?? ScrollPosition()
+        } set: {
+            // Only an opened card's scroll is kept; the page's own scrolling isn't
+            // saved, or a day paged back to would jump to where it was left.
+            guard isAutoScrolling else { return }
+            scrollPositions[dayNumber] = $0
         }
     }
 
@@ -697,6 +791,28 @@ struct TripDetailView: View {
         0.12 + Double(min(index, 6)) * 0.07
     }
 
+    /// What `finishOpening` needs of a day page's scroll view: how far it's
+    /// scrolled (from the top of the content, below the pinned block's inset, as
+    /// `ScrollPosition` counts it), how tall its content is, and how tall the scroll
+    /// view itself is.
+    private struct PageScroll: Equatable {
+        var y: CGFloat
+        var contentHeight: CGFloat
+        var containerHeight: CGFloat
+
+        init(_ geometry: ScrollGeometry) {
+            y = geometry.contentOffset.y + geometry.contentInsets.top
+            contentHeight = geometry.contentSize.height
+            containerHeight = geometry.containerSize.height
+        }
+
+        /// The furthest it can scroll once its content is `contentHeight` tall: the
+        /// content's end level with the scroll view's bottom edge.
+        func maxY(contentHeight: CGFloat) -> CGFloat {
+            max(contentHeight - containerHeight, 0)
+        }
+    }
+
     // MARK: - Rows
 
     /// Opens an item's edit form directly, with a haptic tap to confirm the long press.
@@ -705,25 +821,177 @@ struct TripDetailView: View {
         editingItem = places.resolving(item)
     }
 
-    private func itemRow(_ entry: ItineraryEntry, topFade: CGFloat) -> some View {
+    /// Where an opened card's row should sit, measured down from the top of the page's
+    /// visible area (just under the pinned block's bottom padding): the card and its
+    /// details centered between the pinned block and the day picker, or, when they're
+    /// too tall for that, `expandedHeaderGap` below the pinned block.
+    ///
+    /// The row carries the card's 6pt padding above and below, which doesn't count
+    /// toward what's seen.
+    private func expandedRowTop(rowHeight: CGFloat) -> CGFloat {
+        let rowPadding: CGFloat = 6
+        let bandTop = -Self.pinnedBlockBottomPadding
+        let band = dayPickerTop - bandTop
+        let visibleHeight = rowHeight - rowPadding * 2
+        let gap = max((band - visibleHeight) / 2, Self.expandedHeaderGap)
+        return bandTop + gap - rowPadding
+    }
+
+    /// Starts opening a card: makes room to scroll into, holds off touches, and lays
+    /// its details out unseen to measure them (see `finishOpening`).
+    private func beginOpening(_ entry: ItineraryEntry, on day: ItineraryDay) {
+        let id = UUID()
+        autoScrollID = id
+        scrollRunway[day.dayNumber] = Self.scrollRunwayHeight
+        isAutoScrolling = true
+        measuredRowFrame = nil
+        measuredPanelHeight = nil
+        measuringEntryID = entry.id
+        // A backstop, whatever happened since: if the measuring never finished, open
+        // the card anyway; either way, end the auto-scroll, so a measure cut short (a
+        // day change landing mid-tap clears it) can't leave the page untouchable.
+        // Harmless after a normal open, which has already ended it by now.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            guard autoScrollID == id else { return }
+            if measuringEntryID == entry.id {
+                measuringEntryID = nil
+                withAnimation(Self.expandAnimation) {
+                    expandedEntryID = entry.id
+                }
+            }
+            endAutoScroll(id, on: day.dayNumber)
+        }
+    }
+
+    /// Once the tapped card's details are measured: works out where its row will
+    /// sit once open (allowing for any other open card on the page closing), then
+    /// opens it, closes the other and scrolls the page there in a single animation.
+    private func finishOpening(_ entry: ItineraryEntry, on day: ItineraryDay, anchor: CGFloat) {
+        guard measuringEntryID == entry.id,
+              let rowFrame = measuredRowFrame,
+              let panelHeight = measuredPanelHeight else { return }
+        measuringEntryID = nil
+        let id = autoScrollID
+        let dayNumber = day.dayNumber
+
+        // The card open now on this page (if any) closes as this one opens, taking its
+        // extra height with it; if it's above, this row moves up by that much.
+        let entryIDs = day.entries.map(\.id)
+        let closingIndex = expandedEntryID.flatMap { entryIDs.firstIndex(of: $0) }
+        let closingExtra = closingIndex == nil ? 0 : openRowExtra
+        let closingAbove = closingIndex.map { $0 < (entryIDs.firstIndex(of: entry.id) ?? 0) } ?? false
+
+        // The row's added height: its details, less where they tuck under the card.
+        let addedHeight = panelHeight - (6 + anchor)
+        let finalTop = rowFrame.minY - (closingAbove ? closingExtra : 0)
+        let finalHeight = rowFrame.height + addedHeight
+
+        var y: CGFloat?
+        if let scroll = pageScroll[dayNumber] {
+            // Kept within how far the page can scroll once settled (without the
+            // runway), so a card near the end of a short day stops short of centered
+            // rather than overshooting and snapping back when the runway goes.
+            let finalContentHeight = scroll.contentHeight - (scrollRunway[dayNumber] ?? 0) - closingExtra + addedHeight
+            y = min(max(scroll.y + finalTop - expandedRowTop(rowHeight: finalHeight), 0), scroll.maxY(contentHeight: finalContentHeight))
+        }
+
+        withAnimation(Self.expandAnimation) {
+            expandedEntryID = entry.id
+            if let y {
+                scrollPositions[dayNumber, default: ScrollPosition()].scrollTo(y: y)
+            }
+        }
+        // On a timer, not the animation's completion: that fires as soon as SwiftUI's
+        // own animations are done, which doesn't wait for the scroll.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.expandDuration + 0.15) {
+            endAutoScroll(id, on: dayNumber)
+        }
+    }
+
+    /// Takes the runway away and lets touches back in, unless a newer open has
+    /// started since.
+    private func endAutoScroll(_ id: UUID, on dayNumber: Int) {
+        guard autoScrollID == id else { return }
+        scrollRunway[dayNumber] = nil
+        isAutoScrolling = false
+        // Done with it: the pager's pages are reused across days, and a target left
+        // here would send whichever page shows this day back to it.
+        scrollPositions[dayNumber] = nil
+    }
+
+    private func itemRow(_ entry: ItineraryEntry, on day: ItineraryDay, topFade: CGFloat) -> some View {
         let itemMembers = memberSelection(onTripOf: entry.item.tripId)
         let going = itemMembers.initialSelection(for: entry.item)
-        return ItineraryEntryCard(
-            entry: entry,
-            places: places,
-            placeDetails: placeDetails,
-            // A redacted item's participants are blanked, so there's no one to count.
-            membersSummary: entry.item.redacted ? nil : itemMembers.summary(of: going),
-            membersCount: going.count,
-            // Open items others are doing shrink to a one-line card.
-            isCondensed: entry.item.visibility == .open && itemMembers.includesCurrentUser(entry.item) == false
-        )
-        .contentShape(.rect)
-        // Every entry of an item (each end, each layover) opens the same record; a
-        // long press skips the detail view and goes straight to editing it.
-        .onTapGesture { selectedItem = entry.item }
-        .onLongPressGesture { editItem(entry.item) }
-        .accessibilityAction(named: "Edit") { editItem(entry.item) }
+        // Open items others are doing shrink to a one-line card.
+        let isCondensed = entry.item.visibility == .open && itemMembers.includesCurrentUser(entry.item) == false
+        let isExpanded = expandedEntryID == entry.id
+        // The condensed card is see-through, so the panel can't sit up behind it.
+        let panelAnchor = isCondensed ? 0 : TripItemDetailPanel.anchor
+        // Pulls the panel's top up over the card's own 6pt bottom padding, then
+        // `panelAnchor` further, behind the card's bottom edge.
+        return VStack(spacing: -(6 + panelAnchor)) {
+            ItineraryEntryCard(
+                entry: entry,
+                places: places,
+                placeDetails: placeDetails,
+                // A redacted item's participants are blanked, so there's no one to count.
+                membersSummary: entry.item.redacted ? nil : itemMembers.summary(of: going),
+                membersCount: going.count,
+                isCondensed: isCondensed,
+                isExpanded: isExpanded
+            )
+            .contentShape(.rect)
+            // Tapping folds the item's details open beneath the card, or shut again; a
+            // long press skips them and goes straight to editing the item.
+            .onTapGesture {
+                if isExpanded {
+                    withAnimation(Self.expandAnimation) {
+                        expandedEntryID = nil
+                    }
+                } else {
+                    beginOpening(entry, on: day)
+                }
+            }
+            .onLongPressGesture { editItem(entry.item) }
+            .accessibilityAction(named: "Edit") { editItem(entry.item) }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(isExpanded ? "Hides details" : "Shows details")
+            // Over the panel, whose top sits behind the card's bottom edge.
+            .zIndex(1)
+
+            if isExpanded {
+                TripItemDetailPanel(item: places.resolving(entry.item), anchor: panelAnchor, placeDetails: placeDetails) {
+                    editItem(entry.item)
+                }
+                // In place of the card's bottom padding, which the panel covers.
+                .padding(.bottom, 6)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    openRowExtra = height - (6 + panelAnchor)
+                }
+                .transition(UnfoldTransition())
+            }
+        }
+        // Just tapped: where the row sits now, and its details laid out unseen at
+        // their natural height, for `finishOpening` to work out the scroll from.
+        .background(alignment: .top) {
+            if measuringEntryID == entry.id {
+                Color.clear
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.detailSpace)) } action: { frame in
+                        measuredRowFrame = frame
+                        finishOpening(entry, on: day, anchor: panelAnchor)
+                    }
+                    .overlay(alignment: .top) {
+                        TripItemDetailPanel(item: places.resolving(entry.item), anchor: panelAnchor, placeDetails: placeDetails, loadsMissingDetails: false) {}
+                            .padding(.bottom, 6)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .hidden()
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                measuredPanelHeight = height
+                                finishOpening(entry, on: day, anchor: panelAnchor)
+                            }
+                    }
+            }
+        }
         .mask {
             GeometryReader { geo in
                 let detailHeight = geo.bounds(of: .named(Self.detailSpace))?.height ?? geo.size.height
@@ -1188,6 +1456,9 @@ private struct DayPager<Content: View>: View {
     @Binding var selection: Int
     /// Live swipe progress published outward (-1…1) so the day picker can track the drag.
     @Binding var dragProgress: CGFloat
+    /// Called once a slide to another day has landed and the day left behind is off
+    /// screen.
+    var onSettled: () -> Void = {}
     @ViewBuilder let content: (ItineraryDay, Bool) -> Content
 
     /// Starts on the selected day rather than the first, so the pager never swaps
@@ -1198,8 +1469,10 @@ private struct DayPager<Content: View>: View {
         days: [ItineraryDay],
         selection: Binding<Int>,
         dragProgress: Binding<CGFloat>,
+        onSettled: @escaping () -> Void = {},
         @ViewBuilder content: @escaping (ItineraryDay, Bool) -> Content
     ) {
+        self.onSettled = onSettled
         self.days = days
         _selection = selection
         _dragProgress = dragProgress
@@ -1229,11 +1502,18 @@ private struct DayPager<Content: View>: View {
             let scrollLocked = (dragDecided && dragHorizontal) || isAnimating
 
             HStack(spacing: 0) {
+                // Each page flattened into one layer before it fades, so it fades as a
+                // whole. Otherwise every view in it fades on its own, and wherever two
+                // overlap (an open card over the top of its details) the two half-faded
+                // layers stack into a darker band.
                 slot(for: -1, width: w, scrollLocked: scrollLocked)
+                    .compositingGroup()
                     .opacity(slotOpacity(for: -1, width: w))
                 slot(for: 0, width: w, scrollLocked: scrollLocked)
+                    .compositingGroup()
                     .opacity(slotOpacity(for: 0, width: w))
                 slot(for: 1, width: w, scrollLocked: scrollLocked)
+                    .compositingGroup()
                     .opacity(slotOpacity(for: 1, width: w))
             }
             .frame(width: w * 3, alignment: .leading)
@@ -1340,6 +1620,7 @@ private struct DayPager<Content: View>: View {
             incoming = nil
             dragOffset = 0
             isAnimating = false
+            onSettled()
         }
     }
 }
