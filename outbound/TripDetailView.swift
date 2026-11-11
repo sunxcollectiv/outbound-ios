@@ -756,6 +756,12 @@ struct TripDetailView: View {
         // Untouchable while an opened card scrolls into place, so a finger can't fight
         // it. (Not `scrollDisabled`, which would stop the programmatic scroll too.)
         .allowsHitTesting(!isAutoScrolling)
+        // Disabled outright while the pages are swiped or slide to another day, so a
+        // swipe that starts on a card or a button moves the page without also tapping
+        // what's under the finger. Disabling, unlike turning off hit testing, also
+        // drops a press that began before the swipe did: a button travels with the
+        // page under the finger, so it would otherwise still fire when the finger lifts.
+        .disabled(scrollLocked)
         // Let cards keep drawing as they scroll up past the top, under the pinned block.
         .scrollClipDisabled()
         // Clamped, so it stops updating once scrolled past the reach.
@@ -1154,7 +1160,8 @@ struct TripDetailView: View {
                 .padding(.vertical, 6)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        // Not `.plain`, which greys out while the page is disabled during a swipe.
+        .buttonStyle(SteadyButtonStyle())
         .accessibilityLabel("Add \(label)")
     }
 

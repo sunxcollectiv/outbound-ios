@@ -168,7 +168,7 @@ struct LodgingBar: View {
                         .clipped()
                         .contentShape(.rect)
                 }
-                .buttonStyle(DimWhenPressedButtonStyle())
+                .buttonStyle(SteadyButtonStyle())
                 .allowsHitTesting(segment.invitesAdd && !segment.isLeaving)
                 .accessibilityLabel("Add lodging")
                 .accessibilityHidden(!segment.invitesAdd || segment.isLeaving)
@@ -512,12 +512,5 @@ private struct DiagonalHatch: View {
             context.stroke(path, with: .color(.white.opacity(0.07)), lineWidth: 1)
         }
         .accessibilityHidden(true)
-    }
-}
-
-/// Dims its label while pressed, and otherwise leaves it alone.
-private struct DimWhenPressedButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.opacity(configuration.isPressed ? 0.6 : 1)
     }
 }

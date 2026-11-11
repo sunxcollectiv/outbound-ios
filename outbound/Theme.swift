@@ -68,6 +68,15 @@ extension Animation {
     }
 }
 
+/// A button that's just its label, dimmed while pressed, and that looks the same when
+/// disabled. For controls that are only ever disabled for a moment (the itinerary's
+/// pages while they're swiped), where the system's greyed-out look would flicker.
+struct SteadyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? 0.6 : 1)
+    }
+}
+
 extension View {
     func appTheme() -> some View {
         modifier(AppTheme())
