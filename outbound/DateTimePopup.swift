@@ -626,10 +626,19 @@ struct DateTimePopup: View {
             Color.clear
                 .aspectRatio(1, contentMode: .fit)
                 .overlay {
-                    Text(day.date, format: .dateTime.day())
-                        .font(.subheadline.weight(day.isInTrip ? .semibold : .regular))
-                        .monospacedDigit()
-                        .foregroundStyle(isSelected ? Color.black : Color.appForeground.opacity(day.isInTrip ? 1 : 0.3))
+                    // The weekday over the day number, so each square names its day
+                    // without a header row.
+                    VStack(spacing: 0) {
+                        Text(day.date, format: .dateTime.weekday(.abbreviated))
+                            .font(.system(size: 9, weight: .medium))
+                            .textCase(.uppercase)
+                            .tracking(1)
+                            .foregroundStyle(isSelected ? Color.black.opacity(0.6) : Color.appForeground.opacity(day.isInTrip ? 0.5 : 0.2))
+                        Text(day.date, format: .dateTime.day())
+                            .font(.subheadline.weight(day.isInTrip ? .semibold : .regular))
+                            .monospacedDigit()
+                            .foregroundStyle(isSelected ? Color.black : Color.appForeground.opacity(day.isInTrip ? 1 : 0.3))
+                    }
                 }
                 .background(isSelected ? Color.appForeground : Color.appForeground.opacity(fill))
                 .overlay(alignment: .bottom) {
