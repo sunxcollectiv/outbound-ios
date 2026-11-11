@@ -349,11 +349,15 @@ struct DateTimePopup: View {
                     .padding(.horizontal, 4)
             }
 
-            // Sets the date section apart from the time below it.
-            Rectangle()
-                .fill(Color.appForeground.opacity(0.12))
-                .frame(height: 1)
-                .accessibilityHidden(true)
+            // Labels the time section and sets it apart from the date above it: the
+            // label sits centered in the rule.
+            HStack(spacing: 10) {
+                sectionRule
+                Text("Time")
+                    .font(.caption)
+                    .foregroundStyle(Color.appForeground.opacity(0.75))
+                sectionRule
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 hourRow
@@ -361,6 +365,14 @@ struct DateTimePopup: View {
             }
         }
         .background(Color.black)
+    }
+
+    /// One side of the hairline that flanks the "Time" label.
+    private var sectionRule: some View {
+        Rectangle()
+            .fill(Color.appForeground.opacity(0.12))
+            .frame(height: 1)
+            .accessibilityHidden(true)
     }
 
     /// Start → end, each side showing its date and time (or its placeholder), with the
