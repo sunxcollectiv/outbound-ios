@@ -349,11 +349,15 @@ struct DateTimePopup: View {
                     .padding(.horizontal, 4)
             }
 
-            // Sets the date section apart from the time below it.
-            Rectangle()
-                .fill(Color.appForeground.opacity(0.12))
-                .frame(height: 1)
-                .accessibilityHidden(true)
+            // Labels the time section and sets it apart from the date above it: the
+            // label sits centered in the rule.
+            HStack(spacing: 10) {
+                sectionRule
+                Text("Time")
+                    .font(.caption)
+                    .foregroundStyle(Color.appForeground.opacity(0.75))
+                sectionRule
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 hourRow
@@ -361,6 +365,14 @@ struct DateTimePopup: View {
             }
         }
         .background(Color.black)
+    }
+
+    /// One side of the hairline that flanks the "Time" label.
+    private var sectionRule: some View {
+        Rectangle()
+            .fill(Color.appForeground.opacity(0.12))
+            .frame(height: 1)
+            .accessibilityHidden(true)
     }
 
     /// Start → end, each side showing its date and time (or its placeholder), with the
@@ -614,10 +626,20 @@ struct DateTimePopup: View {
             Color.clear
                 .aspectRatio(1, contentMode: .fit)
                 .overlay {
-                    Text(day.date, format: .dateTime.day())
-                        .font(.subheadline.weight(day.isInTrip ? .semibold : .regular))
-                        .monospacedDigit()
-                        .foregroundStyle(isSelected ? Color.black : Color.appForeground.opacity(day.isInTrip ? 1 : 0.3))
+                    // The weekday over the day number, so each square names its day
+                    // without a header row. Padding days' labels are all but faded
+                    // out, so their numbers still line up with the trip days'.
+                    VStack(spacing: 0) {
+                        Text(day.date, format: .dateTime.weekday(.abbreviated))
+                            .font(.system(size: 9, weight: .medium))
+                            .textCase(.uppercase)
+                            .tracking(1)
+                            .foregroundStyle(isSelected ? Color.black.opacity(0.6) : Color.appForeground.opacity(day.isInTrip ? 0.5 : 0.12))
+                        Text(day.date, format: .dateTime.day())
+                            .font(.subheadline.weight(day.isInTrip ? .semibold : .regular))
+                            .monospacedDigit()
+                            .foregroundStyle(isSelected ? Color.black : Color.appForeground.opacity(day.isInTrip ? 1 : 0.3))
+                    }
                 }
                 .background(isSelected ? Color.appForeground : Color.appForeground.opacity(fill))
                 .overlay(alignment: .bottom) {
