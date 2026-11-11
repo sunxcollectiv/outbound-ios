@@ -40,7 +40,7 @@ struct LodgingBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The curve the segments slide on: the same steep ease a card's details open on.
-    private static let slide: Animation = .steepEase(duration: 0.35)
+    private static let slide: Animation = .steepEase(duration: 0.3)
 
     init(
         dayNumber: Int,

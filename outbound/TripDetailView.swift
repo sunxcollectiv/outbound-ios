@@ -147,7 +147,7 @@ struct TripDetailView: View {
 
     /// How long a card's details take to fold open or shut, and the page to scroll
     /// the opened card into place.
-    private static let expandDuration: Double = 0.27
+    private static let expandDuration: Double = 0.3
 
     /// The curve a card's details fold open or shut on, with the page scrolling
     /// alongside: the itinerary's steep ease in and out.
