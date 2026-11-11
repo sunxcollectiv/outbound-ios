@@ -59,6 +59,15 @@ struct AppTheme: ViewModifier {
     }
 }
 
+extension Animation {
+    /// The itinerary's steep ease in and out (cubic bezier 0.85, 0, 0.15, 1): slow at
+    /// each end and quick through the middle, close to an expo in-out. A card's details
+    /// fold open and shut on it, and the lodging bar slides between days on it.
+    static func steepEase(duration: Double) -> Animation {
+        .timingCurve(0.85, 0, 0.15, 1, duration: duration)
+    }
+}
+
 extension View {
     func appTheme() -> some View {
         modifier(AppTheme())

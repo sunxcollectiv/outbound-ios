@@ -150,10 +150,9 @@ struct TripDetailView: View {
     private static let expandDuration: Double = 0.27
 
     /// The curve a card's details fold open or shut on, with the page scrolling
-    /// alongside: a steep ease in and out (cubic bezier 0.85, 0, 0.15, 1), slow at
-    /// each end and quick through the middle, close to an expo in-out.
+    /// alongside: the itinerary's steep ease in and out.
     private static var expandAnimation: Animation {
-        .timingCurve(0.85, 0, 0.15, 1, duration: expandDuration)
+        .steepEase(duration: expandDuration)
     }
 
     /// The least space left between the pinned block and an opened card too tall to
@@ -254,11 +253,14 @@ struct TripDetailView: View {
             VStack(spacing: 0) {
                 header(joinsLodging: selectedDay != nil)
                 if let selectedDay {
-                    if selectedDay.lodging.isEmpty {
-                        addLodgingStrip(for: selectedDay)
-                    } else {
-                        lodgingStrip(selectedDay.lodging.sorted { $0.phase.dayOrder < $1.phase.dayOrder })
-                    }
+                    LodgingBar(
+                        dayNumber: selectedDay.dayNumber,
+                        lodging: selectedDay.lodging,
+                        name: { lodgingName($0) },
+                        onOpen: showLodgingPopup,
+                        onEdit: editItem,
+                        onAdd: { withAnimation(.snappy(duration: 0.25)) { addLodgingDay = selectedDay } }
+                    )
                 }
             }
             .padding(.horizontal)
@@ -1039,78 +1041,6 @@ struct TripDetailView: View {
         return LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
     }
 
-    /// The day's lodging as one band of equal-width halves, so a changeover day shows its
-    /// check-out and check-in side by side, split by a faint line. Square on top, where it
-    /// meets the header.
-    ///
-    /// A day with a lone check-in or check-out gives the stay 75% of the width and
-    /// hatches the rest, on the side with no lodging: before arriving, or after leaving.
-    private func lodgingStrip(_ lodging: [LodgingStay]) -> some View {
-        Group {
-            if lodging.count == 1, let stay = lodging.first, stay.phase != .staying {
-                FractionSplit(leadingFraction: stay.phase == .checkIn ? 0.25 : 0.75) {
-                    // A solid line marks where the stay begins or ends.
-                    if stay.phase == .checkIn {
-                        DiagonalHatch()
-                            .overlay(alignment: .trailing) { hatchEdge }
-                        lodgingRow(stay)
-                    } else {
-                        lodgingRow(stay)
-                        DiagonalHatch()
-                            .overlay(alignment: .leading) { hatchEdge }
-                    }
-                }
-            } else {
-                HStack(spacing: 0) {
-                    ForEach(Array(lodging.enumerated()), id: \.element.item.id) { index, stay in
-                        if index > 0 {
-                            Rectangle()
-                                .fill(.white.opacity(0.15))
-                                .frame(width: 1)
-                                .padding(.vertical, 8)
-                        }
-                        lodgingRow(stay)
-                    }
-                }
-            }
-        }
-        // Size the separators and hatching to the strip's height.
-        .fixedSize(horizontal: false, vertical: true)
-        // Plain translucent fill, dark enough that cards scrolling underneath don't
-        // compete with the lodging names.
-        .background(Color(white: 0.12).opacity(0.8))
-        .clipShape(.rect(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
-    }
-
-    /// A fully hatched strip for a day with no lodging, inviting one to be added: opens
-    /// the add-lodging popup for that day.
-    private func addLodgingStrip(for day: ItineraryDay) -> some View {
-        Button {
-            withAnimation(.snappy(duration: 0.25)) { addLodgingDay = day }
-        } label: {
-            // Sized by an invisible line in the lodging rows' font, so the block keeps
-            // the same height when swiping between days with and without lodging.
-            ZStack {
-                Text(verbatim: " ")
-                    .font(.subheadline.weight(.semibold))
-                    .hidden()
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                    Text("add lodging")
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.appForeground.opacity(0.7))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(DiagonalHatch())
-            .background(Color(white: 0.12).opacity(0.8))
-            .clipShape(.rect(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-    }
-
     /// What to call a stay: its place's name, as the itinerary cards do, else its own
     /// title (which may be something generic like "Check-in").
     private func lodgingName(_ stay: LodgingStay) -> String {
@@ -1211,58 +1141,6 @@ struct TripDetailView: View {
                 )
             }
         }
-    }
-
-    /// The solid line between a lone check-in or check-out and its hatched remainder.
-    private var hatchEdge: some View {
-        Rectangle()
-            .fill(Color(white: 0.35))
-            .frame(width: 1)
-    }
-
-    /// A lodging chip: bed icon and name, with an arrow marking the phase, on the left
-    /// for a check-in (arriving) and on the right for a check-out (leaving). A stay in
-    /// progress shows "Staying" instead.
-    private func lodgingRow(_ stay: LodgingStay) -> some View {
-        HStack(spacing: 8) {
-            if stay.phase == .checkIn {
-                lodgingArrow.padding(.trailing, 7)
-            }
-            Image(systemName: stay.item.lodging?.propertyType?.systemImage ?? "bed.double.fill")
-                .font(.caption)
-            Text(lodgingName(stay))
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            if stay.phase == .staying {
-                Text(stay.phase.label)
-                    .font(.caption)
-                    .foregroundStyle(Color.appForeground.opacity(0.7))
-                    .fixedSize()
-            }
-            if stay.phase == .checkOut {
-                lodgingArrow.padding(.leading, 7)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
-        .contentShape(.rect)
-        .onTapGesture { showLodgingPopup(stay.item) }
-        .onLongPressGesture { editItem(stay.item) }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(lodgingName(stay)), \(stay.phase.label)")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { showLodgingPopup(stay.item) }
-        .accessibilityAction(named: "Edit") { editItem(stay.item) }
-    }
-
-    private var lodgingArrow: some View {
-        Image(systemName: "arrow.right")
-            .font(.system(size: 8, weight: .heavy))
-            .foregroundStyle(Color(white: 0.15))
-            .frame(width: 16, height: 16)
-            .background(Color.appForeground, in: .circle)
     }
 
     /// One word of the add line under a day's items, adding that kind on the day.
@@ -1660,55 +1538,6 @@ private extension View {
 private struct HorizontalClip: Shape {
     func path(in rect: CGRect) -> Path {
         Path(CGRect(x: rect.minX, y: rect.minY - 10_000, width: rect.width, height: rect.height + 20_000))
-    }
-}
-
-/// Lays out two views side by side, the first taking `leadingFraction` of the width and
-/// the second the rest, both as tall as the taller of the two.
-private struct FractionSplit: Layout {
-    var leadingFraction: CGFloat
-
-    private func widths(for total: CGFloat) -> [CGFloat] {
-        [total * leadingFraction, total * (1 - leadingFraction)]
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? subviews.reduce(0) { $0 + $1.sizeThatFits(.unspecified).width }
-        let height = zip(subviews, widths(for: width))
-            .map { $0.sizeThatFits(ProposedViewSize(width: $1, height: proposal.height)).height }
-            .max() ?? 0
-        return CGSize(width: width, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX
-        for (subview, width) in zip(subviews, widths(for: bounds.width)) {
-            subview.place(
-                at: CGPoint(x: x, y: bounds.minY),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: width, height: bounds.height)
-            )
-            x += width
-        }
-    }
-}
-
-/// Faint diagonal stripes filling the space they're given, marking part of the lodging
-/// strip with no stay.
-private struct DiagonalHatch: View {
-    var body: some View {
-        Canvas { context, size in
-            var path = Path()
-            let spacing: CGFloat = 7
-            var x = -size.height
-            while x < size.width {
-                path.move(to: CGPoint(x: x, y: size.height))
-                path.addLine(to: CGPoint(x: x + size.height, y: 0))
-                x += spacing
-            }
-            context.stroke(path, with: .color(.white.opacity(0.07)), lineWidth: 1)
-        }
-        .accessibilityHidden(true)
     }
 }
 
