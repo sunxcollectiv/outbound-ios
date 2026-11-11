@@ -59,6 +59,24 @@ struct AppTheme: ViewModifier {
     }
 }
 
+extension Animation {
+    /// The itinerary's steep ease in and out (cubic bezier 0.85, 0, 0.15, 1): slow at
+    /// each end and quick through the middle, close to an expo in-out. A card's details
+    /// fold open and shut on it, and the lodging bar slides between days on it.
+    static func steepEase(duration: Double) -> Animation {
+        .timingCurve(0.85, 0, 0.15, 1, duration: duration)
+    }
+}
+
+/// A button that's just its label, dimmed while pressed, and that looks the same when
+/// disabled. For controls that are only ever disabled for a moment (the itinerary's
+/// pages while they're swiped), where the system's greyed-out look would flicker.
+struct SteadyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? 0.6 : 1)
+    }
+}
+
 extension View {
     func appTheme() -> some View {
         modifier(AppTheme())

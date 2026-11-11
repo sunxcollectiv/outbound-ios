@@ -300,7 +300,7 @@ struct ItineraryEntry: Decodable, Identifiable {
 }
 
 /// A lodging item as it applies to one day (for the bar at the top of the day).
-struct LodgingStay: Decodable {
+struct LodgingStay: Decodable, Equatable {
     let item: TripItem
     let phase: LodgingPhase
 }
@@ -353,20 +353,29 @@ extension ItineraryDay {
                 endsAtLocal: nil, endsAtUtc: nil, endTimezone: nil, imageUrl: image, createdAt: date, updatedAt: date)
             )
         }
+        /// A stay as it applies to one day, for the lodging bar.
+        func stay(_ name: String, _ phase: LodgingPhase) -> LodgingStay {
+            LodgingStay(item: item(15, 0, .lodging, name).item, phase: phase)
+        }
+        // The lodging runs through every state of the bar: a check-in, a night in the
+        // middle of a stay, a changeover, a check-out, a day with nowhere booked, then
+        // a one-night stay (check-in one day, check-out the next).
         return [
-            ItineraryDay(date: "2026-11-01", dayNumber: 1, lodging: [], entries: [
+            ItineraryDay(date: "2026-11-01", dayNumber: 1, lodging: [stay("Park Hyatt Tokyo", .checkIn)], entries: [
                 item(12, 0, .lodging, "Early check-in confirmed", notes: "Standard check-in 15:00"),
                 item(15, 0, .activity, "Sean Salim arrives", notes: "NH 106 · joins from Osaka"),
                 item(18, 30, .activity, "Omoide Yokocho dinner", notes: "Nishi-Shinjuku 1-chome", tags: ["Reserved"], image: "https://example.com/yokocho.jpg"),
             ]),
-            ItineraryDay(date: "2026-11-02", dayNumber: 2, lodging: [], entries: [
+            ItineraryDay(date: "2026-11-02", dayNumber: 2, lodging: [stay("Park Hyatt Tokyo", .staying)], entries: [
                 item(9, 30, .activity, "Tsukiji breakfast", notes: "Outer market"),
             ]),
-            ItineraryDay(date: "2026-11-03", dayNumber: 3, lodging: [], entries: []),
-            ItineraryDay(date: "2026-11-04", dayNumber: 4, lodging: [], entries: [
+            ItineraryDay(date: "2026-11-03", dayNumber: 3, lodging: [stay("Hoshinoya Kyoto", .checkIn), stay("Park Hyatt Tokyo", .checkOut)], entries: [
                 item(11, 0, .transit, "Shinkansen to Kyoto", notes: "Nozomi 221"),
             ]),
+            ItineraryDay(date: "2026-11-04", dayNumber: 4, lodging: [stay("Hoshinoya Kyoto", .checkOut)], entries: []),
             ItineraryDay(date: "2026-11-05", dayNumber: 5, lodging: [], entries: []),
+            ItineraryDay(date: "2026-11-06", dayNumber: 6, lodging: [stay("Koyasan Onsen Fukuchiin", .checkIn)], entries: []),
+            ItineraryDay(date: "2026-11-07", dayNumber: 7, lodging: [stay("Koyasan Onsen Fukuchiin", .checkOut)], entries: []),
         ]
     }()
 }
