@@ -627,13 +627,14 @@ struct DateTimePopup: View {
                 .aspectRatio(1, contentMode: .fit)
                 .overlay {
                     // The weekday over the day number, so each square names its day
-                    // without a header row.
+                    // without a header row. Padding days' labels are all but faded
+                    // out, so their numbers still line up with the trip days'.
                     VStack(spacing: 0) {
                         Text(day.date, format: .dateTime.weekday(.abbreviated))
                             .font(.system(size: 9, weight: .medium))
                             .textCase(.uppercase)
                             .tracking(1)
-                            .foregroundStyle(isSelected ? Color.black.opacity(0.6) : Color.appForeground.opacity(day.isInTrip ? 0.5 : 0.2))
+                            .foregroundStyle(isSelected ? Color.black.opacity(0.6) : Color.appForeground.opacity(day.isInTrip ? 0.5 : 0.12))
                         Text(day.date, format: .dateTime.day())
                             .font(.subheadline.weight(day.isInTrip ? .semibold : .regular))
                             .monospacedDigit()
