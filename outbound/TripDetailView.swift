@@ -1049,10 +1049,6 @@ struct TripDetailView: View {
 
     /// What to call a stay: its place's name, as the itinerary cards do, else its own
     /// title (which may be something generic like "Check-in").
-    private func lodgingName(_ stay: LodgingStay) -> String {
-        lodgingName(stay.item)
-    }
-
     private func lodgingName(_ item: TripItem) -> String {
         let place = places.current(item.place)
         return place?.googlePlaceId.flatMap { placeDetails[$0] }?.name ?? place?.name ?? item.displayTitle
