@@ -34,7 +34,7 @@ struct PlaceSearchField: View {
     var source: Source = .google
 
     /// Where the field looks for places.
-    enum Source: Equatable {
+    enum Source {
         /// A broad Google Places search, registering the pick in our DB.
         case google
         /// Only the airports in our own DB, by IATA code or name.
@@ -54,7 +54,8 @@ struct PlaceSearchField: View {
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var selected: Suggestion?
-    /// The last search that finished, to tell "no matches" from "not searched yet".
+    /// The last search that came back, to tell "no matches" from "not searched yet"
+    /// (or a search that failed, which shows its error instead).
     @State private var searchedQuery: String?
     @State private var isResolving = false
     @State private var errorText: String?
@@ -181,7 +182,7 @@ struct PlaceSearchField: View {
     /// rather than leaving the field looking unresponsive.
     private var showsNoMatches: Bool {
         source == .airports && isFocused && !isSearching && suggestions.isEmpty
-            && searchedQuery != nil && searchedQuery == trimmedText
+            && searchedQuery == trimmedText
     }
 
     private var showsTypedEntryRow: Bool {
@@ -276,12 +277,12 @@ struct PlaceSearchField: View {
         offeringTypedEntry = true
         errorText = nil
 
+        // Earlier suggestions stay up until the new search answers.
         searchTask?.cancel()
         searchedQuery = nil
         let query = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.count >= 2 else {
-            suggestions = []
-            isSearching = false
+            clearSuggestions()
             return
         }
 
@@ -294,6 +295,7 @@ struct PlaceSearchField: View {
                 let results = try await search(query)
                 guard !Task.isCancelled else { return }
                 suggestions = results
+                searchedQuery = query
             } catch {
                 guard !Task.isCancelled else { return }
                 suggestions = []
@@ -301,7 +303,6 @@ struct PlaceSearchField: View {
                 // in Secrets.json) doesn't look like one that found nothing.
                 errorText = error.localizedDescription
             }
-            searchedQuery = query
             isSearching = false
         }
     }
@@ -316,8 +317,8 @@ struct PlaceSearchField: View {
         }
     }
 
-    /// Fills the text from a chosen suggestion, dismisses the list, and resolves the
-    /// place into our own database.
+    /// Fills the text from a chosen suggestion, dismisses the list, and resolves its
+    /// internal place.
     private func select(_ suggestion: Suggestion) {
         searchTask?.cancel()
         isFillingFromSuggestion = true
@@ -332,22 +333,25 @@ struct PlaceSearchField: View {
     }
 
     /// Keeps the internal place behind the chosen suggestion: one from our own DB as is,
-    /// or a Google one once `POST /places` has registered it.
+    /// or a Google one once it's registered.
     private func resolve(_ suggestion: Suggestion) {
         resolvedPlace = nil
         resolvedTimeZone?.wrappedValue = nil
         errorText = nil
 
-        let googlePlace: PlaceSuggestion
         switch suggestion.origin {
         case .place(let place):
+            // Already in our DB, so there's nothing to register.
             resolvedPlace = place
             resolvedTimeZone?.wrappedValue = place.timeZone
-            return
         case .google(let prediction):
-            googlePlace = prediction
+            register(prediction, pickedAs: suggestion)
         }
+    }
 
+    /// Sends a picked Google place to `POST /places` so the backend registers it in our
+    /// places DB, and keeps the returned internal place.
+    private func register(_ googlePlace: PlaceSuggestion, pickedAs suggestion: Suggestion) {
         isResolving = true
         Task {
             defer { isResolving = false }
@@ -372,8 +376,8 @@ struct PlaceSearchField: View {
     }
 
     /// One row in the suggestions: a Google prediction, or a place from our own DB.
-    private struct Suggestion: Identifiable, Equatable {
-        enum Origin: Equatable {
+    private struct Suggestion: Identifiable {
+        enum Origin {
             case google(PlaceSuggestion)
             case place(Place)
         }

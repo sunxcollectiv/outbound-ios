@@ -128,8 +128,7 @@ private struct TransitLegSection: View {
             modePicker
 
             // Side by side, with suggestions floating over the form across the whole
-            // row (from the origin's left edge, or the destination's right). A flight's
-            // ends are picked from our own airports rather than all of Google.
+            // row (from the origin's left edge, or the destination's right).
             HStack(alignment: .top, spacing: 8) {
                 TripItemPlaceField(
                     label: "Origin",
@@ -165,6 +164,7 @@ private struct TransitLegSection: View {
         }
     }
 
+    /// A flight's ends are picked from our own airports rather than all of Google.
     private var placeSource: PlaceSearchField.Source {
         leg.transitMode == .flight ? .airports : .google
     }
