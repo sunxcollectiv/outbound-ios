@@ -128,7 +128,8 @@ private struct TransitLegSection: View {
             modePicker
 
             // Side by side, with suggestions floating over the form across the whole
-            // row (from the origin's left edge, or the destination's right).
+            // row (from the origin's left edge, or the destination's right). A flight's
+            // ends are picked from our own airports rather than all of Google.
             HStack(alignment: .top, spacing: 8) {
                 TripItemPlaceField(
                     label: "Origin",
@@ -136,7 +137,8 @@ private struct TransitLegSection: View {
                     text: $leg.startPlaceText,
                     place: $leg.startPlace,
                     timeZone: $leg.startPlaceZone,
-                    floatingResults: .init(width: rowWidth, edge: .leading)
+                    floatingResults: .init(width: rowWidth, edge: .leading),
+                    source: placeSource
                 )
                 TripItemPlaceField(
                     label: "Destination",
@@ -144,7 +146,8 @@ private struct TransitLegSection: View {
                     text: $leg.endPlaceText,
                     place: $leg.endPlace,
                     timeZone: $leg.endPlaceZone,
-                    floatingResults: .init(width: rowWidth, edge: .trailing)
+                    floatingResults: .init(width: rowWidth, edge: .trailing),
+                    source: placeSource
                 )
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
@@ -160,6 +163,10 @@ private struct TransitLegSection: View {
                 }
             }
         }
+    }
+
+    private var placeSource: PlaceSearchField.Source {
+        leg.transitMode == .flight ? .airports : .google
     }
 
     /// The leg's number as a tag, with an inline delete on the right.

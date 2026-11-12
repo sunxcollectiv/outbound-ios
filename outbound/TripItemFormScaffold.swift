@@ -334,6 +334,8 @@ struct TripItemPlaceField: View {
     var typedEntry: Binding<String?>? = nil
     /// Floats the suggestions over the form; see `PlaceSearchField.floatingResults`.
     var floatingResults: PlaceSearchField.FloatingResults? = nil
+    /// Where suggestions come from; see `PlaceSearchField.source`.
+    var source: PlaceSearchField.Source = .google
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -347,7 +349,8 @@ struct TripItemPlaceField: View {
                 resolvedPlace: $place,
                 resolvedTimeZone: $timeZone,
                 typedEntry: typedEntry,
-                floatingResults: floatingResults
+                floatingResults: floatingResults,
+                source: source
             )
         }
     }

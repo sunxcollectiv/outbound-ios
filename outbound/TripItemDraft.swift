@@ -197,9 +197,10 @@ final class TripItemDraft {
                 legs = segments.map(TransitLeg.init)
             } else {
                 // A new transit (or one saved without legs) starts as one leg from the
-                // item's own ends.
+                // item's own ends. A new one starts as a flight, the most common case.
+                let mode = item.map { $0.transitMode == .mixed ? nil : $0.transitMode } ?? .flight
                 legs = [TransitLeg(
-                    transitMode: item?.transitMode == .mixed ? nil : item?.transitMode,
+                    transitMode: mode,
                     startPlace: item?.place,
                     startPlaceText: item?.place?.name ?? "",
                     endPlace: item?.endPlace,
