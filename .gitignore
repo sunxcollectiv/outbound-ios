@@ -13,3 +13,6 @@ DerivedData/
 # Local secrets (API keys etc.) — bundled at build time, never committed.
 # Copy Secrets.example.json to outbound/Secrets.json and fill in real values.
 outbound/Secrets.json
+
+# Claude Code worktrees: separate checkouts used by parallel sessions.
+.claude/worktrees/
