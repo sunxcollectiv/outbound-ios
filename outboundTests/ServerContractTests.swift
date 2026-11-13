@@ -8,18 +8,18 @@ import Testing
 @testable import outbound
 
 /// Every endpoint the app calls, sent with the app's own request bodies and decoded
-/// into its own models, against the local dev server (`APIConfig.baseURL`). Catches a
+/// into its own models, against the local dev server (`APIConfig.local`). Catches a
 /// server change that moves, locks down or reshapes something the app relies on.
 ///
 /// Skipped when no server answers at the base URL. Each test registers throwaway
 /// accounts (`contract-…@example.com`) and deletes the trips it creates.
 @MainActor
-@Suite(.serialized, .enabled(if: DevServer.isUp, "No dev server at \(APIConfig.baseURL)"))
+@Suite(.serialized, .enabled(if: DevServer.isUp, "No dev server at \(APIConfig.local)"))
 struct ServerContractTests {
     private let cache = ResponseCache(directory: URL.temporaryDirectory.appending(path: "ServerContractTests-\(UUID().uuidString)"))
 
     private func client(token: String? = nil) -> APIClient {
-        let client = APIClient(session: URLSession(configuration: .ephemeral), cache: cache)
+        let client = APIClient(baseURL: APIConfig.local, session: URLSession(configuration: .ephemeral), cache: cache)
         client.token = token
         return client
     }
@@ -524,7 +524,7 @@ private enum DevServer {
     static let isUp: Bool = {
         let done = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var up = false
-        var request = URLRequest(url: APIConfig.baseURL.appending(path: "/health"))
+        var request = URLRequest(url: APIConfig.local.appending(path: "/health"))
         request.timeoutInterval = 2
         URLSession.shared.dataTask(with: request) { _, response, _ in
             up = (response as? HTTPURLResponse)?.statusCode == 200
