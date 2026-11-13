@@ -17,6 +17,8 @@ struct Place: Codable, Identifiable, Equatable {
     /// Null right after creation — the backend enriches name/address/coords later.
     let name: String?
     let category: String?
+    /// A short code for the place, e.g. an airport's IATA code ("LAX").
+    let code: String?
     let address: String?
     let latitude: Double?
     let longitude: Double?
@@ -67,6 +69,7 @@ struct CoverPhoto: Codable, Equatable {
 ///
 ///     POST /places          PlaceFromGoogle       -> PlaceRead (201)
 ///     POST /places/refresh  PlacesRefreshRequest  -> PlacesRefreshResponse
+///     GET  /places/airports ?q=&limit=            -> [PlaceRead]
 enum PlacesAPI {
     /// `PlaceFromGoogle` — body for `POST /places`. The one thing the client supplies
     /// to register a place is its Google place id; the backend fills in the rest.
@@ -96,5 +99,15 @@ enum PlacesAPI {
     /// still due, so repeat calls (or two clients on one trip) don't double-bill.
     static func refresh(placeIds: [String]) -> Endpoint {
         Endpoint(path: "/places/refresh", method: .post, body: RefreshRequest(placeIds: placeIds))
+    }
+
+    /// Airports in our own database whose IATA code or name matches `query`, best
+    /// matches first (exact code, then code prefix, then name). For the ends of a
+    /// flight, so they come from our curated list rather than a broad Google search.
+    static func searchAirports(_ query: String, limit: Int = 10) -> Endpoint {
+        Endpoint(path: "/places/airports", query: [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "limit", value: String(limit)),
+        ])
     }
 }

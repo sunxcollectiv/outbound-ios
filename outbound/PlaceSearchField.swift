@@ -5,13 +5,14 @@
 
 import SwiftUI
 
-/// A text field that doubles as a Google Places search. Typing shows autocomplete
-/// suggestions; picking one fills the field, registers the place in our DB via
-/// `POST /places`, and reports the resulting internal `Place` back through
-/// `resolvedPlace` (its `id` is what a trip item references as `place_id`).
+/// A text field that doubles as a place search. Typing shows suggestions; picking one
+/// fills the field and reports the internal `Place` back through `resolvedPlace` (its
+/// `id` is what a trip item references as `place_id`).
 ///
-/// The registration fires on selection regardless of whether the surrounding form is
-/// ultimately submitted.
+/// By default it searches Google Places, and a pick registers the place in our DB via
+/// `POST /places` (whether or not the surrounding form is ultimately submitted). With
+/// the `.airports` source it searches only the airports already in our DB, so a pick
+/// is the place itself and needs no registering.
 struct PlaceSearchField: View {
     let placeholder: String
     @Binding var text: String
@@ -29,6 +30,16 @@ struct PlaceSearchField: View {
     /// When set, the suggestions float over the content below while the field is
     /// focused, instead of pushing it down.
     var floatingResults: FloatingResults? = nil
+    /// Where suggestions come from.
+    var source: Source = .google
+
+    /// Where the field looks for places.
+    enum Source {
+        /// A broad Google Places search, registering the pick in our DB.
+        case google
+        /// Only the airports in our own DB, by IATA code or name.
+        case airports
+    }
 
     /// How floating suggestions are laid out.
     struct FloatingResults {
@@ -39,10 +50,13 @@ struct PlaceSearchField: View {
         var edge: HorizontalEdge = .leading
     }
 
-    @State private var suggestions: [PlaceSuggestion] = []
+    @State private var suggestions: [Suggestion] = []
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
-    @State private var selected: PlaceSuggestion?
+    @State private var selected: Suggestion?
+    /// The last search that came back, to tell "no matches" from "not searched yet"
+    /// (or a search that failed, which shows its error instead).
+    @State private var searchedQuery: String?
     @State private var isResolving = false
     @State private var errorText: String?
     /// Whether the "use as typed" row is up: from typing until a row is chosen.
@@ -77,6 +91,8 @@ struct PlaceSearchField: View {
             .contentShape(Rectangle())
             .onTapGesture { isFocused = true }
                 .onChange(of: text) { _, newValue in onTextChanged(newValue) }
+            // A different source makes the open suggestions stale.
+            .onChange(of: source) { clearSuggestions() }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fieldHeight = $0 }
             // Hung 8pt below the field, so it covers what's below.
             .overlay(alignment: floatingResults?.edge == .trailing ? .topTrailing : .topLeading) {
@@ -99,7 +115,7 @@ struct PlaceSearchField: View {
     /// The autocomplete suggestions list shown beneath the field.
     @ViewBuilder
     private var results: some View {
-        if isSearching || !suggestions.isEmpty || showsTypedEntryRow {
+        if isSearching || !suggestions.isEmpty || showsTypedEntryRow || showsNoMatches {
             VStack(spacing: 0) {
                 if showsTypedEntryRow {
                     typedEntryRow
@@ -111,12 +127,20 @@ struct PlaceSearchField: View {
                 if isSearching && suggestions.isEmpty {
                     HStack(spacing: 8) {
                         ProgressView()
-                        Text("Searching places…")
+                        Text(source == .airports ? "Searching airports…" : "Searching places…")
                             .font(.footnote)
                             .foregroundStyle(Color.appForeground.opacity(0.7))
                         Spacer()
                     }
                     .padding(14)
+                }
+
+                if showsNoMatches {
+                    Text("No airports match \"\(trimmedText)\"")
+                        .font(.footnote)
+                        .foregroundStyle(Color.appForeground.opacity(0.7))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
                 }
 
                 ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
@@ -154,6 +178,13 @@ struct PlaceSearchField: View {
 
     private var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    /// Our airport list is limited, so an airport search that finds nothing says so,
+    /// rather than leaving the field looking unresponsive.
+    private var showsNoMatches: Bool {
+        source == .airports && isFocused && !isSearching && suggestions.isEmpty
+            && searchedQuery == trimmedText
+    }
+
     private var showsTypedEntryRow: Bool {
         typedEntry != nil && offeringTypedEntry && !trimmedText.isEmpty
     }
@@ -190,6 +221,13 @@ struct PlaceSearchField: View {
         suggestions = []
         isSearching = false
         isFocused = false
+    }
+
+    private func clearSuggestions() {
+        searchTask?.cancel()
+        suggestions = []
+        searchedQuery = nil
+        isSearching = false
     }
 
     /// Small confirmation row reflecting the result of saving the picked place.
@@ -239,11 +277,12 @@ struct PlaceSearchField: View {
         offeringTypedEntry = true
         errorText = nil
 
+        // Earlier suggestions stay up until the new search answers.
         searchTask?.cancel()
+        searchedQuery = nil
         let query = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.count >= 2 else {
-            suggestions = []
-            isSearching = false
+            clearSuggestions()
             return
         }
 
@@ -253,20 +292,34 @@ struct PlaceSearchField: View {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             do {
-                let results = try await places.autocomplete(query)
+                let results = try await search(query)
                 guard !Task.isCancelled else { return }
                 suggestions = results
+                searchedQuery = query
             } catch {
                 guard !Task.isCancelled else { return }
                 suggestions = []
+                // Said rather than swallowed, so a failing search (say, no Google key
+                // in Secrets.json) doesn't look like one that found nothing.
+                errorText = error.localizedDescription
             }
             isSearching = false
         }
     }
 
-    /// Fills the text from a chosen suggestion, dismisses the list, and resolves the
-    /// place into our own database.
-    private func select(_ suggestion: PlaceSuggestion) {
+    /// Runs the query against the field's source.
+    private func search(_ query: String) async throws -> [Suggestion] {
+        switch source {
+        case .google:
+            return try await places.autocomplete(query).map(Suggestion.init)
+        case .airports:
+            return try await api.send(PlacesAPI.searchAirports(query), as: [Place].self).map(Suggestion.init)
+        }
+    }
+
+    /// Fills the text from a chosen suggestion, dismisses the list, and resolves its
+    /// internal place.
+    private func select(_ suggestion: Suggestion) {
         searchTask?.cancel()
         isFillingFromSuggestion = true
         text = suggestion.mainText
@@ -279,32 +332,76 @@ struct PlaceSearchField: View {
         resolve(suggestion)
     }
 
-    /// Sends the selected Google place to `POST /places` so the backend registers it in
-    /// our places DB, and keeps the returned internal place.
-    private func resolve(_ suggestion: PlaceSuggestion) {
+    /// Keeps the internal place behind the chosen suggestion: one from our own DB as is,
+    /// or a Google one once it's registered.
+    private func resolve(_ suggestion: Suggestion) {
         resolvedPlace = nil
         resolvedTimeZone?.wrappedValue = nil
         errorText = nil
+
+        switch suggestion.origin {
+        case .place(let place):
+            // Already in our DB, so there's nothing to register.
+            resolvedPlace = place
+            resolvedTimeZone?.wrappedValue = place.timeZone
+        case .google(let prediction):
+            register(prediction, pickedAs: suggestion)
+        }
+    }
+
+    /// Sends a picked Google place to `POST /places` so the backend registers it in our
+    /// places DB, and keeps the returned internal place.
+    private func register(_ googlePlace: PlaceSuggestion, pickedAs suggestion: Suggestion) {
         isResolving = true
         Task {
             defer { isResolving = false }
             do {
-                let place = try await api.send(PlacesAPI.create(googlePlaceId: suggestion.placeId), as: Place.self)
+                let place = try await api.send(PlacesAPI.create(googlePlaceId: googlePlace.placeId), as: Place.self)
                 // Ignore if the user changed the selection while this was in flight.
-                guard selected?.placeId == suggestion.placeId else { return }
+                guard selected?.id == suggestion.id else { return }
                 resolvedPlace = place
 
                 // Pull the zone straight from Google (reliable immediately), falling
                 // back to the backend place's zone if Google doesn't report one.
                 if resolvedTimeZone != nil {
-                    let googleZone = try? await places.placeTimeZone(placeId: suggestion.placeId)
-                    guard selected?.placeId == suggestion.placeId else { return }
+                    let googleZone = try? await places.placeTimeZone(placeId: googlePlace.placeId)
+                    guard selected?.id == suggestion.id else { return }
                     resolvedTimeZone?.wrappedValue = googleZone ?? place.timeZone
                 }
             } catch {
-                guard selected?.placeId == suggestion.placeId else { return }
+                guard selected?.id == suggestion.id else { return }
                 errorText = error.localizedDescription
             }
+        }
+    }
+
+    /// One row in the suggestions: a Google prediction, or a place from our own DB.
+    private struct Suggestion: Identifiable {
+        enum Origin {
+            case google(PlaceSuggestion)
+            case place(Place)
+        }
+
+        let id: String
+        let mainText: String
+        let secondaryText: String?
+        let origin: Origin
+
+        init(_ google: PlaceSuggestion) {
+            id = "google:\(google.placeId)"
+            mainText = google.mainText
+            secondaryText = google.secondaryText
+            origin = .google(google)
+        }
+
+        /// An airport reads as its name over its code and where it is, e.g.
+        /// "Los Angeles International Airport" over "LAX · Los Angeles, United States".
+        init(_ place: Place) {
+            id = "place:\(place.id)"
+            mainText = place.name ?? place.code ?? "Unnamed place"
+            let detail = [place.code, place.address].compactMap { $0 }.filter { !$0.isEmpty }
+            secondaryText = detail.isEmpty ? nil : detail.joined(separator: " · ")
+            origin = .place(place)
         }
     }
 }
