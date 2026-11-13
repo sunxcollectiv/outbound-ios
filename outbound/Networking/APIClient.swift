@@ -6,13 +6,26 @@
 import Foundation
 
 enum APIConfig {
-    /// Debug builds (run from Xcode) talk to the local dev server; release builds use production.
-    /// The Simulator shares the Mac's network, so `localhost` reaches a server running on this Mac.
-    #if DEBUG
-    static let baseURL = URL(string: "http://localhost:4830")!
-    #else
-    static let baseURL = URL(string: "https://api.outbound.earth")!
-    #endif
+    /// The production server.
+    static let remote = URL(string: "https://api.wravel.app")!
+    /// A dev server running on this Mac. The Simulator shares the Mac's network, so
+    /// `localhost` reaches it; a real device can't, which is why only the Simulator may use it.
+    static let local = URL(string: "http://localhost:4830")!
+
+    /// Where requests go, decided once at launch (relaunch the app after switching).
+    ///
+    /// Real devices and release builds always use `remote`. A debug build on the Simulator
+    /// uses `local` unless the `APIServer` default is `remote`, set either way:
+    /// - Xcode: Edit Scheme > Run > Arguments, tick the `-APIServer remote` argument.
+    /// - Command line, persisted across rebuilds until the app is deleted:
+    ///   `xcrun simctl spawn booted defaults write earth.outbound APIServer remote`
+    ///   (`delete earth.outbound APIServer` to go back to local).
+    static let baseURL: URL = {
+        #if DEBUG && targetEnvironment(simulator)
+        if UserDefaults.standard.string(forKey: "APIServer") != "remote" { return local }
+        #endif
+        return remote
+    }()
 }
 
 enum HTTPMethod: String {

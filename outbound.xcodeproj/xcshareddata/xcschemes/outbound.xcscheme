@@ -75,6 +75,12 @@
             ReferencedContainer = "container:outbound.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "-APIServer remote"
+            isEnabled = "NO">
+         </CommandLineArgument>
+      </CommandLineArguments>
       <StoreKitConfigurationFileReference
          identifier = "../../Outbound.storekit">
       </StoreKitConfigurationFileReference>
